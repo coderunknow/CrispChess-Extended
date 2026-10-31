@@ -32,6 +32,32 @@
   after an engine's binary changes. Quick preset, at most 24 games and ten
   minutes, and every decision — including a refusal — carries a reason.
 
+### Fixed while consolidating
+
+- **Every cap is a cap.** The game cap counts warm-up games (two games are
+  always kept for evidence), and the wall-clock cap now stops a game in
+  progress instead of waiting for it to end: the engines are stopped mid-search,
+  the game is recorded as aborted and kept out of the rating.
+- **Repetitions are real repetitions.** The configured count used to be stored
+  and ignored; the schedule is now replayed once per repetition with its own
+  seed, and the totals, the estimate and the cap all count them.
+- **The colour-swapped games of a pairing share one opening**, so an opening
+  that favours White cannot be read as an engine that favours White.
+- **A corrupt history recovers instead of disappearing.** The store reads the
+  recovery copy, archives the bad bytes and puts the good document back —
+  without overwriting the recovery copy it just recovered from. A document
+  written by a newer version is refused and left alone rather than downgraded.
+- **A timed match no longer sends a depth.** One search budget per game: a
+  match configured for 100 ms/move measures 100 ms/move, not `go depth 8`.
+- **A failed handshake is a result, not an exception**: the game is a forfeit
+  with `handshakeFailure` as the reason, the run says why it stopped, and
+  cancelling during one handshake no longer starts the next engine.
+- **Exported CSV is spreadsheet-safe**: a cell that starts with `=`, `+`, `-`,
+  `@`, a tab or a carriage return is prefixed so that opening the file cannot
+  execute it, and every field is still readable.
+- **A profile's own `Skill Level` survives the strength slider**, and Lynx is in
+  the engine list the Lab and the match screen share.
+
 ### Engines
 
 - Engine results, standings and ratings are keyed by a stable engine id, not by
