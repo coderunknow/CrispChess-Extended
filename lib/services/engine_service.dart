@@ -112,13 +112,41 @@ class EngineService {
 
   EngineService(this._engine, {this.rebuildEngine});
 
+  /// Set by [dispose]. A start or switch that was already queued checks it
+  /// instead of touching a closed event stream.
+  bool _disposed = false;
+
+  /// Starts and switches run one at a time, in the order they were asked for.
+  Future<void> _queue = Future<void>.value();
+
+  /// Runs an action after everything queued before it.
+  ///
+  /// Two switches issued in quick succession used to interleave: the second
+  /// one stopped and disposed the engine the first was still initialising, so
+  /// whether the app ended up on the engine the user picked last came down to
+  /// which handshake finished first. Note that the restarted-start case matters
+  /// too — a switch that failed and is being rolled back must finish before the
+  /// next selection is applied, or the rollback wins.
+  Future<T> _serialised<T>(Future<T> Function() action) {
+    final result = _queue.then((_) => action());
+    // The queue has to survive a failed action, otherwise one thrown handshake
+    // blocks every later switch. The caller still sees the error on `result`.
+    _queue = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
+
   /// Initialize the engine and start listening for state changes.
   ///
   /// Returns whether the engine actually started. The failure is still reported
   /// as an [EngineErrorEvent] so the UI can show it, but the result lets a
   /// caller that has just switched engines say the new one did not come up
   /// instead of assuming it did.
-  Future<bool> initialize() async {
+  Future<bool> initialize() => _serialised(_initializeNow);
+
+  Future<bool> _initializeNow() async {
+    // The screen can be popped while a handshake is in flight; a queued start
+    // would otherwise add events to a closed stream.
+    if (_disposed) return false;
     _stateListener = () {
       _eventController.add(StateChangeEvent(_engine.state));
     };
@@ -126,9 +154,12 @@ class EngineService {
 
     try {
       await _engine.initialize();
-      return true;
+      return !_disposed;
     } catch (e) {
-      _eventController.add(EngineErrorEvent('Init failed: $e', kind: EngineFailure.startup));
+      if (!_disposed) {
+        _eventController.add(
+            EngineErrorEvent('Init failed: $e', kind: EngineFailure.startup));
+      }
       return false;
     }
   }
@@ -140,7 +171,16 @@ class EngineService {
   Future<bool> switchEngine(
     ChessEngine newEngine, {
     ChessEngine Function()? rebuilder,
+  }) =>
+      _serialised(() => _switchNow(newEngine, rebuilder: rebuilder));
+
+  /// The body of [switchEngine], already inside the queue — so it starts the
+  /// new engine with [_initializeNow] rather than re-entering the queue.
+  Future<bool> _switchNow(
+    ChessEngine newEngine, {
+    ChessEngine Function()? rebuilder,
   }) async {
+    if (_disposed) return false;
     await _analysisSubscription?.cancel();
     _analysisSubscription = null;
     if (_stateListener != null) {
@@ -164,7 +204,7 @@ class EngineService {
     _engine = newEngine;
     rebuildEngine = rebuilder;
     _eventController.add(StateChangeEvent(EngineState.initializing));
-    return initialize();
+    return _initializeNow();
   }
 
   /// Request the best move for a position.
@@ -307,6 +347,7 @@ class EngineService {
 
   /// Dispose all resources.
   void dispose() {
+    _disposed = true;
     _analysisSubscription?.cancel();
     if (_stateListener != null) {
       _engine.stateNotifier.removeListener(_stateListener!);

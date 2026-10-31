@@ -129,6 +129,27 @@ class _StartingEngine implements ChessEngine {
   bool get canPonder => false;
 }
 
+/// A fake whose handshake stays open until the test releases it.
+class _GatedEngine extends _StartingEngine {
+  final gate = Completer<void>();
+  bool disposedWhileStarting = false;
+
+  @override
+  Future<void> initialize() async {
+    await gate.future;
+    _notifier.value = EngineState.ready;
+  }
+
+  @override
+  void dispose() {
+    disposedWhileStarting = state == EngineState.idle;
+    super.dispose();
+  }
+
+  @override
+  String get name => 'Gated';
+}
+
 class _BrokenEngine extends _StartingEngine {
   @override
   Future<void> initialize() async {
@@ -172,6 +193,50 @@ void _engineSwitchingTests() {
 
       await sub.cancel();
       service.dispose();
+    });
+
+    test('a second switch waits instead of disposing a starting engine',
+        () async {
+      final service = EngineService(_StartingEngine());
+      await service.initialize();
+
+      final slow = _GatedEngine();
+      final first = service.switchEngine(slow);
+      final second = service.switchEngine(_StartingEngine());
+
+      // Let both calls reach their first suspension point.
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.engine, same(slow),
+          reason: 'the queued switch must not have taken over yet');
+      expect(slow.disposedWhileStarting, isFalse,
+          reason: 'a second switch used to dispose the engine it was starting');
+
+      slow.gate.complete();
+      expect(await first, isTrue);
+      expect(await second, isTrue);
+      expect(slow.state, EngineState.disposed,
+          reason: 'the engine it replaced is disposed once the queue reaches it');
+
+      service.dispose();
+    });
+
+    test('a switch queued behind dispose reports failure, not an exception',
+        () async {
+      final service = EngineService(_StartingEngine());
+      await service.initialize();
+
+      final slow = _GatedEngine();
+      final first = service.switchEngine(slow);
+      final second = service.switchEngine(_StartingEngine());
+
+      service.dispose();
+      slow.gate.complete();
+
+      expect(await first, isFalse,
+          reason: 'the screen went away while the handshake was in flight');
+      expect(await second, isFalse,
+          reason: 'and the queued switch must not add to a closed stream');
     });
 
     test('a recovered switch reports success again', () async {
