@@ -165,7 +165,10 @@ class EngineService {
 
     try {
       await _engine.initialize();
-      return !_disposed;
+      // Not throwing is not the same as working: an initializer can catch its
+      // own failure and settle in `error` instead of rethrowing, and reporting
+      // that as a successful switch is how a dead engine looked ready.
+      return !_disposed && _engine.state != EngineState.error;
     } catch (e) {
       if (!_disposed) {
         _eventController.add(
