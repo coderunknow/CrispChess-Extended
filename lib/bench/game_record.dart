@@ -419,7 +419,7 @@ class EngineAggregate {
       : moveMillis.fold(0, (a, b) => a + b) / moveMillis.length;
 
   /// Adds a game to the aggregate.
-  void addGame(BenchGame game) {
+  void addGame(BenchGame game, {bool countAdjudicatedAsDraws = false}) {
     final isWhite = game.whiteId == engineId;
     if (!isWhite && game.blackId != engineId) return;
     if (isWhite) {
@@ -457,6 +457,7 @@ class EngineAggregate {
       case GameOutcome.adjudicated:
         gamesPlayed++;
         adjudicated++;
+        if (countAdjudicatedAsDraws) draws++;
       case GameOutcome.aborted:
         aborted++;
       case GameOutcome.cancelled:

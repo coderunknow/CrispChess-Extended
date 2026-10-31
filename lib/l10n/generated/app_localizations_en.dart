@@ -1689,6 +1689,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabRunning => 'Running…';
 
   @override
+  String get engineLabNodeLimit => 'Node limit (0 = disabled)';
+
+  @override
   String get engineLabSearchDepth => 'Search depth';
 
   @override

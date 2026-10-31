@@ -183,11 +183,14 @@ class RatingBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasRange = maxRating > minRating;
+    final hasRange = minRating.isFinite && maxRating.isFinite && maxRating > minRating;
     final low = hasRange ? minRating : rating - 200;
     final high = hasRange ? maxRating : rating + 200;
     double position(double value) {
       final span = (high - low).abs() < 1 ? 1.0 : (high - low);
+      if (value == double.negativeInfinity) return 0;
+      if (value == double.infinity) return 1;
+      if (!value.isFinite) return 0.5;
       return ((value - low) / span).clamp(0.0, 1.0).toDouble();
     }
 
@@ -247,7 +250,7 @@ class RatingBar extends StatelessWidget {
                     ),
                   ),
                   Positioned(
-                    left: (center - 3).clamp(0.0, width - 6).toDouble(),
+                    left: (center - 3).clamp(0.0, width > 6 ? width - 6 : 0.0).toDouble(),
                     top: 0,
                     child: Container(
                       width: 6,
@@ -427,4 +430,58 @@ class ProgressionBar extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Keeps the user's in-progress text while configuration callbacks clamp values.
+/// External model changes synchronize only while the field is not being edited.
+class LabNumberField extends StatefulWidget {
+  final String label;
+  final int value;
+  final bool enabled;
+  final String? helper;
+  final ValueChanged<int?> onChanged;
+  const LabNumberField({super.key, required this.label, required this.value,
+    required this.enabled, this.helper, required this.onChanged});
+
+  @override
+  State<LabNumberField> createState() => _LabNumberFieldState();
+}
+
+class _LabNumberFieldState extends State<LabNumberField> {
+  late final TextEditingController _controller =
+      TextEditingController(text: '${widget.value}');
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_sync);
+  }
+
+  void _sync() {
+    if (!_focus.hasFocus) _controller.text = '${widget.value}';
+  }
+
+  @override
+  void didUpdateWidget(covariant LabNumberField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) _sync();
+  }
+
+  @override
+  void dispose() {
+    _focus.removeListener(_sync);
+    _focus.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+    controller: _controller, focusNode: _focus, enabled: widget.enabled,
+    keyboardType: TextInputType.number,
+    decoration: InputDecoration(labelText: widget.label,
+      helperText: widget.helper, helperMaxLines: 2, isDense: true),
+    onChanged: (text) => widget.onChanged(int.tryParse(text.trim())),
+  );
 }

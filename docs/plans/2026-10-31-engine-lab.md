@@ -1,6 +1,6 @@
 # Plan — v2.3.2-dev2: Engine Benchmarking and Performance Lab
 
-Status: implemented in this branch (see `docs/audit/2026-10-31-engine-lab-audit.md`
+Status: implemented in this branch (see `docs/audit/2026-10-31-pr5-consolidation.md`
 for what was verified and what was not).
 
 ## Starting point (verified)

@@ -17,6 +17,7 @@ import 'package:crispchess/bench/benchmark_plan.dart';
 import 'package:crispchess/bench/benchmark_runner.dart';
 import 'package:crispchess/bench/game_record.dart';
 import 'package:crispchess/engines/chess_engine.dart';
+import 'package:crispchess/services/engine_match_service.dart' as matches;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/bench_harness.dart';
@@ -58,7 +59,87 @@ BenchmarkRunner _runner(
 }
 
 void main() {
+  test('tournament cancellation reaches its active sub-match', () async {
+    final alpha = ScriptedEngine('Alpha');
+    final beta = ScriptedEngine('Beta');
+    final started = Completer<void>();
+    final stopped = Completer<void>();
+    alpha.stopGate = stopped;
+    alpha.ask = (_, __) async {
+      if (!started.isCompleted) started.complete();
+      await stopped.future;
+      throw StateError('stopped');
+    };
+    final tournament = matches.TournamentService(engines: [alpha, beta]);
+    addTearDown(tournament.dispose);
+    final pending = tournament.run();
+    await started.future;
+    tournament.stop();
+    final results = await pending.timeout(const Duration(seconds: 2));
+    expect(results, isEmpty);
+    expect(beta.askedPositions, isEmpty);
+  });
+
+  test('node budgets fail explicitly for engines without node capability', () async {
+    final alpha = ScriptedEngine('Alpha');
+    final beta = ScriptedEngine('Beta');
+    final runner = _runner(_config().copyWith(nodeLimit: () => 1000),
+        white: alpha, black: beta);
+    addTearDown(runner.dispose);
+    final run = await runner.run();
+    expect(run.stopReason, 'engine failure');
+    expect(alpha.askedPositions, isEmpty);
+    expect(beta.askedPositions, isEmpty);
+    expect(run.ratings.ratedGames, 0);
+  });
+
+  test('node and depth budgets cannot silently contradict each other', () async {
+    final config = _config().copyWith(nodeLimit: () => 1000, searchDepth: () => 3);
+    expect(validateConfig(config, engineCount: 2).isValid, isFalse);
+    final runner = _runner(config,
+        white: ScriptedEngine('Alpha'), black: ScriptedEngine('Beta'));
+    addTearDown(runner.dispose);
+    await expectLater(runner.run(), throwsArgumentError);
+  });
+
+  test('deadline returns even when search ignores stop', () async {
+    final alpha = ScriptedEngine('Alpha');
+    final beta = ScriptedEngine('Beta');
+    alpha.ask = (_, __) => Completer<String>().future;
+    final runner = _runner(_config(maxDuration: const Duration(milliseconds: 40)),
+        white: alpha, black: beta);
+    addTearDown(runner.dispose);
+    final run = await runner.run().timeout(const Duration(seconds: 2));
+    expect(run.stopReason, 'time cap');
+    expect(run.games.single.outcome, GameOutcome.aborted);
+  });
+
+  test('deadline releases a paused benchmark', () async {
+    final runner = _runner(_config(maxDuration: const Duration(milliseconds: 40)),
+        white: ScriptedEngine('Alpha'), black: ScriptedEngine('Beta'));
+    addTearDown(runner.dispose);
+    runner.pause();
+    final run = await runner.run().timeout(const Duration(seconds: 2));
+    expect(run.stopReason, 'time cap');
+  });
+
   group('a normal run', () {
+    test('deadline-induced search errors are aborted, not forfeits', () async {
+      final alpha = ScriptedEngine('Alpha');
+      final beta = ScriptedEngine('Beta');
+      alpha.ask = (_, __) async {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        throw StateError('search stopped');
+      };
+      final runner = _runner(_config(maxDuration: const Duration(milliseconds: 40)),
+          white: alpha, black: beta);
+      addTearDown(runner.dispose);
+      final run = await runner.run();
+      expect(run.stopReason, 'time cap');
+      expect(run.games.single.outcome, GameOutcome.aborted);
+      expect(run.ratings.ratedGames, 0);
+    });
+
     test('plays the schedule, fits ratings and releases both engines',
         () async {
       final alpha = ScriptedEngine('Alpha');
@@ -77,6 +158,8 @@ void main() {
           isTrue);
       expect(alpha.disposed, isTrue);
       expect(beta.disposed, isTrue);
+      expect(alpha.disposeCalls, 1);
+      expect(beta.disposeCalls, 1);
     });
 
     test('each colour wins one game, so the fit is centred', () async {

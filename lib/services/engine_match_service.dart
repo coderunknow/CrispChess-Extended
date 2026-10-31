@@ -459,6 +459,7 @@ class TournamentService {
   final String? referenceEngineId;
   final _eventController = StreamController<MatchEvent>.broadcast();
   bool _stopped = false;
+  EngineMatchService? _activeMatch;
   final List<GameResult> results = [];
 
   Stream<MatchEvent> get events => _eventController.stream;
@@ -558,12 +559,17 @@ class TournamentService {
         // A sub-match's own MatchFinished is not forwarded: the tournament
         // emits one at the end, and passing every pair's through would tell
         // the screen the tournament was over after the first pairing.
+        _activeMatch = match;
         final sub = match.events
             .where((event) => event is! MatchFinished)
             .listen(_eventController.add);
-        results.addAll(await match.run());
-        await sub.cancel();
-        match.dispose();
+        try {
+          results.addAll(await match.run());
+        } finally {
+          _activeMatch = null;
+          await sub.cancel();
+          match.dispose();
+        }
       }
       if (_stopped) break;
     }
@@ -574,6 +580,7 @@ class TournamentService {
 
   void stop() {
     _stopped = true;
+    _activeMatch?.stop();
     for (final e in engines) {
       e.stop();
     }

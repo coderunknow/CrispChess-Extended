@@ -273,11 +273,18 @@ CalibrationOutcome calibrateElo({
   }
 
 
+  if (fit.components.length != 1) {
+    return CalibrationOutcome.unavailable('Disconnected rating pools cannot share an anchor.');
+  }
+  if (!config.isTimeBased) {
+    return CalibrationOutcome.unavailable('A time-control anchor cannot calibrate a depth or node budget.');
+  }
   final warnings = <String>[];
   final anchorBudget = anchor.timePerMoveMs;
   if (anchorBudget == null) {
-    warnings.add('The anchor does not state a move budget; the calibrated '
-        'values are indicative only.');
+    return CalibrationOutcome.unavailable('The anchor must state a positive move budget.');
+  } else if (anchorBudget <= 0 || anchor.tolerancePercent < 0 || anchor.tolerancePercent > 100) {
+    return CalibrationOutcome.unavailable('Invalid anchor budget or tolerance.');
   } else if (config.isTimeBased) {
     final runBudget = config.timePerMove.inMilliseconds;
     final deviationPercent =
@@ -295,6 +302,12 @@ CalibrationOutcome calibrateElo({
     warnings.add('This run used a fixed depth (${config.searchDepth}), whose '
         'cost in time differs between engines; the calibrated scale is '
         'approximate.');
+  }
+  final anchorIdentities = identities.where((identity) =>
+      identity.engineId == anchorRating.engineId).toList();
+  if (anchor.engineVersion.trim().isEmpty || anchorIdentities.length != 1 ||
+      anchorIdentities.single.engineVersion != anchor.engineVersion.trim()) {
+    return CalibrationOutcome.unavailable('The anchor version must match the measured engine version.');
   }
   // Refuse a mixed-platform run only once the anchor is known to be here and
   // comparable: "the anchor did not take part" is the actionable answer when
@@ -330,22 +343,11 @@ CalibrationOutcome calibrateElo({
 
 EloRating? _findAnchorRating(EloFit fit, RatingAnchor anchor) {
   final hint = anchor.engineIdHint;
-  if (hint != null && hint.isNotEmpty) {
-    final exact = fit.ratingFor(hint);
-    if (exact != null) return exact;
-  }
+  if (hint != null && hint.isNotEmpty) return fit.ratingFor(hint);
   final wanted = anchor.engineName.trim().toLowerCase();
-  for (final rating in fit.ratings) {
-    if (rating.label.trim().toLowerCase() == wanted) return rating;
-  }
-  for (final rating in fit.ratings) {
-    // A label of the form "Stockfish 17" should satisfy an anchor for
-    // "Stockfish", so a prefix match is allowed — but only as a fallback, since
-    // two engines can share a prefix.
-    final label = rating.label.trim().toLowerCase();
-    if (label.startsWith(wanted) || wanted.startsWith(label)) return rating;
-  }
-  return null;
+  final matches = fit.ratings.where((rating) =>
+      rating.label.trim().toLowerCase() == wanted).toList();
+  return matches.length == 1 ? matches.single : null;
 }
 
 /// Documentation shown next to the calibration form: what makes an anchor

@@ -163,13 +163,11 @@ def add(entries: list[tuple[str, str, str]], check_only: bool = False) -> int:
     added_en: list[tuple[str, str]] = []
     added_de: list[tuple[str, str]] = []
     for name, english, german in entries:
-        if name in en:
-            continue
         if not check_only:
-            en[name] = english
-            de[name] = german
-        added_en.append((name, english))
-        added_de.append((name, german))
+            en.setdefault(name, english)
+            de.setdefault(name, german)
+        added_en.append((name, en.get(name, english)))
+        added_de.append((name, de.get(name, german)))
 
     missing_en = [n for n, _ in added_en if not _has_getter(GEN_EN, n)]
     missing_de = [n for n, _ in added_de if not _has_getter(GEN_DE, n)]
@@ -198,6 +196,12 @@ def add(entries: list[tuple[str, str, str]], check_only: bool = False) -> int:
         print(f"all {len(entries)} key(s) present")
         return 0
 
+    for path, header in (
+        (GEN_ABSTRACT, r"abstract class AppLocalizations \{"),
+        (GEN_EN, r"class AppLocalizationsEn extends AppLocalizations \{"),
+        (GEN_DE, r"class AppLocalizationsDe extends AppLocalizations \{"),
+    ):
+        _class_span(path.read_text(encoding="utf-8"), header)
     _write_arb(ARB_EN, en)
     _write_arb(ARB_DE, de)
 

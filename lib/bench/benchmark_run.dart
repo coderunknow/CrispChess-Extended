@@ -99,7 +99,9 @@ class BenchmarkRun {
 
   /// Games that produced a rating-eligible result.
   List<BenchGame> get ratedGames =>
-      [for (final game in games) if (!game.warmUp && game.outcome.isRatingEligible) game];
+      [for (final game in games) if (!game.warmUp && game.whiteId != game.blackId &&
+          (game.outcome.isRatingEligible || (game.outcome == GameOutcome.adjudicated &&
+              config.countAdjudicatedAsDraws))) game];
 
   int get gamesCompleted => ratedGames.length;
 
@@ -136,9 +138,11 @@ class BenchmarkRun {
             EngineAggregate(engineId: engine.engineId, label: engine.label),
     };
     for (final game in games) {
-      if (game.warmUp) continue;
-      result[game.whiteId]?.addGame(game);
-      result[game.blackId]?.addGame(game);
+      if (game.warmUp || game.whiteId == game.blackId) continue;
+      result[game.whiteId]?.addGame(game,
+          countAdjudicatedAsDraws: config.countAdjudicatedAsDraws);
+      result[game.blackId]?.addGame(game,
+          countAdjudicatedAsDraws: config.countAdjudicatedAsDraws);
     }
     return result;
   }
@@ -715,7 +719,10 @@ EloFit fitRunRatings({
   final excluded = <String, int>{};
   for (final game in games) {
     if (game.warmUp) continue;
-    final whiteScore = game.outcome.whiteScore;
+    final whiteScore = game.outcome == GameOutcome.adjudicated &&
+            config.countAdjudicatedAsDraws
+        ? 0.5
+        : game.outcome.whiteScore;
     final eligible = game.outcome.isRatingEligible ||
         (game.outcome == GameOutcome.adjudicated &&
             config.countAdjudicatedAsDraws);

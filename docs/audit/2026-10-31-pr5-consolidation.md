@@ -208,3 +208,83 @@ asserted the rated-only count; it now asserts the distinction explicitly.
   `ee781f77`, `a197424` and four follow-ups) and on PR #3 only at `216ca6e`,
   which is not that PR's head. No automatic-review mechanism was assumed to work
   for a new branch; none was triggered against this SHA.
+
+## 8. Final-audit follow-up — merge BLOCKED (2026-10-31)
+
+This section supersedes the historical readiness/reviewer statements above; it
+is not a claim that the requested complete 81-file independent audit finished.
+
+### Refreshed preflight
+
+PR #5 is OPEN, non-draft, base `main`, head `consolidation/engine-lab-pr5`
+@ `62b418fb4e62fd701ffc2b058b3ef7a1dee4e953`. The clean checkout initially
+matched that SHA, on `arena/d77cd611-scrispchess-extended`. Origin is
+`https://github.com/coderunknow/ScrispChess-Extended.git`; fetch succeeded.
+No AGENTS.md, DESIGN_LOG.md or AGENTS_LOG.md was found. The session is restricted
+to committing/pushing its Arena branch: it must not update the distinct PR head
+branch or switch branches. Consequently the corrections below are NOT in PR #5.
+No source PR, shared history, main, tag or release has been changed.
+
+### Codex findings independently traced
+
+Codex review 5722898277 did complete on `62b418f` (contrary to the earlier
+report). All four P2 findings are genuine, not invalid or already fixed.
+
+| Thread (`discussion_r…`) | Finding | Follow-up status |
+|---|---|---|
+| 4431855123 | Node budget never reaches `bestMove`/`go` | OPEN. `ChessEngine.bestMove` and `uciGoCommand` have no node parameter; requires capability-aware implementation and actual-command regression coverage, not just serialization. |
+| 4431855127 | Enabled adjudication still has null score | Candidate fix on session branch: use 0.5 only when enabled; regression covers enabled/disabled fits. Flutter verification pending. |
+| 4431855130 | Custom saved overrides missing from identity | Candidate fix on session branch: the identity factory incorporates profile overrides, explicit run options take precedence, runner retains existing configuration. Regression covers change detection, rating key, precedence and JSON round trip. Flutter verification pending. |
+| 4431855132 | Options recorded before readiness acknowledgement | OPEN. Runner calls synchronous `applyOption` without `isready`; Generic initialization also tolerates readiness timeout, so merely reusing its current timeout behavior would not establish a strict barrier. Needs protocol-level delayed-ready and failure tests. |
+
+Threads: https://github.com/coderunknow/ScrispChess-Extended/pull/5#discussion_r4431855123
+(and the corresponding numeric ids above). None is resolved: candidate changes
+outside the PR and unexecuted Dart tests do not justify resolution. Added tests
+are in `test/bench_rating_test.dart` and `test/bench_identity_test.dart`.
+Incremental counts: 4 genuine P2 findings, 2 candidate fixes awaiting verification,
+2 not implemented, 0 invalid/already fixed. These are additional to §4's historical
+36 findings, not a replacement or a claim of zero open defects.
+
+### Review evidence
+
+Official manual command verified at
+https://docs.coderabbit.ai/reference/review-commands (full review reviews every
+file from scratch). Posted exactly `@coderabbitai full review` as comment
+6544061141 at 2026-10-31T13:35:39Z, requesting the unchanged PR head `62b418f`:
+https://github.com/coderunknow/ScrispChess-Extended/pull/5#issuecomment-6544061141
+CodeRabbit acknowledgement 6544062225 says "Full review triggered". The check
+subsequently reports **in_progress**, not completed. No completed full-review
+result, reviewed final-fix SHA or severity counts can yet be claimed.
+The earlier automatic run was **skipped** for fewer than 10 stars, run id
+`1ff0a699-4050-41fa-aad8-35eb12b26b79`, not approved.
+Repository installation endpoint returned HTTP 404; installation settings and
+webhook/seat access could not be verified. The manual acknowledgement and running
+check demonstrate command processing, not completion or installation-admin access.
+Copilot is quota-blocked, Qodo billing-blocked, Kilo out of credits (its check is
+`action_required`); none is an approval.
+
+### Verification and release boundary
+
+Local checks after the candidate fixes: 273 Dart files parse; 168 localization
+keys present; Python tooling 19 tests pass; independent Python rating reference
+25 checks pass (60 trials); 14 workflow YAML files parse and bash/sh run blocks
+pass `bash -n` after placeholder substitution for Actions expressions;
+`git diff --check` passes. Parsing is NOT Dart analysis. Flutter/Dart SDK absent:
+new Dart regressions, full Flutter test/analyze and application builds remain
+unverified on the candidate changes. Existing successful CI jobs at `62b418f`
+include Analyze & Test, Lab diagnostics, Engine Lab, latency, oracle, secret scan,
+Android/iOS/Linux/macOS/Web application builds and six Frozenight engine builds;
+that evidence does not validate these later changes. Windows application build,
+real-device behavior and Store uploads remain unverified.
+
+`.github/workflows/release.yml` and `ios-release.yml` prescribe `v*` tag/manual
+triggers; `macos-appstore.yml` is manually dispatched. No arbitrary version/tag
+is warranted by this audit. `deploy-web.yml` automatically deploys relevant main
+pushes, so merging would have a deployment consequence that also needs respecting
+given the task's no-deployment boundary. No release/deployment was invoked here.
+
+**Decision: BLOCKED; do not merge.** PR still contains all four P2 defects;
+candidate fixes have not reached its head; full audit, final-head Flutter/CI,
+CodeRabbit completion, protection/approval checks and final merge gates have not
+been completed. The implementation commit is recorded in the follow-up GitHub
+comment rather than embedded self-referentially here.

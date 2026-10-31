@@ -52,6 +52,24 @@ void main() {
   });
 
   group('fitting a run', () {
+    test('adjudications are draws only when explicitly enabled', () {
+      final games = [_game(1, outcome: GameOutcome.adjudicated)];
+      for (final enabled in [false, true]) {
+        final fit = fitRunRatings(
+          games: games,
+          labels: const {'a': 'A', 'b': 'B'},
+          config: BenchmarkConfig.quick.copyWith(
+            countAdjudicatedAsDraws: enabled,
+          ),
+        );
+        expect(fit.ratedGames, enabled ? 1 : 0);
+        if (enabled) {
+          expect(fit.ratingFor('a')!.rating,
+              closeTo(fit.ratingFor('b')!.rating, 0.001));
+        }
+      }
+    });
+
     test('a 75% score recovers the closed-form gap', () {
       final games = [
         for (var i = 0; i < 75; i++)
@@ -216,6 +234,21 @@ void main() {
       expect(delta.isReliable, isFalse);
       expect(delta.verdict, contains('not comparable'));
     });
+  });
+
+  test('joint two-player comparison accounts for anti-correlation', () {
+    final fit = fitElo(games: [
+      for (var i = 0; i < 60; i++) (white: 'a', black: 'b', score: 1.0),
+      for (var i = 0; i < 40; i++) (white: 'a', black: 'b', score: 0.0),
+    ]);
+    expect(fit.compare('a', 'b')!.stdErr,
+        closeTo(2 * fit.ratingFor('a')!.stdErr, 0.001));
+    final disconnected = fitElo(games: [
+      (white: 'a', black: 'b', score: 1.0),
+      (white: 'c', black: 'd', score: 0.0),
+    ]);
+    expect(disconnected.compare('a', 'c')!.stdErr.isInfinite, isTrue);
+    expect(disconnected.compare('a', 'c')!.verdict, contains('not comparable'));
   });
 
   group('calibration', () {

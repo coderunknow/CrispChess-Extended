@@ -132,11 +132,11 @@ class BenchmarkStore {
   Future<List<BenchmarkRunSummary>> summaries() async {
     await init();
     final raw = await storage.read(kBenchmarkIndexKey);
-    if (raw == null || raw.isEmpty) return const [];
+    if (raw == null || raw.isEmpty) return _rebuildIndex();
     List<BenchmarkRunSummary> summaries;
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
+      if (decoded is! List) return _rebuildIndex();
       summaries = [
         for (final entry in decoded)
           if (entry is Map)
@@ -171,7 +171,9 @@ class BenchmarkStore {
   // ------------------------------------------------------------------ saving
 
   /// Stores [run], replacing any run with the same id.
-  Future<void> saveRun(BenchmarkRun run) => _serialised(() async {
+  Future<void> saveRun(BenchmarkRun run) => _serialised(() => _saveRun(run));
+
+  Future<void> _saveRun(BenchmarkRun run) async {
         await init();
         await storage.write(
           '$kBenchmarkRunPrefix${run.id}',
@@ -186,7 +188,7 @@ class BenchmarkStore {
         ]..sort((a, b) => b.startedAt.compareTo(a.startedAt));
         await _writeIndex(merged);
         await _rememberIdentities(run.engines);
-      });
+      }
 
   /// The run document as it is stored, including schema and checksum.
   static String encodeRunDocument(BenchmarkRun run) {
@@ -435,9 +437,10 @@ class BenchmarkStore {
   Future<bool> deleteRun(String id) => _serialised(() async {
         await init();
         final raw = await storage.read('$kBenchmarkRunPrefix$id');
-        if (raw == null) return false;
-        await storage.delete('$kBenchmarkRunPrefix$id');
         final summaries = await this.summaries();
+        final listed = summaries.any((summary) => summary.id == id);
+        if (raw == null && !listed) return false;
+        await storage.delete('$kBenchmarkRunPrefix$id');
         await _writeIndex([
           for (final summary in summaries)
             if (summary.id != id) summary
@@ -482,7 +485,7 @@ class BenchmarkStore {
   ///
   /// Never overwrites: a run whose id is already stored gets a new id, and the
   /// caller is told so.
-  Future<List<ImportResult>> importJson(String text) async {
+  Future<List<ImportResult>> importJson(String text) => _serialised(() async {
     await init();
     Object? decoded;
     try {
@@ -546,26 +549,42 @@ class BenchmarkStore {
         throw const FormatException('A run in that document has no games.');
       }
 
-      final parsed = BenchmarkRun.fromJson(_migrate(payload, schemaVersion));
-      final existing = await loadRun(parsed.id);
+      final BenchmarkRun parsed;
+      try {
+        parsed = BenchmarkRun.fromJson(_migrate(payload, schemaVersion));
+      } catch (error) {
+        throw FormatException('Unreadable benchmark run: $error');
+      }
+      if (!RegExp(r'^[A-Za-z0-9_-][A-Za-z0-9._-]*$').hasMatch(parsed.id) ||
+          parsed.id.contains('..')) {
+        throw const FormatException('Invalid benchmark run id.');
+      }
+      // Existence, not successful decoding: a future-schema document belongs
+      // to the user too and must not be downgraded by an import.
+      final existing = await storage.read('$kBenchmarkRunPrefix${parsed.id}') ??
+          await storage.readBackup('$kBenchmarkRunPrefix${parsed.id}');
       var idChanged = false;
       var run = parsed;
       if (existing != null) {
         idChanged = true;
-        run = _withNewId(parsed);
+        var attempt = 0;
+        do {
+          run = _withNewId(parsed, attempt++);
+        } while (await storage.read('$kBenchmarkRunPrefix${run.id}') != null ||
+            await storage.readBackup('$kBenchmarkRunPrefix${run.id}') != null);
         warnings.add('A run with id ${parsed.id} already exists; imported as '
             '${run.id} instead of overwriting it.');
       }
-      await saveRun(run);
+      await _saveRun(run);
       results.add(ImportResult(run: run, idChanged: idChanged, warnings: warnings));
     }
     return results;
-  }
+  });
 
-  BenchmarkRun _withNewId(BenchmarkRun run) {
+  BenchmarkRun _withNewId(BenchmarkRun run, int attempt) {
     final suffix = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
     return BenchmarkRun(
-      id: '${run.id}-import-$suffix',
+      id: '${run.id}-import-$suffix-$attempt',
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
       config: run.config,

@@ -767,6 +767,7 @@
   "engineLabRated": "rated",
   "engineLabReference": "Reference",
   "engineLabRunning": "Running…",
+  "engineLabNodeLimit": "Node limit (0 = disabled)",
   "engineLabSearchDepth": "Search depth",
   "engineLabSeed": "Seed",
   "engineLabStability": "Stability",

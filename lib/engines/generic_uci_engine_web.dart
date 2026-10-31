@@ -49,4 +49,8 @@ class GenericUciEngine implements ChessEngine, UciOptionAware {
 
   @override
   void applyOption(String name, String value) {}
+
+  @override
+  Future<void> synchronizeOptions() async =>
+      throw UnsupportedError('Custom UCI engines not available on web');
 }

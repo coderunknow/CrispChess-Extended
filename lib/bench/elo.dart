@@ -333,10 +333,11 @@ class EloFit {
     final b = ratingFor(bId);
     if (a == null || b == null) return null;
     final difference = a.rating - b.rating;
-    // Independent-sample approximation. Both ratings come from one joint fit,
-    // so this overstates the uncertainty of the *difference* slightly; that is
-    // the safe direction, and the report says so.
-    final se = math.sqrt(a.stdErr * a.stdErr + b.stdErr * b.stdErr);
+    // Joint-fit ratings are correlated (anti-correlated for two players).
+    // Independence would UNDERSTATE uncertainty. Without stored covariance,
+    // use the Cauchy-Schwarz upper bound; exact for a centered two-player fit.
+    final connected = inSameComponent(aId, bId);
+    final se = connected ? a.stdErr + b.stdErr : double.infinity;
     final warnings = <String>[];
     if (!inSameComponent(aId, bId)) {
       warnings.add('These engines are not connected by games in this run; the '
@@ -352,7 +353,9 @@ class EloFit {
     final low = difference - kZ95 * se;
     final high = difference + kZ95 * se;
     final String verdict;
-    if (se <= 0) {
+    if (!connected) {
+      verdict = 'not comparable (disconnected pools)';
+    } else if (se <= 0) {
       verdict = 'identical';
     } else if (low > 0) {
       verdict = 'A is stronger (95% interval excludes zero)';

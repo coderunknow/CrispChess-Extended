@@ -164,11 +164,19 @@ class BenchmarkRunner {
       StreamController<BenchmarkEvent>.broadcast();
   final List<BenchGame> _games = [];
   final Map<String, _LiveEngine> _live = {};
+  final Set<ChessEngine> _disposedEngines = Set<ChessEngine>.identity();
   final List<String> _warnings = [];
 
   final DateTime _startedAt = DateTime.now();
   String _stopReason = 'completed';
   bool _cancelled = false;
+  bool _hasRun = false;
+  final Completer<void> _stopSignal = Completer<void>();
+
+  Future<T> _untilStopped<T>(Future<T> operation) => Future.any<T>([
+    operation,
+    _stopSignal.future.then<T>((_) => throw StateError('Benchmark stopped')),
+  ]);
 
   /// Set when the configured wall-clock limit expires. It is a separate flag
   /// from [_cancelled] because the report has to be able to say *why* a run
@@ -227,6 +235,7 @@ class BenchmarkRunner {
   /// Stops the run. The game in progress ends as cancelled and is not rated.
   void cancel() {
     _cancelled = true;
+    if (!_stopSignal.isCompleted) _stopSignal.complete();
     _deadlineTimer?.cancel();
     _deadlineTimer = null;
     resume();
@@ -241,7 +250,13 @@ class BenchmarkRunner {
 
   /// Runs the benchmark to completion or until it is stopped.
   Future<BenchmarkRun> run() async {
+    if (_hasRun) throw StateError('A benchmark runner can only run once.');
+    _hasRun = true;
     final config = plan.config;
+    if (config.nodeLimit != null &&
+        (config.nodeLimit! < 1 || config.searchDepth != null)) {
+      throw ArgumentError('A positive node budget cannot be combined with depth.');
+    }
     final recorded = plan.recordedGames.length + plan.warmUpGames;
     final clock = Stopwatch()..start();
     _armDeadline(config.maxDuration);
@@ -261,10 +276,16 @@ class BenchmarkRunner {
       _live[identity.engineId] = live;
       final init = Stopwatch()..start();
       try {
-        await live.engine.initialize();
+        await _untilStopped(live.engine.initialize());
         init.stop();
         live.initMillis = init.elapsedMilliseconds;
-        _applyConfiguration(live, config);
+        if (live.engine.state != EngineState.ready) {
+          throw StateError('initialize returned with state ${live.engine.state.name}');
+        }
+        if (config.nodeLimit != null && live.engine is! NodeLimitedEngine) {
+          throw UnsupportedError('Engine does not support node-limited search');
+        }
+        await _untilStopped(_applyConfiguration(live, config));
         _refineIdentity(live);
       } catch (error) {
         init.stop();
@@ -399,12 +420,13 @@ class BenchmarkRunner {
     // state (status, forfeits, refined identities) is kept: clearing it here
     // would label every engine "skipped" in the report it just produced.
     await _disposeEngines(keepState: true);
-    final run = _buildRun();
+    var run = _buildRun();
     if (onProgressSave != null) {
       try {
         await onProgressSave!(run);
       } catch (error) {
         _warnings.add('The finished run could not be stored: $error');
+        run = _buildRun();
       }
     }
     if (!_events.isClosed) _events.add(BenchmarkFinishedEvent(run));
@@ -439,6 +461,8 @@ class BenchmarkRunner {
     _deadlineTimer = Timer(limit, () {
       if (_cancelled || _timeCapReached) return;
       _timeCapReached = true;
+      if (!_stopSignal.isCompleted) _stopSignal.complete();
+      resume();
       for (final live in _live.values) {
         try {
           live.engine.stop();
@@ -485,19 +509,22 @@ class BenchmarkRunner {
         engine is SearchTelemetry ? engine as SearchTelemetry : null;
     final config = plan.config;
     return measuredRequester(
-      (position) => engine.bestMove(
+      (position) => _untilStopped(config.nodeLimit != null
+          ? (engine as NodeLimitedEngine).bestMoveWithNodes(position, config.nodeLimit!)
+          : engine.bestMove(
         position,
         depth: config.searchDepth,
         moveTime: config.isTimeBased ? config.timePerMove : null,
-      ),
+      )),
       statsOf: telemetry == null ? null : () => telemetry.lastSearchStatistics,
     );
   }
 
-  void _applyConfiguration(_LiveEngine live, BenchmarkConfig config) {
+  Future<void> _applyConfiguration(_LiveEngine live, BenchmarkConfig config) async {
     final engine = live.engine;
     final aware = engine is UciOptionAware ? engine as UciOptionAware : null;
     final requested = config.requestedOptions();
+    final pending = <String, String>{};
     for (final entry in requested.entries) {
       if (aware == null) {
         live.warnings.add('${live.label} has no UCI option interface; '
@@ -511,7 +538,7 @@ class BenchmarkRunner {
       }
       try {
         aware.applyOption(entry.key, entry.value);
-        live.appliedOptions[entry.key] = entry.value;
+        pending[entry.key] = entry.value;
       } catch (error) {
         live.warnings.add('${live.label}: applying "${entry.key}" failed: '
             '$error');
@@ -520,7 +547,12 @@ class BenchmarkRunner {
     if (aware == null) {
       return;
     }
-    live.identity = live.identity.withConfiguration(live.appliedOptions);
+    if (pending.isNotEmpty) await aware.synchronizeOptions();
+    live.appliedOptions.addAll(pending);
+    live.identity = live.identity.withConfiguration({
+      ...live.identity.configuration,
+      ...live.appliedOptions,
+    });
   }
 
   void _refineIdentity(_LiveEngine live) {
@@ -603,7 +635,9 @@ class BenchmarkRunner {
       labels: labels,
       config: config,
     );
-    if (fit.ratings.length < 2) return false;
+    if (fit.ratings.length != plan.engines.length ||
+        fit.components.length != 1 ||
+        fit.ratedGames < config.minGamesBeforeStopping) return false;
     for (final rating in fit.ratings) {
       if (!rating.stdErr.isFinite || rating.stdErr > target) return false;
     }
@@ -614,6 +648,7 @@ class BenchmarkRunner {
 
   Future<void> _disposeEngines({bool keepState = false}) async {
     for (final live in _live.values) {
+      if (!_disposedEngines.add(live.engine)) continue;
       try {
         live.engine.dispose();
       } catch (error) {

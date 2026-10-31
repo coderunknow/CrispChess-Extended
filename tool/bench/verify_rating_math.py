@@ -104,6 +104,43 @@ class Fit:
         return any(a in group and b in group for group in self.components)
 
 
+def _standard_errors(observed, gamma):
+    """Invert the observed Laplacian, then transform to centered coordinates."""
+    n = len(gamma)
+    m = n - 1
+    a = [[0.0] * (2 * m) for _ in range(m)]
+    for i in range(m):
+        a[i][m+i] = 1.0
+    for i in range(n):
+        for j in range(i+1, n):
+            prob = gamma[i] / (gamma[i] + gamma[j])
+            weight = observed[i][j] * prob * (1-prob)
+            if i < m:
+                a[i][i] += weight
+            if j < m:
+                a[j][j] += weight
+            if i < m and j < m:
+                a[i][j] -= weight
+                a[j][i] -= weight
+    for col in range(m):
+        pivot = max(range(col, m), key=lambda row: abs(a[row][col]))
+        if abs(a[pivot][col]) < 1e-14:
+            return [math.inf] * n
+        a[col], a[pivot] = a[pivot], a[col]
+        divisor = a[col][col]
+        a[col] = [v/divisor for v in a[col]]
+        for row in range(m):
+            if row != col:
+                factor = a[row][col]
+                a[row] = [x-factor*y for x,y in zip(a[row], a[col])]
+    errors = []
+    for player in range(n):
+        c = [(1.0 if player == j else 0.0) - 1/n for j in range(m)]
+        variance = sum(c[i]*a[i][m+j]*c[j] for i in range(m) for j in range(m))
+        errors.append(SCALE*math.sqrt(max(variance, 0)))
+    return errors
+
+
 def fit_ratings(
     games: list[RatedGame],
     *,
@@ -118,6 +155,18 @@ def fit_ratings(
     if not players:
         return Fit([], 0, anchor, anchor_player, warnings=["No rated games."])
 
+    pairs = {(min(g.white, g.black), max(g.white, g.black)): 1 for g in games}
+    components = _components(players, pairs)
+    if len(components) > 1:
+        ratings = []
+        for component in components:
+            members = set(component)
+            sub = fit_ratings([g for g in games if g.white in members and g.black in members],
+                anchor=anchor, anchor_player=anchor_player if anchor_player in members else None,
+                prior=prior, tolerance=tolerance, max_iterations=max_iterations)
+            ratings.extend(sub.ratings)
+        return Fit(sorted(ratings, key=lambda r: -r.rating), len(games), anchor,
+            anchor_player, components, ['These groups never played each other; their scales are independent.'])
     n = len(players)
     index = {name: i for i, name in enumerate(players)}
     wins = [0.0] * n
@@ -140,6 +189,7 @@ def fit_ratings(
             record[i][1] += 1
             record[j][1] += 1
 
+    observed = [row[:] for row in played]
     if prior > 0:
         for i in range(n):
             for j in range(n):
@@ -173,14 +223,10 @@ def fit_ratings(
     else:
         shift = anchor - sum(raw) / n
 
+    errors = _standard_errors(observed, gamma)
     ratings = []
     for i in range(n):
-        info = 0.0
-        for j in range(n):
-            if i != j and played[i][j] > 0:
-                p = gamma[i] / (gamma[i] + gamma[j])
-                info += played[i][j] * p * (1 - p)
-        std_err = SCALE / math.sqrt(info) if info > 0 else math.inf
+        std_err = errors[i]
         ratings.append(
             PlayerRating(
                 players[i],
@@ -324,7 +370,7 @@ def check_recovers_known_gap(report: Report, rng: random.Random) -> None:
     fit = fit_ratings(games)
     a, b = fit.rating_for("A"), fit.rating_for("B")
     gap = a.rating - b.rating
-    se = math.sqrt(a.std_err**2 + b.std_err**2)
+    se = a.std_err + b.std_err
     report.check(
         "recovers a simulated 200 Elo gap",
         abs(gap - 200.0) <= 3 * se,
@@ -468,11 +514,9 @@ def check_interval_coverage(report: Report, rng: random.Random, trials: int) -> 
     """The 95% interval must never under-cover: that is the direction that
     would let the report claim a difference the games do not support.
 
-    The per-rating standard error treats the other engines as fixed, so in a
-    small pool it *overstates* the uncertainty of a difference — the app says
-    so where it compares two engines. The check therefore asserts coverage
-    stays at or above the nominal 95% (up to simulation noise) and that the
-    interval is the conservative one, not that it is exactly 95%.
+    The app uses the sum of marginal errors as a conservative bound on the
+    error of a joint-fit difference (Cauchy-Schwarz). The reference uses that
+    same bound; observed games only enter the centered covariance matrix.
     """
     truth = {"A": 1650.0, "B": 1500.0, "C": 1560.0, "D": 1440.0}
     pairs = [("A", "B"), ("B", "C"), ("A", "C"), ("A", "D"), ("B", "D"), ("C", "D")]
@@ -486,7 +530,7 @@ def check_interval_coverage(report: Report, rng: random.Random, trials: int) -> 
         a = fit.rating_for("A")
         b = fit.rating_for("B")
         gap = a.rating - b.rating
-        se = math.sqrt(a.std_err**2 + b.std_err**2)
+        se = a.std_err + b.std_err
         errors.append(gap - 150.0)
         ses.append(se)
         widths.append(2 * K_Z95 * se)

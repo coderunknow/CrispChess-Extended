@@ -68,7 +68,7 @@ jobs:
           # the Mac version can lag behind iOS.
           case "$PLATFORM" in
             both) only="" ;;
-            ios|macos) only="--platform $PLATFORM" ;;
+            IOS|MAC_OS) only="--platform $PLATFORM" ;;
             *) echo "unknown platform: $PLATFORM" >&2; exit 1 ;;
           esac
           python3 tools/asc/listing.py $only

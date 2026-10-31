@@ -19,4 +19,14 @@ abstract interface class UciOptionAware {
   ///
   /// Called only after [advertisesOption] said yes.
   void applyOption(String name, String value);
+
+  /// Completes only after the engine acknowledges all preceding options.
+  /// Failure makes the connection unusable; do not reuse a late readyok.
+  Future<void> synchronizeOptions();
+}
+
+/// Optional search capability. Callers must reject an unsupported node budget,
+/// not silently fall back to depth/time. Limits are alternatives, not combined.
+abstract interface class NodeLimitedEngine {
+  Future<String> bestMoveWithNodes(String positionCommand, int nodes);
 }

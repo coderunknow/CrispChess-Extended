@@ -1696,6 +1696,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get engineLabRunning => 'Läuft…';
 
   @override
+  String get engineLabNodeLimit => 'Knotenlimit (0 = deaktiviert)';
+
+  @override
   String get engineLabSearchDepth => 'Suchtiefe';
 
   @override
@@ -1729,7 +1732,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get engineLabZeroIsNever => '0 = ganzen Plan spielen';
 
   @override
-  String get engineLabZeroIsTime => '0 = Uhrzeit verwenden';
+  String get engineLabZeroIsTime => '0 = Bedenkzeit verwenden';
 
   @override
   String get engineLabZeroIsUnlimited => '0 = kein Limit';

@@ -216,7 +216,7 @@ class BenchmarkService {
       return EngineIdentity.forBuiltIn(
         name: name,
         engineVersion: engine.version,
-        appBuild: kBenchmarkFormatVersion,
+        appBuild: await appVersion(),
       );
     } finally {
       engine.dispose();
@@ -294,10 +294,15 @@ class BenchmarkService {
 
   /// Runs [runner] to completion, saving it, and releases the "running" flag.
   Future<BenchmarkRun> runWithRunner(BenchmarkRunner runner) async {
+    // createRunner awaits profile/fingerprint IO, so two callers may both
+    // finish construction before either reserves the shared service.
+    if (_active != null) throw StateError('A benchmark is already running.');
     _active = runner;
     try {
       final run = await runner.run();
-      await store.saveRun(run);
+      // The runner already performs the final save and records failures.
+      // Saving twice could rotate the same document over its recovery copy,
+      // or hide a completed run from the caller on browser quota failure.
       return run;
     } finally {
       _active = null;
@@ -397,7 +402,7 @@ class BenchmarkService {
     for (final entry in known.entries) {
       try {
         final identity = await identityFor(entry.key);
-        final change = identity.changeFrom(entry.value);
+        final change = identity.changeFrom(entry.value, sourceOnly: true);
         if (change != null) {
           changed.add(ChangedEngine(
             engineId: entry.key,
@@ -468,7 +473,7 @@ class BenchmarkService {
     }
     final known = await store.knownIdentities();
     final previous = known[identity.engineId];
-    if (previous != null && previous.matchesVersionOf(identity)) {
+    if (previous != null && identity.changeFrom(previous, sourceOnly: true) == null) {
       return AutoBenchmarkDecision.skip(
           'This build of the engine has already been benchmarked.');
     }
@@ -511,7 +516,7 @@ class BenchmarkService {
       return AutoBenchmarkDecision.skip(
           'That engine cannot be started here (${error.reason}).');
     }
-    final change = identity.changeFrom(previous);
+    final change = identity.changeFrom(previous, sourceOnly: true);
     if (change == null) {
       return AutoBenchmarkDecision.skip('The engine is unchanged.');
     }

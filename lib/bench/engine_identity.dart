@@ -136,6 +136,10 @@ class EngineIdentity {
   /// Digest of the option overrides actually applied before the first search.
   final String configurationDigest;
 
+  /// Configuration at engine creation, excluding benchmark-only overrides.
+  /// Kept separately so automatic change detection does not re-run forever.
+  final String? sourceConfigurationDigest;
+
   /// The overrides themselves, so a report can say what they were.
   final Map<String, String> configuration;
 
@@ -154,6 +158,7 @@ class EngineIdentity {
     this.advertisedOptionsDigest,
     this.advertisedOptionCount = 0,
     required this.configurationDigest,
+    this.sourceConfigurationDigest,
     this.configuration = const {},
   });
 
@@ -180,6 +185,7 @@ class EngineIdentity {
       backend: backend,
       fingerprint: 'builtin:$name@$appBuild+$engineVersion',
       fingerprintKind: 'builtin-build',
+      sourceConfigurationDigest: digestOf(const <String>[]),
       configurationDigest: digestOf(
           configuration.entries.map((e) => '${e.key}=${e.value}').toList()
             ..sort()),
@@ -201,6 +207,11 @@ class EngineIdentity {
     Iterable<String>? advertisedOptions,
     Map<String, String> configuration = const {},
   }) {
+    // Saved overrides are applied during initialization, before run options.
+    final effectiveConfiguration = <String, String>{
+      ...profile.optionOverrides,
+      ...configuration,
+    };
     final options = advertisedOptions?.toList();
     final String fingerprint;
     final String kind;
@@ -231,10 +242,12 @@ class EngineIdentity {
       advertisedOptionsDigest:
           options == null ? null : digestOf(options.toList()..sort()),
       advertisedOptionCount: options?.length ?? 0,
+      sourceConfigurationDigest: digestOf(
+          profile.optionOverrides.entries.map((e) => '${e.key}=${e.value}').toList()..sort()),
       configurationDigest: digestOf(
-          configuration.entries.map((e) => '${e.key}=${e.value}').toList()
+          effectiveConfiguration.entries.map((e) => '${e.key}=${e.value}').toList()
             ..sort()),
-      configuration: Map.unmodifiable(configuration),
+      configuration: Map.unmodifiable(effectiveConfiguration),
     );
   }
 
@@ -254,6 +267,7 @@ class EngineIdentity {
         profileId: profileId,
         advertisedOptionsDigest: advertisedOptionsDigest,
         advertisedOptionCount: advertisedOptionCount,
+        sourceConfigurationDigest: sourceConfigurationDigest,
         configurationDigest: digestOf(
             configuration.entries.map((e) => '${e.key}=${e.value}').toList()
               ..sort()),
@@ -277,7 +291,8 @@ class EngineIdentity {
         advertisedOptionsDigest:
             optionNames.isEmpty ? null : digestOf(optionNames.toList()..sort()),
         advertisedOptionCount: optionNames.length,
-        configurationDigest: configurationDigest,
+        sourceConfigurationDigest: sourceConfigurationDigest,
+      configurationDigest: configurationDigest,
         configuration: configuration,
       );
 
@@ -303,6 +318,7 @@ class EngineIdentity {
       profileId: profileId,
       advertisedOptionsDigest: advertisedOptionsDigest,
       advertisedOptionCount: advertisedOptionCount,
+      sourceConfigurationDigest: sourceConfigurationDigest,
       configurationDigest: configurationDigest,
       configuration: configuration,
     );
@@ -350,12 +366,16 @@ class EngineIdentity {
 
   /// What makes this identity *materially* different from [other], for the
   /// version-change trigger. Null when nothing changed.
-  String? changeFrom(EngineIdentity other) {
+  String? changeFrom(EngineIdentity other, {bool sourceOnly = false}) {
     if (engineId != other.engineId) return 'different engine';
     if (platform != other.platform) return 'platform changed';
     if (backend != other.backend) return 'execution backend changed';
     if (fingerprint != other.fingerprint) return 'binary changed';
-    if (configurationDigest != other.configurationDigest) {
+    final currentConfig = sourceOnly
+        ? sourceConfigurationDigest ?? configurationDigest : configurationDigest;
+    final previousConfig = sourceOnly
+        ? other.sourceConfigurationDigest ?? other.configurationDigest : other.configurationDigest;
+    if (currentConfig != previousConfig) {
       return 'configuration changed';
     }
     return null;
@@ -377,6 +397,8 @@ class EngineIdentity {
           'advertisedOptionsDigest': advertisedOptionsDigest,
         'advertisedOptionCount': advertisedOptionCount,
         'configurationDigest': configurationDigest,
+        if (sourceConfigurationDigest != null)
+          'sourceConfigurationDigest': sourceConfigurationDigest,
         if (configuration.isNotEmpty) 'configuration': configuration,
         'fingerprintScheme': kFingerprintScheme,
       };
@@ -420,6 +442,7 @@ class EngineIdentity {
       advertisedOptionCount: json['advertisedOptionCount'] is num
           ? (json['advertisedOptionCount'] as num).toInt()
           : 0,
+      sourceConfigurationDigest: json['sourceConfigurationDigest'] as String?,
       configurationDigest: str('configurationDigest', 'unknown'),
       configuration: config,
     );

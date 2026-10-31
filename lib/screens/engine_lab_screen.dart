@@ -14,6 +14,8 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../chess/chess_game.dart';
+import '../widgets/chess_board.dart';
 import '../bench/benchmark_config.dart';
 import '../bench/benchmark_environment.dart';
 import '../bench/benchmark_fingerprint.dart' show hostSummary;
@@ -84,6 +86,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   int _gamesDone = 0;
   int _gamesTotal = 0;
   String _lastMove = '';
+  final ChessGame _liveBoard = ChessGame();
   final List<({String white, String black, int game, int total})> _liveGames = [];
   List<String> _liveNotices = const [];
 
@@ -219,6 +222,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         });
       case BenchmarkMoveEvent():
         setState(() {
+          _liveBoard.loadFen(event.fen);
           _lastMove = event.san;
           _progress = _gamesTotal == 0
               ? 0
@@ -296,7 +300,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       estimate: estimate,
       validation: validation,
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     setState(() {
       _running = true;
@@ -443,6 +447,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
 
   Future<void> _runStability(String engineId) async {
     await _loadIdentityForDiagnostics(engineId);
+    if (!mounted) return;
     setState(() {
       _probing = true;
       _stabilityEngineId = engineId;
@@ -482,7 +487,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     await _service.deleteRun(id);
     if (!mounted) return;
     if (_latestRun?.id == id) setState(() => _latestRun = null);
@@ -683,6 +688,12 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                 const SizedBox(height: 8),
                 Text(_status, style: const TextStyle(fontSize: 13)),
                 if (_lastMove.isNotEmpty)
+                  Center(child: SizedBox(width: 300, height: 300,
+                    child: ChessBoard(board: _liveBoard.board,
+                      whiteToMove: _liveBoard.whiteToMove,
+                      squareToAlgebraic: _liveBoard.squareToAlgebraic,
+                      animationDurationMs: 0))),
+                if (_lastMove.isNotEmpty)
                   Text('${l?.engineLabLastMove ?? 'Last move'}: $_lastMove',
                       style: const TextStyle(fontSize: 12)),
                 if (_liveNotices.isNotEmpty)
@@ -730,7 +741,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                             case final rating?)
                           Text(
                             '${rating.rating.round()} '
-                            '±${(kZ95 * rating.stdErr).round()}',
+                            '±${rating.stdErr.isFinite ? (kZ95 * rating.stdErr).round() : '∞'}',
                             style: const TextStyle(
                                 fontSize: 12, fontFeatures: []),
                           ),
@@ -803,7 +814,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                     l?.engineLabAutoAfterChange ?? 'When an engine changes'),
               ),
               LabInfoRow(
-                label: l?.engineLabBudget ?? 'Budget',
+                label: l?.engineLabAutoBudget ?? 'Budget',
                 value: '${_auto.maxGames} ${l?.engineLabGames ?? 'games'} · '
                     '${_auto.maxDuration.inMinutes} min',
               ),
@@ -1328,9 +1339,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           value: _formatDuration(
               estimateWorkload(_config,
                       engineCount: _selected.length < 2 ? 2 : _selected.length,
-                      pairings: _selected.length < 2
-                          ? 1
-                          : _selected.length * (_selected.length - 1) ~/ 2)
+                      pairings: _selected.length < 2 ? 1
+                          : _format == TournamentFormat.gauntlet
+                              ? _selected.length - 1
+                              : _selected.length * (_selected.length - 1) ~/ 2)
                   .estimated),
         ),
         Row(
@@ -1435,6 +1447,18 @@ class _EngineLabScreenState extends State<EngineLabScreen>
               ),
             ),
           ],
+        ),
+        _numberField(
+          label: l?.engineLabNodeLimit ?? 'Node limit (0 = disabled)',
+          value: _config.nodeLimit ?? 0,
+          enabled: !_running,
+          onChanged: (value) => setState(() {
+            _config = _config.copyWith(
+              nodeLimit: () => value == null || value <= 0 ? null : value,
+              searchDepth: () => null,
+              preset: BenchmarkPreset.custom,
+            );
+          }),
         ),
         Row(
           children: [
@@ -1599,19 +1623,8 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     bool enabled = true,
     String? helper,
   }) =>
-      TextFormField(
-        key: ValueKey('$label-$value-$enabled'),
-        initialValue: '$value',
-        enabled: enabled,
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(
-          labelText: label,
-          helperText: helper,
-          helperMaxLines: 2,
-          isDense: true,
-        ),
-        onChanged: (text) => onChanged(int.tryParse(text.trim())),
-      );
+      LabNumberField(key: ValueKey(label), label: label, value: value,
+          enabled: enabled, helper: helper, onChanged: onChanged);
 
   // ------------------------------------------------------------------- tab 3
 
@@ -1638,8 +1651,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     final high = ratings.isEmpty
         ? 0.0
         : ratings.map((r) => r.ciHigh).reduce((a, b) => a > b ? a : b);
-    final compareA = _compareA ?? (ratings.isEmpty ? null : ratings.first.engineId);
-    final compareB = _compareB ?? (ratings.length < 2 ? null : ratings.last.engineId);
+    final compareA = ratings.any((r) => r.engineId == _compareA)
+        ? _compareA : (ratings.isEmpty ? null : ratings.first.engineId);
+    final compareB = ratings.any((r) => r.engineId == _compareB)
+        ? _compareB : (ratings.length < 2 ? null : ratings.last.engineId);
     final comparison = compareA != null && compareB != null
         ? run.ratings.compare(compareA, compareB)
         : null;
@@ -1672,7 +1687,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                               style: const TextStyle(
                                   fontSize: 13, fontWeight: FontWeight.bold)),
                           const SizedBox(width: 6),
-                          Text('±${(kZ95 * rating.stdErr).round()}',
+                          Text('±${rating.stdErr.isFinite ? (kZ95 * rating.stdErr).round() : '∞'}',
                               style: const TextStyle(fontSize: 11)),
                           const SizedBox(width: 6),
                           QualityBadge(
@@ -1836,9 +1851,9 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     if (aggregate.moveMillis.isEmpty) {
       return l?.engineLabNoMetrics ?? 'no move timing recorded';
     }
-    return 'p50 ${aggregate.percentile(50)} ms · '
-        'p95 ${aggregate.percentile(95)} ms · '
-        'p99 ${aggregate.percentile(99)} ms · '
+    return 'p50 ${aggregate.percentile(0.5)} ms · '
+        'p95 ${aggregate.percentile(0.95)} ms · '
+        'p99 ${aggregate.percentile(0.99)} ms · '
         'max ${aggregate.maxMillis} ms';
   }
 
