@@ -33,6 +33,9 @@ on:
         default: "160"
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   round-robin:
     name: Round robin
@@ -94,17 +97,70 @@ jobs:
           set -o pipefail
           flutter test tool/perf/tournament.dart --timeout none 2>&1 | tee run.log
 
+      # Store the parameters beside the complete console log so a summary is
+      # traceable to the exact source commit. The current harness does not emit
+      # binary fingerprints; record that limitation rather than implying it did.
+      - name: Write benchmark metadata
+        if: always()
+        env:
+          ENGINE_SELECTION: ${{ inputs.engines || 'Built-in,Frozenight,Lynx,Maia3 Dart,Lc0 (Maia 1900),Lynx WASM,Stockfish.js,Frozenight WASM' }}
+          MOVE_TIME_MS: ${{ inputs.movetime_ms }}
+          GAMES_PER_PAIRING: ${{ inputs.games }}
+          PLY_CAP: ${{ inputs.ply_cap }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          metadata = {
+              "commit": os.environ["GITHUB_SHA"],
+              "workflowRun": os.environ["GITHUB_RUN_ID"],
+              "workflowAttempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "engineSelection": os.environ.get("ENGINE_SELECTION", ""),
+              "moveTimeMs": os.environ.get("MOVE_TIME_MS", "300"),
+              "gamesPerPairing": os.environ.get("GAMES_PER_PAIRING", "2"),
+              "plyCap": os.environ.get("PLY_CAP", "160"),
+              "runner": os.environ.get("RUNNER_NAME", "unknown"),
+              "binaryFingerprintsRecorded": False,
+          }
+          Path("benchmark-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+          PY
+
       # The harness prints through the test runner, which prefixes its output.
       - name: Publish the tables
         if: always()
+        env:
+          MOVE_TIME_MS: ${{ inputs.movetime_ms }}
+          GAMES_PER_PAIRING: ${{ inputs.games }}
+          PLY_CAP: ${{ inputs.ply_cap }}
         run: |
           {
             echo "### Engine strength"
             echo
-            echo "\`${{ inputs.movetime_ms }}ms\` per move, "
-            echo "\`${{ inputs.games }}\` game(s) per ordered pair."
+            printf 'Commit: `%s`\n\n' "$GITHUB_SHA"
+            printf '`%sms` per move, `%s` game(s) per ordered pair, `%s` ply cap.\n' \
+              "$MOVE_TIME_MS" "$GAMES_PER_PAIRING" "$PLY_CAP"
             echo
             echo '```'
-            sed -n 's/^Shell: //p' run.log || true
+            if [[ -f run.log ]]; then
+              sed -n 's/^Shell: //p' run.log || true
+            else
+              echo 'Benchmark log was not created; no engine table is available.'
+            fi
             echo '```'
+            echo
+            if [[ -f run.log ]]; then
+              echo 'Full log and benchmark-metadata.json are attached as the engine-strength artifact.'
+            else
+              echo 'Only benchmark-metadata.json is attached because run.log was not created.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: engine-strength-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            run.log
+            benchmark-metadata.json
+          if-no-files-found: warn
+          retention-days: 30

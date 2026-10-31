@@ -55,6 +55,12 @@ env:
   PROFILE_NAME: CrispChess AppStore CI
   FLUTTER_VERSION: '3.44.2'
 
+# Least privilege: the workflow reads the repository and talks to App Store
+# Connect with its own secrets. Without this block it inherits the repository
+# default, which may be read-write.
+permissions:
+  contents: read
+
 jobs:
   status:
     if: ${{ inputs.status_only }}
