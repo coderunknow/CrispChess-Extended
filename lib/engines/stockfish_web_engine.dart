@@ -247,7 +247,7 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
 
   @override
   void dispose() {
-    finishSearch(null);
+    resetSearches();
     _worker?.terminate();
     _worker = null;
     _evalController.close();

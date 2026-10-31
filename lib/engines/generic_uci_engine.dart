@@ -225,7 +225,7 @@ class GenericUciEngine
   @override
   void onProcessLost() {
     if (!disposingProcess) _stateNotifier.value = EngineState.error;
-    if (isSearching) finishSearch(null);
+    resetSearches();
   }
 
   @override
@@ -435,14 +435,14 @@ class GenericUciEngine
     } catch (_) {
       // Already exited.
     }
-    finishSearch(null);
+    resetSearches();
   }
 
   @override
   void dispose() {
     if (_stateNotifier.value == EngineState.disposed) return;
     beginProcessDispose();
-    finishSearch(null);
+    resetSearches();
     _send('quit');
     _stdoutSub?.cancel();
     _stdoutSub = null;

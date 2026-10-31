@@ -101,7 +101,7 @@ class LynxEngine
   @override
   void onProcessLost() {
     if (!disposingProcess) _stateNotifier.value = EngineState.error;
-    if (isSearching) finishSearch(null);
+    resetSearches();
   }
 
   @override
@@ -285,7 +285,7 @@ class LynxEngine
   @override
   void dispose() {
     beginProcessDispose();
-    finishSearch(null);
+    resetSearches();
     _process?.stdin.writeln('quit');
     _stdoutSub?.cancel();
     stopWatchingProcess();

@@ -71,7 +71,7 @@ class StockfishEngine
   @override
   void onProcessLost() {
     if (!disposingProcess) _stateNotifier.value = EngineState.error;
-    if (isSearching) finishSearch(null);
+    resetSearches();
   }
 
   @override
@@ -245,7 +245,7 @@ class StockfishEngine
   void dispose() {
     if (_delegate != null) return _delegate.dispose();
     beginProcessDispose();
-    finishSearch(null);
+    resetSearches();
     _process?.stdin.writeln('quit');
     _stdoutSub?.cancel();
     stopWatchingProcess();

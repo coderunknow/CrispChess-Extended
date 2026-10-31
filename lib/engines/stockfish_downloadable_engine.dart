@@ -276,7 +276,7 @@ class StockfishDownloadableEngine
 
   @override
   void dispose() {
-    finishSearch(null);
+    resetSearches();
     _send('quit');
     _channel.invokeMethod('dispose');
     _evalController.close();
