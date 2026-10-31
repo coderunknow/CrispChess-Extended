@@ -106,7 +106,10 @@ void main() {
           line.startsWith('| 1 |') || line.startsWith('| 2 |'));
       expect(rows, isNotEmpty);
       for (final row in rows) {
-        expect('|'.allMatches(row).length, columns + 1, reason: row);
+        // Escaped pipes are content, not separators: drop them before counting
+        // so a label with a pipe cannot fake a column.
+        final unescaped = row.replaceAll(r'\|', '');
+        expect('|'.allMatches(unescaped).length, columns, reason: row);
       }
     });
   });

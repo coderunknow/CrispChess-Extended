@@ -111,7 +111,10 @@ void main() {
       // One win for White, plus the point the forfeit awards on the board.
       expect(scores['builtin:Built-in'], 2);
       expect(scores['custom:p1'], 0);
-      expect(EngineMatchService.gamesPlayed(results)['custom:p1'], 2);
+      // Three games reached the board — the win, the adjudication and the
+      // forfeit. The aborted game did not: it is the definition of a game that
+      // could not be played.
+      expect(EngineMatchService.gamesPlayed(results)['custom:p1'], 3);
       final skipped = EngineMatchService.unclassified(results);
       expect(skipped[GameOutcome.adjudicated.id], 1);
       expect(skipped[GameOutcome.aborted.id], 1);
