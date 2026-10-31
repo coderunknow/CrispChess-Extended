@@ -59,6 +59,22 @@ BenchmarkRunner _runner(
 
 void main() {
   group('a normal run', () {
+    test('deadline-induced search errors are aborted, not forfeits', () async {
+      final alpha = ScriptedEngine('Alpha');
+      final beta = ScriptedEngine('Beta');
+      alpha.ask = (_, __) async {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        throw StateError('search stopped');
+      };
+      final runner = _runner(_config(maxDuration: const Duration(milliseconds: 40)),
+          white: alpha, black: beta);
+      addTearDown(runner.dispose);
+      final run = await runner.run();
+      expect(run.stopReason, 'time cap');
+      expect(run.games.single.outcome, GameOutcome.aborted);
+      expect(run.ratings.ratedGames, 0);
+    });
+
     test('plays the schedule, fits ratings and releases both engines',
         () async {
       final alpha = ScriptedEngine('Alpha');

@@ -397,7 +397,7 @@ class BenchmarkService {
     for (final entry in known.entries) {
       try {
         final identity = await identityFor(entry.key);
-        final change = identity.changeFrom(entry.value);
+        final change = identity.changeFrom(entry.value, sourceOnly: true);
         if (change != null) {
           changed.add(ChangedEngine(
             engineId: entry.key,
@@ -468,7 +468,7 @@ class BenchmarkService {
     }
     final known = await store.knownIdentities();
     final previous = known[identity.engineId];
-    if (previous != null && previous.matchesVersionOf(identity)) {
+    if (previous != null && identity.changeFrom(previous, sourceOnly: true) == null) {
       return AutoBenchmarkDecision.skip(
           'This build of the engine has already been benchmarked.');
     }
@@ -511,7 +511,7 @@ class BenchmarkService {
       return AutoBenchmarkDecision.skip(
           'That engine cannot be started here (${error.reason}).');
     }
-    final change = identity.changeFrom(previous);
+    final change = identity.changeFrom(previous, sourceOnly: true);
     if (change == null) {
       return AutoBenchmarkDecision.skip('The engine is unchanged.');
     }

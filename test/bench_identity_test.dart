@@ -24,6 +24,12 @@ void main() {
             binarySha256: '1' * 64,
             configuration: run,
           );
+      final baseline = identity('16');
+      final measured = baseline.withConfiguration({'Hash': '64', 'Threads': '4'});
+      final restored = EngineIdentity.fromJson(measured.toJson());
+      expect(identity('16').changeFrom(restored, sourceOnly: true), isNull);
+      expect(identity('32').changeFrom(restored, sourceOnly: true),
+          'configuration changed');
       final before = identity('16');
       final after = identity('32');
       expect(after.changeFrom(before), 'configuration changed');

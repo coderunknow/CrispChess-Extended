@@ -89,6 +89,34 @@ void main() {
   });
 
   group('saving', () {
+    test('missing or non-list index is rebuilt from durable documents', () async {
+      await store.saveRun(run);
+      storage.primary.remove(kBenchmarkIndexKey);
+      storage.backup.remove(kBenchmarkIndexKey);
+      expect((await store.summaries()).single.id, run.id);
+      storage.primary[kBenchmarkIndexKey] = '{}';
+      expect((await store.summaries()).single.id, run.id);
+    });
+
+    test('concurrent imports preserve every document', () async {
+      final text = BenchmarkStore.encodeRunDocument(run);
+      final results = await Future.wait([
+        store.importJson(text), store.importJson(text), store.importJson(text),
+      ]);
+      expect(results.map((r) => r.single.run.id).toSet(), hasLength(3));
+      expect(await store.summaries(), hasLength(3));
+    });
+
+    test('import never replaces a future-schema document', () async {
+      final document = jsonDecode(BenchmarkStore.encodeRunDocument(run)) as Map;
+      document['schema'] = kBenchmarkStoreSchema + 1;
+      final original = jsonEncode(document);
+      storage.primary[_runKey(run.id)] = original;
+      final imported = await store.importJson(BenchmarkStore.encodeRunDocument(run));
+      expect(imported.single.idChanged, isTrue);
+      expect(storage.primary[_runKey(run.id)], original);
+    });
+
     test('a saved run is listed, loadable and complete', () async {
       await store.saveRun(run);
 

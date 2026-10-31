@@ -272,20 +272,27 @@ Future<BenchGame> playBenchGame({
     EngineMove move;
     try {
       move = await requester(position, depth, moveTime);
-    } on EngineFailure catch (failure) {
-      outcome = GameOutcome.forfeit;
-      forfeitReason = failure.reason;
-      forfeitedBy = isWhite ? whiteId : blackId;
-      detail = failure.message;
-      break;
     } catch (error) {
-      final failure = classifyEngineFailure(error);
-      outcome = GameOutcome.forfeit;
-      forfeitReason = failure.reason;
-      forfeitedBy = isWhite ? whiteId : blackId;
-      detail = failure.message;
+      final stop = stopReason?.call() ?? GameStop.none;
+      if (stop == GameStop.durationLimit) {
+        outcome = GameOutcome.aborted;
+        detail = "The run's wall-clock limit was reached during this game.";
+      } else if (stop == GameStop.cancelled || (cancelled?.call() ?? false)) {
+        outcome = GameOutcome.cancelled;
+        detail = 'Stopped by the user.';
+      } else {
+        final failure = classifyEngineFailure(error);
+        outcome = GameOutcome.forfeit;
+        forfeitReason = failure.reason;
+        forfeitedBy = isWhite ? whiteId : blackId;
+        detail = failure.message;
+      }
       break;
     }
+    // A response arriving after cancellation/deadline is not evidence of a
+    // forfeit (even when it is an empty/illegal response to stop).
+    if ((stopReason?.call() ?? GameStop.none) != GameStop.none ||
+        (cancelled?.call() ?? false)) continue;
 
     final uci = move.uci.trim().toLowerCase();
     if (uci.isEmpty || uci == '(none)' || uci == '0000') {
