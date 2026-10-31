@@ -38,11 +38,14 @@ class FileBenchmarkStorage implements BenchmarkStorage {
     if (existing != null) return existing;
     final override = rootOverride;
     if (override != null) {
-      if (!await override.exists()) {
-        await override.create(recursive: true);
+      // The override stands in for application support, so the documents still
+      // live under their own subdirectory.
+      final directory = Directory('${override.path}/$directoryName');
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
       }
-      _root = override;
-      return override;
+      _root = directory;
+      return directory;
     }
     final support = await getApplicationSupportDirectory();
     final directory = Directory('${support.path}/$directoryName');
@@ -110,6 +113,15 @@ class FileBenchmarkStorage implements BenchmarkStorage {
         // A failed backup must not block the write that follows.
       }
     }
+    await temporary.rename(file.path);
+  }
+
+  @override
+  Future<void> restore(String key, String value) async {
+    final root = await _directory();
+    final file = _fileFor(root, key);
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(value, flush: true);
     await temporary.rename(file.path);
   }
 

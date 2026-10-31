@@ -284,7 +284,6 @@ class BenchmarkRunner {
         _stopReason = 'cancelled';
         break;
       }
-      if (_cancelled) break;
       await _awaitResume();
       if (_cancelled) {
         _stopReason = 'cancelled';
@@ -302,7 +301,11 @@ class BenchmarkRunner {
       }
       if (white.failed || black.failed) {
         // Recorded rather than skipped, so the report says "this pairing could
-        // not produce a game" instead of quietly leaving it out.
+        // not produce a game" instead of quietly leaving it out — and the run
+        // says why it produced nothing. Leaving the stop reason at "completed"
+        // made a failed handshake or a third consecutive forfeit look like a
+        // finished benchmark with no results.
+        _stopReason = 'engine failure';
         _recordAborted(planned, white, black);
         continue;
       }

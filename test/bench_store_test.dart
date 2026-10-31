@@ -55,6 +55,13 @@ class BackedStorage extends BenchmarkStorage {
     primary[key] = value;
   }
 
+  /// Recovery writes the primary only: the recovery copy stays the known-good
+  /// one instead of being overwritten with the corrupt primary.
+  @override
+  Future<void> restore(String key, String value) async {
+    primary[key] = value;
+  }
+
   @override
   Future<void> delete(String key) async {
     primary.remove(key);
@@ -137,12 +144,15 @@ void main() {
       await store.saveRun(run); // creates the .bak
       storage.primary[_runKey(run.id)] = '{"schema":1,"payload":';
 
+      final good = storage.backup[_runKey(run.id)];
       final loaded = await store.loadRun(run.id);
       expect(loaded, isNotNull);
       expect(loaded!.id, run.id);
       // The good copy is put back, so recovery happens once rather than on
-      // every load.
-      expect(storage.primary[_runKey(run.id)], storage.backup[_runKey(run.id)]);
+      // every load — and the recovery copy itself survives, so a second
+      // corruption is still survivable.
+      expect(storage.primary[_runKey(run.id)], good);
+      expect(storage.backup[_runKey(run.id)], good);
       // And the bad bytes are kept for diagnosis.
       expect(await store.quarantined(), isNotEmpty);
     });
@@ -202,8 +212,11 @@ void main() {
       expect(storage.backup, isNotEmpty);
 
       expect(await store.deleteRun(run.id), isTrue);
-      expect(storage.primary, isEmpty);
-      expect(storage.backup, isEmpty,
+      // The index and the identity cache stay; the run's own bytes do not.
+      expect(storage.primary.keys.where((k) => k.startsWith(kBenchmarkRunPrefix)),
+          isEmpty);
+      expect(storage.backup.keys.where((k) => k.startsWith(kBenchmarkRunPrefix)),
+          isEmpty,
           reason: 'a deleted run must not survive in a recovery copy');
       expect(await store.summaries(), isEmpty);
     });
@@ -362,6 +375,18 @@ void main() {
       await files.write('doc', 'second');
       File('${directory.path}/bench/doc.json').deleteSync();
       expect(await files.read('doc'), 'first');
+    });
+
+    test('restoring a recovered document keeps the recovery copy', () async {
+      final files = backend();
+      await files.init();
+      await files.write('doc', 'first');
+      await files.write('doc', 'second'); // .bak is now "first"
+      await files.restore('doc', 'first');
+      expect(await files.read('doc'), 'first');
+      expect(await files.readBackup('doc'), 'first',
+          reason: 'a recovery must not overwrite the last good copy with the '
+              'corrupt one it is replacing');
     });
 
     test('delete removes both copies', () async {

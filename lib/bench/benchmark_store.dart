@@ -276,7 +276,7 @@ class BenchmarkStore {
         // Put the good copy back where the next read expects it, so recovery
         // happens once instead of on every load.
         try {
-          await storage.write(key, backupRaw);
+          await storage.restore(key, backupRaw);
         } catch (error) {
           debugPrint('[BenchmarkStore] could not restore $key from backup: $error');
         }

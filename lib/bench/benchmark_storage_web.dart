@@ -55,6 +55,12 @@ class PrefsBenchmarkStorage implements BenchmarkStorage {
   }
 
   @override
+  Future<void> restore(String key, String value) async {
+    final prefs = await _instance();
+    await prefs.setString('$kBenchmarkStoragePrefix$key', value);
+  }
+
+  @override
   Future<void> delete(String key) async {
     final prefs = await _instance();
     await prefs.remove('$kBenchmarkStoragePrefix$key');

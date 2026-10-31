@@ -25,7 +25,18 @@ abstract class BenchmarkStorage {
   Future<String?> readBackup(String key) async => null;
 
   /// Stores [value] under [key], atomically where the platform allows it.
+  ///
+  /// Implementations keep the previous value as the recovery copy.
   Future<void> write(String key, String value);
+
+  /// Puts a known-good document back without rotating the recovery copy.
+  ///
+  /// Recovery used to go through [write], which first copies the current —
+  /// corrupt — primary over `.bak`. The store had just archived those bad
+  /// bytes, so nothing was lost irrecoverably, but the good second copy was
+  /// replaced by garbage: one more corruption and the run would be gone. A
+  /// restore writes the primary only.
+  Future<void> restore(String key, String value) => write(key, value);
 
   /// Removes [key]; missing keys are not an error.
   Future<void> delete(String key);

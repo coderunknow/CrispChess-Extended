@@ -243,8 +243,14 @@ void main() {
       final runner =
           _runner(_config(gamesPerPairing: 4), white: alpha, black: beta);
 
+      var paused = false;
       final subscription = runner.events.listen((event) {
-        if (event is BenchmarkMoveEvent) runner.pause();
+        // Pause once: a listener that paused on every move would pause the run
+        // again after the resume and deadlock the test.
+        if (event is BenchmarkMoveEvent && !paused) {
+          paused = true;
+          runner.pause();
+        }
       });
       final future = runner.run();
       await Future<void>.delayed(const Duration(milliseconds: 80));
@@ -338,9 +344,10 @@ void main() {
       alpha.stopGate = gate;
       alpha.ask = (n, ply) async {
         if (n == 2) {
-          // The second search hangs until the runner stops the engine.
+          // The second search hangs until the runner stops the engine. The move
+          // it finally returns is legal, so what ends the game is the cap and
+          // not an illegal answer.
           await gate.future;
-          return 'a7a6';
         }
         return openingBookMove(ply) ?? 'a7a6';
       };
