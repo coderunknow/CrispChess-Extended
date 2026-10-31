@@ -296,7 +296,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       estimate: estimate,
       validation: validation,
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     setState(() {
       _running = true;
@@ -482,7 +482,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     await _service.deleteRun(id);
     if (!mounted) return;
     if (_latestRun?.id == id) setState(() => _latestRun = null);
@@ -730,7 +730,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                             case final rating?)
                           Text(
                             '${rating.rating.round()} '
-                            '±${(kZ95 * rating.stdErr).round()}',
+                            '±${rating.stdErr.isFinite ? (kZ95 * rating.stdErr).round() : '∞'}',
                             style: const TextStyle(
                                 fontSize: 12, fontFeatures: []),
                           ),
@@ -1672,7 +1672,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                               style: const TextStyle(
                                   fontSize: 13, fontWeight: FontWeight.bold)),
                           const SizedBox(width: 6),
-                          Text('±${(kZ95 * rating.stdErr).round()}',
+                          Text('±${rating.stdErr.isFinite ? (kZ95 * rating.stdErr).round() : '∞'}',
                               style: const TextStyle(fontSize: 11)),
                           const SizedBox(width: 6),
                           QualityBadge(

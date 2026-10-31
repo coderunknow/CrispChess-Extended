@@ -17,6 +17,7 @@ import 'package:crispchess/bench/benchmark_plan.dart';
 import 'package:crispchess/bench/benchmark_runner.dart';
 import 'package:crispchess/bench/game_record.dart';
 import 'package:crispchess/engines/chess_engine.dart';
+import 'package:crispchess/services/engine_match_service.dart' as matches;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/bench_harness.dart';
@@ -58,6 +59,27 @@ BenchmarkRunner _runner(
 }
 
 void main() {
+  test('tournament cancellation reaches its active sub-match', () async {
+    final alpha = ScriptedEngine('Alpha');
+    final beta = ScriptedEngine('Beta');
+    final started = Completer<void>();
+    final stopped = Completer<void>();
+    alpha.stopGate = stopped;
+    alpha.ask = (_, __) async {
+      if (!started.isCompleted) started.complete();
+      await stopped.future;
+      throw StateError('stopped');
+    };
+    final tournament = matches.TournamentService(engines: [alpha, beta]);
+    addTearDown(tournament.dispose);
+    final pending = tournament.run();
+    await started.future;
+    tournament.stop();
+    final results = await pending.timeout(const Duration(seconds: 2));
+    expect(results, isEmpty);
+    expect(beta.askedPositions, isEmpty);
+  });
+
   group('a normal run', () {
     test('deadline-induced search errors are aborted, not forfeits', () async {
       final alpha = ScriptedEngine('Alpha');

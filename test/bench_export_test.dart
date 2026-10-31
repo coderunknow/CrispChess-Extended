@@ -16,6 +16,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/bench_harness.dart';
 
 void main() {
+  test('enabled adjudications agree across fit, counts and aggregates', () async {
+    final result = await runScriptedBenchmark(config: benchConfig(plyCap: 4)
+        .copyWith(countAdjudicatedAsDraws: true));
+    addTearDown(result.runner.dispose);
+    final run = result.run;
+    expect(run.ratings.ratedGames, 2);
+    expect(run.gamesCompleted, 2);
+    for (final aggregate in run.aggregates().values) {
+      expect(aggregate.draws, 2);
+      expect(aggregate.ratedGames, 2);
+    }
+    expect(run.pgn(), contains('[Result "*"]'),
+        reason: 'statistical treatment must not invent a chess result');
+  });
+
   group('CSV', () {
     test('a game row per played game, warm-ups excluded', () async {
       final result = await runScriptedBenchmark(

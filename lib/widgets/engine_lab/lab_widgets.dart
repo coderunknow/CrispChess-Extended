@@ -183,11 +183,14 @@ class RatingBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasRange = maxRating > minRating;
+    final hasRange = minRating.isFinite && maxRating.isFinite && maxRating > minRating;
     final low = hasRange ? minRating : rating - 200;
     final high = hasRange ? maxRating : rating + 200;
     double position(double value) {
       final span = (high - low).abs() < 1 ? 1.0 : (high - low);
+      if (value == double.negativeInfinity) return 0;
+      if (value == double.infinity) return 1;
+      if (!value.isFinite) return 0.5;
       return ((value - low) / span).clamp(0.0, 1.0).toDouble();
     }
 
@@ -247,7 +250,7 @@ class RatingBar extends StatelessWidget {
                     ),
                   ),
                   Positioned(
-                    left: (center - 3).clamp(0.0, width - 6).toDouble(),
+                    left: (center - 3).clamp(0.0, width > 6 ? width - 6 : 0.0).toDouble(),
                     top: 0,
                     child: Container(
                       width: 6,
