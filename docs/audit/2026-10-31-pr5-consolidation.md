@@ -558,3 +558,129 @@ the reviewer; PR remains OPEN, main unchanged, no merge commit, no new tag or
 release, and no deployment/upload initiated. New Minor findings remain visible.
 This append-only log is kept on the session branch separately from the reviewed
 PR head so logging does not invalidate the exact-head review/CI evidence.
+
+## 12. Authorized merge and prerelease execution — 2026-10-31
+
+The user explicitly superseded the earlier no-deployment/no-upload restriction,
+authorizing normal main-push Pages/Vercel deployment and tag-triggered iOS upload.
+No public App Store release submission or arbitrary deployment reconfiguration
+was authorized. Earlier §11 facts remain historical; its authorization blocker
+no longer applied.
+
+### Final gates and Minor triage
+
+Direct GitHub verification before merge confirmed PR #5 OPEN, exact head
+`f7c23727eb5b0c508ef297db1424c3c9979a14de`, MERGEABLE/CLEAN; no effective branch
+rules, main protected:false; all configured head checks success. Full CodeRabbit
+review 5723393892/check 124565492010 remained completed on that same SHA. All
+four Major threads remained reviewer-resolved. No new Major/Critical existed.
+No approval bypass was used; this repository did not require an approval.
+
+The 19 new Minor findings remain open. They were assessed as prerelease
+limitations rather than silently dismissed: mutable action references;
+gauntlet warning; exclusion/methodology/95%-interval presentation; cancelled
+initialization status; custom-engine anchor version/selection/validation;
+non-finite rating serialization edge cases; custom-opening stride/legality;
+platform availability; two-second readiness compatibility; privacy wording;
+budget-editor mutual exclusion; and future iOS prerelease parsing. The last
+finding does not change this release's numeric manifest 2.3.2+18. The custom
+input/export/calibration limitations are explicitly included in release notes;
+they are not claimed fixed or covered away by green tests. No new product-code
+commit invalidated the reviewed head. Existing default-path build/test evidence
+and the development release channel were retained instead of expanding feature
+scope or starting an unbounded review cycle.
+
+### Merge actually performed and verified
+
+Executed the official guarded operation:
+`gh pr merge 5 --merge --match-head-commit f7c23727eb5b0c508ef297db1424c3c9979a14de`.
+GitHub confirmed **MERGED at 2026-10-31T15:00:32Z**.
+Merge commit/main SHA:
+**5d2e8aecb83bd8c8bb0f9131375947545ec8220d**.
+Parents are main `20bc1b8e670f8d75152a465ec3da094b2fcf2997` and reviewed
+`f7c23727eb5b0c508ef297db1424c3c9979a14de`. `git diff --exit-code` between
+reviewed head and merge commit is empty: identical source trees, no unexpected
+product changes. Pre-merge CI **41208369872** and post-merge CI **41212755444**
+both completed **success** at their corresponding exact SHAs. The post-merge
+Engine Lab and secret checks also succeeded. PR #3/#4 remain OPEN and untouched.
+
+### Actual web publishing outcome
+
+Normal main push triggered **Deploy Web 41212755451**, without skip/cancel or
+trigger edits. Build and Pages publication succeeded. Pages deployment
+**7460259202** reported **success** at 15:04:04Z; deployment commit
+**3cb6c4e332ee2b23a058959a4e65778cb3b207fc** has message `Deploy 5d2e8ae to Pages`.
+Pages builds/latest reports built with no error, at
+https://coderunknow.github.io/CrispChess-Extended/ . This verifies publishing,
+not interactive browser behavior.
+
+The overall Deploy Web run **failed** in Deploy to Vercel. Actual raw log:
+`vercel deploy --prod --yes --token=""`; Vercel CLI 65.9.0 says
+`Error: You defined "--token", but it's missing a value`, exit **2**.
+Thus VERCEL_TOKEN was unavailable to this run. Secret metadata access using
+`gh secret list` returned **403 Resource not accessible by integration**.
+The connected Vercel account/team was checked as an official alternate route;
+filtering projects for crisp in the available team returned none. No unrelated
+project was substituted, no new deployment project/configuration was created,
+and no credentials were read, fabricated or requested in chat. This credential
+failure cannot be repaired by retrying unchanged or relabeling the run green.
+
+### Annotated tag and GitHub prerelease actually created
+
+Source version remains **2.3.2+18**; CHANGELOG.md explicitly heads this milestone
+**2.3.2-dev2 — Engine Lab**. Existing v2.3.2-dev1 was left untouched. Verified
+that dev2 did not exist, then created an annotated tag on the verified main
+merge commit and pushed it normally, without force or moving any existing tag:
+
+- Tag: **v2.3.2-dev2**.
+- Annotated tag object: **bf9e2112084d9068795da021bc60f75d67a0c135**.
+- Peeled remote target: **5d2e8aecb83bd8c8bb0f9131375947545ec8220d**.
+- GitHub Release: https://github.com/coderunknow/CrispChess-Extended/releases/tag/v2.3.2-dev2
+- Non-draft, **prerelease:true**, targetCommitish set to the exact merge SHA;
+  not represented as stable. No arbitrary source/build bump was invented.
+
+Vercel credential repair remains an independent blocker, but did not prevent
+executing the separately authorized code/asset prerelease after successful
+post-merge CI. Release notes explicitly state that end-to-end publishing is
+incomplete rather than claiming Vercel or signed iOS upload success.
+
+The tag-triggered **Release run 41213598112 completed SUCCESS** on the tag target.
+All nine jobs succeeded, including Windows, iOS unsigned packaging and GitHub
+Release publication. Verified GitHub assets are state uploaded, nonzero size:
+
+| Asset | Bytes |
+| --- | ---: |
+| app-release.apk | 91984183 |
+| CrispChess-ios-unsigned.ipa | 25022627 |
+| CrispChess-linux-x64-frozenight.tar.gz | 41944883 |
+| CrispChess-linux-x64.tar.gz | 41273849 |
+| CrispChess-macos.tar.gz | 45451257 |
+| CrispChess-web.tar.gz | 26717279 |
+| CrispChess-windows-x64.zip | 26851859 |
+| frozenight-libs.tar.gz | 2644967 |
+
+### Actual tag-triggered iOS upload outcome and remaining blocker
+
+**iOS Release (App Store) run 41213598068 completed FAILURE** on exact tagged
+SHA 5d2e8ae. It was allowed to run naturally; no manual alternative upload was
+substituted. Job **124573438389** failed in Import signing certificate into a temp
+keychain, before archive/signing/upload. Raw logs show `P12_B64` and `P12_PW`
+empty (mapped from **DIST_CERT_P12_BASE64** and **DIST_CERT_PASSWORD**) and
+`security: SecKeychainItemImport: One or more parameters passed to a function
+were not valid.` Exit **1**. Upload IPA artifact, Upload to App Store Connect and
+Submit to external TestFlight were all **skipped**. No upload or public App Store
+submission is claimed. The unsigned release asset is a separate successful build.
+Provisioning/API-key steps were not reached and their credentials are unverified.
+
+An authorized administrator must supply usable Vercel token/target configuration
+and iOS signing material through secure GitHub Actions settings, then rerun the
+failed workflows after confirming provisioning/API credentials. Existing version
+2.3.2/build18 must be checked against App Store Connect before any later upload;
+no unverified build increment is prescribed here. Repeated runs without the
+missing inputs cannot fix either observed failure. No secret was copied from
+another account or exposed, no triggers were changed and no repository protection
+was bypassed. Main/tag remain the verified merge; this append-only operational
+log is committed separately on the Arena branch, not silently added to the
+released commit. Overall outcome is **merged + tagged + prerelease assets
+published; Pages successful; Vercel and signed iOS publishing blocked**, not an
+end-to-end release success.
