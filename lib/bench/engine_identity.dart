@@ -201,6 +201,11 @@ class EngineIdentity {
     Iterable<String>? advertisedOptions,
     Map<String, String> configuration = const {},
   }) {
+    // Saved overrides are applied during initialization, before run options.
+    final effectiveConfiguration = <String, String>{
+      ...profile.optionOverrides,
+      ...configuration,
+    };
     final options = advertisedOptions?.toList();
     final String fingerprint;
     final String kind;
@@ -232,9 +237,9 @@ class EngineIdentity {
           options == null ? null : digestOf(options.toList()..sort()),
       advertisedOptionCount: options?.length ?? 0,
       configurationDigest: digestOf(
-          configuration.entries.map((e) => '${e.key}=${e.value}').toList()
+          effectiveConfiguration.entries.map((e) => '${e.key}=${e.value}').toList()
             ..sort()),
-      configuration: Map.unmodifiable(configuration),
+      configuration: Map.unmodifiable(effectiveConfiguration),
     );
   }
 

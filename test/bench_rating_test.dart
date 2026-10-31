@@ -52,6 +52,24 @@ void main() {
   });
 
   group('fitting a run', () {
+    test('adjudications are draws only when explicitly enabled', () {
+      final games = [_game(1, outcome: GameOutcome.adjudicated)];
+      for (final enabled in [false, true]) {
+        final fit = fitRunRatings(
+          games: games,
+          labels: const {'a': 'A', 'b': 'B'},
+          config: BenchmarkConfig.quick.copyWith(
+            countAdjudicatedAsDraws: enabled,
+          ),
+        );
+        expect(fit.ratedGames, enabled ? 1 : 0);
+        if (enabled) {
+          expect(fit.ratingFor('a')!.rating,
+              closeTo(fit.ratingFor('b')!.rating, 0.001));
+        }
+      }
+    });
+
     test('a 75% score recovers the closed-form gap', () {
       final games = [
         for (var i = 0; i < 75; i++)

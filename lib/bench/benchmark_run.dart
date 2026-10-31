@@ -715,7 +715,10 @@ EloFit fitRunRatings({
   final excluded = <String, int>{};
   for (final game in games) {
     if (game.warmUp) continue;
-    final whiteScore = game.outcome.whiteScore;
+    final whiteScore = game.outcome == GameOutcome.adjudicated &&
+            config.countAdjudicatedAsDraws
+        ? 0.5
+        : game.outcome.whiteScore;
     final eligible = game.outcome.isRatingEligible ||
         (game.outcome == GameOutcome.adjudicated &&
             config.countAdjudicatedAsDraws);

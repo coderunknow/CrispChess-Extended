@@ -520,7 +520,10 @@ class BenchmarkRunner {
     if (aware == null) {
       return;
     }
-    live.identity = live.identity.withConfiguration(live.appliedOptions);
+    live.identity = live.identity.withConfiguration({
+      ...live.identity.configuration,
+      ...live.appliedOptions,
+    });
   }
 
   void _refineIdentity(_LiveEngine live) {

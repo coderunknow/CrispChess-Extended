@@ -14,6 +14,26 @@ EngineProfile _profile(String id, {String name = 'Stockfish'}) =>
 
 void main() {
   group('identity', () {
+    test('saved overrides affect identity and run options take precedence', () {
+      EngineIdentity identity(String hash, {Map<String, String> run = const {}}) =>
+          EngineIdentity.forCustom(
+            profile: EngineProfile(id: 'p', name: 'X', path: '/engine',
+                optionOverrides: {'Hash': hash, 'Threads': '2'}),
+            detectedName: 'X',
+            detectedAuthor: null,
+            binarySha256: '1' * 64,
+            configuration: run,
+          );
+      final before = identity('16');
+      final after = identity('32');
+      expect(after.changeFrom(before), 'configuration changed');
+      expect(after.ratingKey, isNot(before.ratingKey));
+      final overridden = identity('16', run: {'Hash': '64'});
+      expect(overridden.configuration, {'Hash': '64', 'Threads': '2'});
+      expect(EngineIdentity.fromJson(after.toJson()).configuration,
+          after.configuration);
+    });
+
     test('two profiles with the same display name stay distinct', () {
       final a = EngineIdentity.forCustom(
         profile: _profile('a'),
