@@ -722,6 +722,7 @@ ply as `generic_uci_engine.bestMove` does:
 |---|---|
 | `startpos`, level 10 (1100 ms/move), 40 plies | 40 plies played, **every move legal** (checked against `python-chess`), slowest move 1110 ms against the 1100 ms budget, engine exited 0 |
 | `position fen r3k2r/pppq1ppp/2npbn2/4p3/4P3/2NPBN2/PPPQ1PPP/R3K2R w KQkq - 0 1`, level 6, 20 plies | 20 plies, every move legal, slowest 750 ms against 740 ms, exited 0 |
+| `position fen r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 4`, level 8, 20 plies | 20 plies, every move legal, first move `c6a5` by Black (the FEN's side to move), slowest 929 ms against 920 ms, exited 0 |
 
 This is protocol-level evidence, not application evidence: the Dart code that
 would send those same commands was never executed.
