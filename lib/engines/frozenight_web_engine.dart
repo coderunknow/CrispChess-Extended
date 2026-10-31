@@ -43,9 +43,6 @@ class FrozenightEngine implements ChessEngine {
   bool _loaded = false;
   bool _stopped = false;
 
-  /// Whether the analysed position has White to move; see [analyze].
-  bool _whiteToMove = true;
-
   @override
   String get name => 'Frozenight';
   @override
@@ -169,7 +166,9 @@ class FrozenightEngine implements ChessEngine {
     _applyPosition(positionCommand);
     // frozenight reports from the side to move (it is a negamax search);
     // EvalInfo is from White's.
-    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
+    // A local, not a field: `analyze` is a generator, so this value belongs
+    // to this stream and no other search can change it underneath it.
+    final whiteToMove = positionCommandIsWhiteToMove(positionCommand);
 
     // Bounded even when [infinite]: each depth is one uninterruptible WASM
     // call, so the only way to stay responsive is to stop starting new ones.
@@ -206,7 +205,7 @@ class FrozenightEngine implements ChessEngine {
       final sideToMove = _frozenightGetEval().toDartInt / 100.0;
 
       yield EvalInfo(
-        score: _whiteToMove ? sideToMove : -sideToMove,
+        score: whiteToMove ? sideToMove : -sideToMove,
         depth: d,
         bestMove: move.isNotEmpty && move != '0000' ? move : null,
       );

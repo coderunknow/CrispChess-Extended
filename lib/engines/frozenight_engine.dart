@@ -52,9 +52,6 @@ class FrozenightEngine implements ChessEngine {
   double _nodesPerMs = 200;
   _GetBestMoveDart? _getBestMove;
   _GetScoreDart? _getScore;
-
-  /// Whether the analysed position has White to move; see [analyze].
-  bool _whiteToMove = true;
   _GetDepthDart? _getDepth;
   _DisposeDart? _disposeNative;
 
@@ -251,7 +248,9 @@ class FrozenightEngine implements ChessEngine {
     // `frozenight_get_score` returns — is positive when the *side to move* is
     // better (see `search_moves`, which maximises over negated child scores,
     // and the mated-position arm returning `-MATE`). EvalInfo is from White's.
-    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
+    // A local, not a field: `analyze` is a generator, so this value belongs
+    // to this stream and no other search can change it underneath it.
+    final whiteToMove = positionCommandIsWhiteToMove(positionCommand);
 
     // Bounded for the same reason as [bestMove]: a deep iteration is one
     // blocking call that `stop` cannot interrupt.
@@ -267,7 +266,7 @@ class FrozenightEngine implements ChessEngine {
       final ptr = _getBestMove!();
       final sideToMove = _getScore!() / 100.0;
       yield EvalInfo(
-        score: _whiteToMove ? sideToMove : -sideToMove,
+        score: whiteToMove ? sideToMove : -sideToMove,
         depth: _getDepth!(),
         bestMove: ptr.address != 0 ? ptr.toDartString() : null,
       );

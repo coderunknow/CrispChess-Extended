@@ -30,10 +30,6 @@ class StockfishEngine
   StreamSubscription? _stdoutSub;
   final _evalController = StreamController<EvalInfo>.broadcast();
 
-  /// Whether the position on the engine has White to move. UCI scores are from
-  /// the side to move; [EvalInfo] is from White's.
-  bool _whiteToMove = true;
-
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
   static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
@@ -141,7 +137,7 @@ class StockfishEngine
         final pv = pvMatch?.group(1);
         _evalController.add(EvalInfo(
           // UCI reports from the side to move; the app consumes White's.
-          score: _whiteToMove ? score : -score,
+          score: searchWhiteToMove ? score : -score,
           depth: int.parse(d.group(1)!),
           bestMove: pv?.split(' ').first,
           pv: pv,
@@ -178,9 +174,14 @@ class StockfishEngine
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
     if (processGone) throw await processDeathReport();
-    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
 
-    final move = await startSearch(positionCommand, go, awaitMove: true)
+    final move = await startSearch(
+            positionCommand,
+            go,
+            awaitMove: true,
+            // Belongs to the search, not the engine: `info` lines from the
+            // search being stopped are still arriving when this one starts.
+            whiteToMove: positionCommandIsWhiteToMove(positionCommand))
         .timeout(cap, onTimeout: () {
       abandonSearch();
       return null;
@@ -207,7 +208,6 @@ class StockfishEngine
       return const Stream.empty();
     }
     _stateNotifier.value = EngineState.thinking;
-    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
     // Bound the depth search by the clock too. A fixed depth costs whatever
     // that depth costs in the position in front of it — the thing that was
     // taken out of `bestMove` because it turned into seconds per move by the
@@ -221,7 +221,8 @@ class StockfishEngine
         infinite
             ? 'go infinite'
             : 'go depth ${depth ?? 20} movetime ${kFixedDepthTimeCap.inMilliseconds}',
-        awaitMove: false);
+        awaitMove: false,
+        whiteToMove: positionCommandIsWhiteToMove(positionCommand));
     return _evalController.stream;
   }
 

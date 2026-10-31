@@ -34,10 +34,6 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
   final _evalController = StreamController<EvalInfo>.broadcast();
 
   // Pre-compiled regex for parsing UCI output
-  /// Whether the position on the engine has White to move. UCI reports scores
-  /// from the side to move; [EvalInfo] is from White's.
-  bool _whiteToMove = true;
-
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
   static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
@@ -165,7 +161,7 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
         final pv = pvMatch?.group(1);
         _evalController.add(EvalInfo(
           // UCI reports from the side to move; the app consumes White's.
-          score: _whiteToMove ? sideToMoveScore : -sideToMoveScore,
+          score: searchWhiteToMove ? sideToMoveScore : -sideToMoveScore,
           depth: int.parse(depthMatch.group(1)!),
           bestMove: pv?.split(' ').first,
           pv: pv,
@@ -208,8 +204,13 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
     final cap = uciSearchTimeout(
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
-    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
-    final move = await startSearch(positionCommand, go, awaitMove: true)
+    final move = await startSearch(
+            positionCommand,
+            go,
+            awaitMove: true,
+            // Belongs to the search, not the engine: `info` lines from the
+            // search being stopped are still arriving when this one starts.
+            whiteToMove: positionCommandIsWhiteToMove(positionCommand))
         .timeout(cap, onTimeout: () {
       abandonSearch();
       return null;
@@ -225,10 +226,10 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
 
     _send('setoption name Skill Level value 20');
     _send('setoption name MultiPV value $multiPv');
-    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
     startSearch(positionCommand,
         infinite ? 'go infinite' : 'go depth ${depth ?? 20}',
-        awaitMove: false);
+        awaitMove: false,
+        whiteToMove: positionCommandIsWhiteToMove(positionCommand));
 
     return _evalController.stream;
   }

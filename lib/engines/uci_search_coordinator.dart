@@ -32,6 +32,21 @@ mixin UciSearchCoordinator {
   /// Set when a caller is waiting for this search's `bestmove`.
   Completer<String?>? _awaited;
 
+  /// Whether the position the search in flight was started for has White to
+  /// move.
+  ///
+  /// The conversion from the engine's side-to-move scores to White's has to
+  /// belong to the search the numbers came from, not to the engine. A caller
+  /// that set it before asking for a search had already changed it by the time
+  /// the search being stopped printed its last `info` lines — measured on
+  /// Stockfish 11: 16 `info` lines arrive between `stop` and `bestmove` — so
+  /// those were converted with the *next* position's colour and the eval bar
+  /// briefly showed the opposite of the engine's opinion.
+  bool _searchWhiteToMove = true;
+
+  /// Whose turn it is in the position the current search was started for.
+  bool get searchWhiteToMove => _searchWhiteToMove;
+
   /// True while a `go` is outstanding.
   bool get isSearching => _running != null;
 
@@ -56,8 +71,12 @@ mixin UciSearchCoordinator {
     String positionCommand,
     String goCommand, {
     required bool awaitMove,
+    bool? whiteToMove,
   }) async {
     await quiesceSearch();
+    // Set only after the previous search has drained: the `info` lines it emits
+    // on its way out belong to its position and must keep its colour.
+    if (whiteToMove != null) _searchWhiteToMove = whiteToMove;
     _running = Completer<void>();
     final waiter = awaitMove ? Completer<String?>() : null;
     _awaited = waiter;

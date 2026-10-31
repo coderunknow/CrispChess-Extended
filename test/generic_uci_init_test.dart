@@ -350,4 +350,47 @@ void main() {
       engine.dispose();
     });
   });
+
+  group('evaluation perspective belongs to the search', () {
+    // The conversion from the engine's side-to-move score to White's used to be
+    // an instance field set by the caller *before* asking for the search. The
+    // coordinator stops the previous search and waits for its `bestmove` first,
+    // and a real engine keeps printing `info` lines while that happens —
+    // measured on Stockfish 11: 16 of them between `stop` and `bestmove`. Those
+    // lines belong to the previous position, but were converted with the new
+    // one's colour, so the eval bar briefly showed the opposite of the engine's
+    // opinion. The colour now travels with the search.
+    test('an eval still arriving from the stopped search keeps its colour',
+        () async {
+      final fake = _script('two_searches', '''
+    uci) echo "id name Two Searches"; echo "uciok" ;;
+    isready) echo "readyok" ;;
+    go*)
+      sleep 0.15
+      echo "info depth 3 score cp 100 pv e2e4"
+      echo "bestmove e2e4"
+      ;;
+''');
+      final engine = GenericUciEngine(
+          EngineProfile(name: 'Two', path: fake.path));
+      await engine.initialize();
+      addTearDown(engine.dispose);
+
+      final scores = <double>[];
+      final sub =
+          engine.analyze('position startpos', depth: 3).listen((i) => scores.add(i.score));
+      // White to move, then Black to move: the engine reports +1.00 for the side
+      // to move in both, so White's point of view is +1.00 and then -1.00.
+      engine.analyze('position startpos moves d2d4', depth: 3);
+
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await sub.cancel();
+
+      expect(scores, isNotEmpty, reason: 'the fake engine emits at least one');
+      expect(scores.first, closeTo(1.0, 1e-9),
+          reason: 'the first eval belongs to the White-to-move search');
+      expect(scores.last, closeTo(-1.0, 1e-9),
+          reason: 'the last eval belongs to the Black-to-move search');
+    });
+  });
 }

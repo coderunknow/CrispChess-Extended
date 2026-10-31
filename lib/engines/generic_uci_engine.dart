@@ -49,15 +49,6 @@ class GenericUciEngine
   /// Whether the engine answered `uciok` in the last handshake.
   bool _handshakeComplete = false;
 
-  /// Whether the position currently on the engine has White to move.
-  ///
-  /// UCI reports `score cp` from the side to move's point of view, while
-  /// [EvalInfo] (and every consumer: eval bar, chart, analysis panel) is in
-  /// White's. Without this the evaluation of every Black-to-move position was
-  /// displayed upside down — the eval bar showed the opponent winning exactly
-  /// when the engine thought it was winning.
-  bool _whiteToMove = true;
-
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
   static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
@@ -283,7 +274,7 @@ class GenericUciEngine
 
       if (score != null) {
         // UCI scores are from the side to move; the app's are from White's.
-        final whiteScore = _whiteToMove ? score : -score;
+        final whiteScore = searchWhiteToMove ? score : -score;
         final pvMatch = _pvRegex.firstMatch(t);
         final pv = pvMatch?.group(1);
         final bestMove = pv?.split(' ').first;
@@ -321,8 +312,6 @@ class GenericUciEngine
     if (_process == null) throw StateError('Not initialized');
     if (processGone) throw await processDeathReport();
     _stateNotifier.value = EngineState.thinking;
-    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
-
     if (skillLevel != null) {
       _send('setoption name Skill Level value $skillLevel');
     }
@@ -335,7 +324,14 @@ class GenericUciEngine
     final cap = uciSearchTimeout(
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
-    final move = await startSearch(positionCommand, go, awaitMove: true)
+    final move = await startSearch(
+            positionCommand,
+            go,
+            awaitMove: true,
+            // Whose turn it is belongs to the search, not to the engine: the
+            // lookups below convert `info` lines that may still be arriving
+            // from the search being stopped.
+            whiteToMove: positionCommandIsWhiteToMove(positionCommand))
         .timeout(cap, onTimeout: () {
       abandonSearch();
       return null;
@@ -360,7 +356,6 @@ class GenericUciEngine
       return const Stream.empty();
     }
     _stateNotifier.value = EngineState.thinking;
-    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
     // Bound the depth search by the clock too. A fixed depth costs whatever
     // that depth costs in the position in front of it — the thing that was
     // taken out of `bestMove` because it turned into seconds per move by the
@@ -374,7 +369,8 @@ class GenericUciEngine
         infinite
             ? 'go infinite'
             : 'go depth ${depth ?? 20} movetime ${kFixedDepthTimeCap.inMilliseconds}',
-        awaitMove: false);
+        awaitMove: false,
+        whiteToMove: positionCommandIsWhiteToMove(positionCommand));
     return _evalController.stream;
   }
 
