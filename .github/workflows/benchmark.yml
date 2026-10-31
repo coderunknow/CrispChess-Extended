@@ -113,8 +113,9 @@ jobs:
       - name: Lab tests
         run: |
           flutter test \
-            test/bench_identity_test.dart \
-            test/benchmark_store_test.dart \
-            test/benchmark_config_test.dart \
-            test/bench_rating_test.dart \
+            test/bench*_test.dart \
+            test/generic_uci_*_test.dart \
+            test/lab_rating_bar_test.dart \
+            test/rating_fit_test.dart \
+            test/match_config_test.dart \
             test/match_result_test.dart
