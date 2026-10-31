@@ -714,6 +714,8 @@ WorkloadEstimate estimateWorkload(
     'assumes ${expectedPlies.clamp(0, config.plyCap)} plies per game',
     if (config.searchDepth != null)
       'depth-based budgets are an estimate, not a guarantee',
+    if (config.nodeLimit != null)
+      'node budgets have engine-dependent timing; the clock-based duration shown is only a planning approximation',
     if (warmUps < config.warmUpGames)
       'the game cap leaves room for $warmUps warm-up game(s), not '
           '${config.warmUpGames}',

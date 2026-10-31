@@ -466,7 +466,7 @@ class GenericUciEngine
     final go = nodes == null
         ? uciGoCommand(depth: depth, moveTime: moveTime, skillLevel: skillLevel)
         : 'go nodes $nodes';
-    final cap = uciSearchTimeout(
+    final cap = nodes != null ? const Duration(seconds: 60) : uciSearchTimeout(
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
     final move = await startSearch(

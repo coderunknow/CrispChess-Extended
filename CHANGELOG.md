@@ -7,7 +7,7 @@
 - **Engine Lab** — Settings → Engine Lab, or the in-game Learn menu. Pick two
   or more engines, choose a preset (Quick / Standard / Accurate / Custom), and
   run a round robin or a gauntlet. The run has a live board, per-game progress,
-  pause/resume/cancel, and a report afterwards with ratings, intervals, ratings
+  pause/resume/cancel, and a report afterwards with ratings, intervals, rating
   quality, performance percentiles, a PGN of every game and CSV/JSON exports.
 - **Ratings you can argue with.** Ratings are fitted to all games at once
   (Bradley–Terry, not move-by-move Elo), centred on 1500 across the engines in
@@ -66,8 +66,8 @@
 - Each benchmark records the engine's fingerprint (SHA-256 of the binary, or
   size+mtime when hashing is unavailable, marked as the weaker signal), the
   options it advertised, the options actually applied, and the platform and
-  backend the engine ran on. Two numbers from different cohorts are never put
-  in one rating pool.
+  backend the engine ran on. Mixed-backend comparisons are measurements on this device, not portable
+  strength claims; mixed cohorts are refused for calibrated ratings.
 - Matches and tournaments now use the same game loop as the Lab: legal-move
   checking, forfeit classification and ply-cap adjudication exist once, and a
   game that ended without a result is reported as such rather than as a draw.

@@ -8,7 +8,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: StatefulBuilder(
       builder: (context, update) => LabNumberField(
         key: const ValueKey('plies'), label: 'Plies', value: value, enabled: true,
-        onChanged: (v) => update(() => value = (v ?? 20).clamp(20, 2000)),
+        onChanged: (v) => update(() => value = (v ?? 20).clamp(20, 2000).toInt()),
       ),
     ))));
     final field = find.byType(TextFormField);

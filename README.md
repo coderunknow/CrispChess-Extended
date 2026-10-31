@@ -149,14 +149,15 @@ silently substituted engine.
   (source, date, hardware, time control) plus a matching move budget within
   20%; otherwise the report says why there is no absolute number
 - **Definitions of a game** — forfeit, abort, adjudication and cancellation are
-  distinct outcomes, excluded from the fit and counted in the report
+  distinct outcomes, excluded from the fit by default and counted in the report
+  (explicitly enabled adjudications may be scored as statistical draws)
 - **Performance metrics** — p50/p95/p99/max move latency, nodes and NPS, depth
   reached, per engine
 - **Stability diagnostics** — repeated start-up and repeated searches, with
   hangs and leaks reported rather than averaged away
 - **Durable history** — one JSON document per run with a schema version and a
   SHA-256 checksum; a corrupt document is quarantined and named, never
-  silently dropped, and nothing is ever overwritten
+  silently discarded; imports never overwrite an existing document
 - **Exports** — PGN of every game, CSV per engine and per game, the full JSON,
   and a Markdown report
 - **Automatic runs** — optional, quick-preset only, budget-capped, with a
