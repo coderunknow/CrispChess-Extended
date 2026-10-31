@@ -35,7 +35,6 @@ import '../engines/engine_registry.dart';
 // web build.
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../l10n/generated/app_localizations.dart';
-import '../services/engine_profile_store.dart';
 import '../widgets/engine_lab/lab_widgets.dart';
 import 'benchmark_report_screen.dart';
 

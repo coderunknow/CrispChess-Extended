@@ -272,16 +272,6 @@ CalibrationOutcome calibrateElo({
         'published number across.');
   }
 
-  // Refuse a mixed-platform run only once the anchor is known to be here and
-  // comparable: "the anchor did not take part" is the actionable answer when
-  // that is the problem, and a cohort warning would bury it. A run that mixes
-  // platforms still never produces a published number.
-  final cohorts = <String>{for (final identity in identities) identity.cohortKey};
-  if (cohorts.length > 1) {
-    return CalibrationOutcome.unavailable(
-        'The run mixes ${cohorts.length} cohorts (${cohorts.join(', ')}); a '
-        'published rating cannot be transferred across platforms or backends.');
-  }
 
   final warnings = <String>[];
   final anchorBudget = anchor.timePerMoveMs;
@@ -305,6 +295,16 @@ CalibrationOutcome calibrateElo({
     warnings.add('This run used a fixed depth (${config.searchDepth}), whose '
         'cost in time differs between engines; the calibrated scale is '
         'approximate.');
+  }
+  // Refuse a mixed-platform run only once the anchor is known to be here and
+  // comparable: "the anchor did not take part" is the actionable answer when
+  // that is the problem, and a cohort warning would bury it. A run that mixes
+  // platforms still never produces a published number.
+  final cohorts = <String>{for (final identity in identities) identity.cohortKey};
+  if (cohorts.length > 1) {
+    return CalibrationOutcome.unavailable(
+        'The run mixes ${cohorts.length} cohorts (${cohorts.join(', ')}); a '
+        'published rating cannot be transferred across platforms or backends.');
   }
   warnings.add('A published rating is a measurement of a specific engine '
       'version on specific hardware. The anchor used here was '

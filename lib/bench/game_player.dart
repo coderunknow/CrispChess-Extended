@@ -117,11 +117,16 @@ Future<void> drainEngine(
   ChessEngine engine, {
   Duration timeout = const Duration(seconds: 2),
 }) async {
+  // An explicit cast, not `engine is SearchDrainableEngine` followed by a call:
+  // Dart promotes a variable only to a *subtype* of its declared type, and
+  // `SearchDrainableEngine` is a separate interface, so the promoted call does
+  // not compile.
   if (engine is! SearchDrainableEngine) return;
+  final drainable = engine as SearchDrainableEngine;
   try {
-    await engine.drainSearch(timeout: timeout);
+    await drainable.drainSearch(timeout: timeout);
   } catch (error) {
-    debugPrint('[bench] draining $engine failed: $error');
+    debugPrint('[bench] draining ${engine.name} failed: $error');
   }
 }
 
