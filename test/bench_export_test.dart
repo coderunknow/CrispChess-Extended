@@ -92,6 +92,8 @@ void main() {
       await result.runner.dispose();
       final report = result.run.reportMarkdown();
       expect(report, contains('| Relative rating |'));
+      expect(report, contains('Adjudicated games are excluded.'));
+      expect(report, isNot(contains('Adjudicated games are included as statistical draws')));
       expect(report.toLowerCase(), contains('relative'));
       // The anchor is stated, so a reader knows what the numbers are relative to.
       expect(report, contains('${result.run.ratings.anchor.toStringAsFixed(0)}'));
