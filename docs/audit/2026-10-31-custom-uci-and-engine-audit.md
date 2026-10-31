@@ -1004,3 +1004,114 @@ check run is `completed / neutral`, not `success`. Kilo remains
 findings CodeRabbit did raise at `33e74d0` are fixed (§10.4) but the commits
 after that point carry no independent review, and nothing here pretends
 otherwise.
+
+---
+
+## 12. Fifth round — final audit
+
+Head at the start of this round: `c8e2d04` (local = remote = PR head). The
+round re-validated the previous report rather than reading it, then audited the
+full PR delta again.
+
+### 12.1 Claims of the previous report, re-checked
+
+| Claim | How it was checked | Result |
+|---|---|---|
+| Head is `c8e2d04`, PR #1 open, base `main` | `git rev-parse`, `git ls-remote`, `GET /pulls/1` | **confirmed** |
+| `c8e2d04` is code-identical to `a366106` | `git diff --stat a366106 c8e2d04` | **confirmed** — 1 file, 138 insertions, the audit document only |
+| 0 workflows registered, 0 runs | `GET /actions/workflows`, `/actions/runs`, plus per-event queries | **confirmed** (see §12.5 for what it does and does not prove) |
+| Python release tooling passes | `python3 -m unittest discover -s tools/tests -v` | **confirmed** — 19/19 |
+| Portions of the previous round were documentation-only | `git log`, per-commit diffs | **confirmed** |
+
+### 12.2 New review feedback (both from the repository owner, 02:08Z)
+
+Two P2 findings were posted after the previous report and both were verified
+against the code. Both are **valid**, and the first is more serious than
+reported.
+
+**F1 — a search abandoned on timeout can answer the *next* request.**
+`abandonSearch()` and the quiesce timeout both called `finishSearch(null)`,
+which cleared `_running`/`_awaited` without the engine ever having sent its
+`bestmove`. The next `startSearch` then saw an idle engine, sent `position` +
+`go`, and registered a waiter — which the *abandoned* search's `bestmove`
+completed, with a move computed for the previous position. That is the exact
+defect `UciSearchCoordinator` exists to prevent, reachable again through the
+timeout path. The reported impact (inverted eval while the late `info` lines
+arrive) is the milder half of it.
+
+- **Fix:** the coordinator counts `bestmove` lines it is still owed
+  (`_owedBestMoves`). `abandonSearch()` and the quiesce timeout record a debt;
+  `finishSearch` swallows the answer that settles it instead of handing it to
+  whatever search is running, and `quiesceSearch` waits (bounded) for the debt
+  before the next `position` is sent, so `_searchWhiteToMove` is still not
+  overwritten while the old search is talking.
+- **Deliberate limit:** if the engine ignores `stop` for the whole timeout it is
+  wedged, and the debt is dropped rather than kept. Keeping it would stall every
+  later search *and* swallow the first real answer, leaving the game with no
+  move — worse than the race it protects against. The residual window (a
+  wedged engine, older `info` lines) is the pre-existing race, on that
+  connection only.
+- **Teardown:** `dispose()`/`onProcessLost()` now call `resetSearches()`, which
+  clears the debt — a restarted connection must not have its first answer
+  swallowed.
+- **Regression tests:** four, in `test/uci_search_coordinator_test.dart`
+  (`abandoned searches`): the owed answer is not handed to the next request; the
+  eval perspective stays with the abandoned search until it answers; a wedged
+  engine neither stalls the next search nor has it eaten; a restarted
+  connection inherits no debt.
+  A pre-existing test in that file — *"a search that never answers is dropped so
+  the next one can run"* — caught the first version of this fix, which kept the
+  debt forever and would have hung the next search. The design was changed, not
+  the test.
+
+**F2 — a superseded switch could leave the selection and the running engine
+different.** `_switchEngineTo` captured `previousId` and wrote `_engineId` and
+the preference when `switchEngine` returned, with nothing checking whether a
+later selection had been made meanwhile. Because `EngineService` now queues
+switches in request order, the rollback of a *failed* switch is queued behind a
+switch requested later — so the rollback disposes the engine the user picked and
+starts the old one, while the screen and the saved preference name the new one.
+Reachable by tapping **Switch to Built-in** on the failure snackbar while a
+switch is still in flight, or by returning from Settings during one.
+
+- **Fix:** `EngineService.switchRequestCount`, incremented synchronously by
+  `switchEngine`. `_switchEngineTo` keeps the number its own call received and
+  returns early — before recording the selection, before queueing a rollback,
+  and before showing the failure message — when the count has moved on.
+- **Regression test:** `test/engine_service_test.dart` — *"a superseded switch
+  can tell from the request count"* — asserts the count is bumped synchronously
+  (before the queue is reached) and that the older caller can detect it is
+  superseded while the newest caller still owns the outcome. The screen-side
+  guard itself is verified by source trace only: no test in the repository pumps
+  `ChessGameScreen`, and building such a harness was out of scope for this
+  round.
+
+### 12.3 Independent audit of the rest of the delta
+
+- `Process.start(profile.path, [])` — no shell, no argv, no `runInShell`; a
+  profile path is the only user-controlled input to process creation, and there
+  is no argument field to inject through.
+- `positionCommandIsWhiteToMove` follows the parity of the move list against the
+  base FEN's side to move — no replay, so a move the parser cannot reproduce
+  cannot flip it.
+- Duplicate-id repair in `EngineProfileStore` is deterministic
+  (`id-dup`, `id-dup2`, …), which is what §1 (P0-6) now claims.
+- `createEngineOrNull` / `EngineUnavailableException` / `looksLikeEngineId`:
+  a persisted id that no longer resolves throws instead of substituting an
+  engine.
+
+### 12.4 Verification in this round
+
+| Gate | Result |
+|---|---|
+| `python3 tool/dev/parse_check.py` (234 files) | **PASS** |
+| `python3 -m unittest discover -s tools/tests` | **PASS** — 19/19 |
+| PyYAML over 12 workflow files | **PASS** |
+| `flutter pub get` / `analyze` / `test` / tournament | **BLOCKED** — no SDK (§10.1, §11.2) |
+| `cargo build --release` (Frozenight ×7) | **BLOCKED** — no Rust toolchain |
+| Platform builds (6) | **BLOCKED** — no SDK |
+| GitHub Actions | **BLOCKED** — no workflow registered (§11.1) |
+| Real-engine protocol (Stockfish 11, external harness) | **PASS** — unchanged this round; the coordinator is not on that code path |
+
+No Dart process was executed for this round either, so the two fixes above are
+reviewed and covered by tests that will run in CI, not executed here.
