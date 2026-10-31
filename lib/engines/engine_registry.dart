@@ -56,6 +56,15 @@ String customEngineIdForProfileId(String profileId) =>
 /// Whether [id] names a user-added engine.
 bool isCustomEngineId(String id) => id.startsWith(kCustomEnginePrefix);
 
+/// Whether [value] is an engine id at all (of either kind), as opposed to a
+/// display name saved by a build that predates ids.
+///
+/// Settings that can hold either — the hint engine stored a name — use this to
+/// decide which way to resolve a saved value.
+bool looksLikeEngineId(String value) =>
+    value.startsWith(kBuiltInEnginePrefix) ||
+    value.startsWith(kCustomEnginePrefix);
+
 /// The built-in engine name inside [id], or null for a custom engine.
 String? builtInNameFromId(String id) =>
     id.startsWith(kBuiltInEnginePrefix)
@@ -127,7 +136,11 @@ ChessEngine createEngineForId(
 }) {
   final builtIn = builtInNameFromId(id);
   if (builtIn != null) {
-    return createEngine(
+    // Not `createEngine`: that one falls back to the built-in engine for a name
+    // it does not know, so `builtin:SomeEngineThatNeverExisted` used to be a
+    // working selection that quietly played as Built-in while the settings
+    // screen showed the other name.
+    final engine = createEngineOrNull(
       builtIn,
       playerElo: playerElo,
       maia3Variant: maia3Variant,
@@ -135,6 +148,11 @@ ChessEngine createEngineForId(
       threads: threads,
       lc0Backend: lc0Backend,
     );
+    if (engine == null) {
+      throw EngineUnavailableException(
+          id, 'no built-in engine is named "$builtIn"');
+    }
+    return engine;
   }
 
   if (!isCustomEngineId(id)) {

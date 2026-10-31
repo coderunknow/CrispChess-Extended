@@ -25,6 +25,12 @@ import 'lynx_engine.dart'
 
 /// Create a [ChessEngine] by name.
 ///
+/// Falls back to the built-in engine for a name this app does not know. That is
+/// the historical behaviour and [createEngineOrNull] exists for every caller
+/// that would rather be told: resolving a *saved* selection through this
+/// function is how a name that no longer exists silently became a different
+/// engine than the one asked for.
+///
 /// All engines are either MIT-licensed or downloaded separately
 /// (GPL engines run via JS runtime / separate process, never linked).
 ChessEngine createEngine(String name, {
@@ -33,8 +39,32 @@ ChessEngine createEngine(String name, {
   int? hashMb,
   int? threads,
   String lc0Backend = 'auto',
+}) =>
+    createEngineOrNull(
+      name,
+      playerElo: playerElo,
+      maia3Variant: maia3Variant,
+      hashMb: hashMb,
+      threads: threads,
+      lc0Backend: lc0Backend,
+    ) ??
+    DartEngine();
+
+/// Create a [ChessEngine] by name, or null when no engine has that name.
+///
+/// Unlike [createEngine] this never substitutes another engine, so a caller
+/// that has to be truthful about which engine it built — anything resolving a
+/// saved id or a user's choice — can refuse instead.
+ChessEngine? createEngineOrNull(String name, {
+  int? playerElo,
+  String? maia3Variant,
+  int? hashMb,
+  int? threads,
+  String lc0Backend = 'auto',
 }) {
   switch (name) {
+    case 'Built-in':
+      return DartEngine(); // MIT, built-in
     case 'Stockfish':
       return StockfishEngine(variantId: maia3Variant); // Downloaded from CDN
     case 'Frozenight':
@@ -65,7 +95,7 @@ ChessEngine createEngine(String name, {
       if (sl != null) return SearchlessEngine(sl); // Apache-2.0 / CC BY 4.0
       final lm = chessLmSpecNamed(name);
       if (lm != null) return ChessLmEngine(lm); // MIT / Apache-2.0 models
-      return DartEngine(); // MIT, built-in
+      return null;
   }
 }
 

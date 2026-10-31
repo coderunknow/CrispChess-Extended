@@ -266,21 +266,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Engines available as the hint engine: 'same', the built-ins, and the
-  /// user's own additions. Custom engines were missing from this list even
-  /// though the hint path can run them.
+  /// Engines available as the hint engine: 'same' plus every engine the
+  /// main selector offers, custom ones included.
+  ///
+  /// The values are engine ids, not display names. Names are neither unique nor
+  /// stable — the list used to be keyed by them, so two user-added engines
+  /// sharing a name produced two identical `DropdownButton` values, which
+  /// asserts, and a custom engine called "Stockfish" collided with the real one.
   List<(String, String)> get _hintEngineChoices => [
         ('same', AppLocalizations.of(context)?.sameAsOpponent ?? 'Same as opponent'),
-        ('Built-in', 'Built-in'),
-        ('Maia3 Dart', 'Maia3 Dart'),
-        ('ChessMamba', 'ChessMamba'),
-        ('Lc0', 'Lc0'),
-        ('Frozenight', 'Frozenight'),
-        ('Lynx', 'Lynx'),
-        ('Stockfish', 'Stockfish'),
-        for (final profile in _customProfiles)
-          (profile.displayName, profile.displayName),
+        for (final engine in _availableEngines) (engine.id, engine.name),
       ];
+
+  /// The hint engine as an id, migrating a display name saved by an older
+  /// build. Null-unsafe values ('same', a removed engine) fall back to the
+  /// opponent's engine, which is what the dropdown shows.
+  String get _effectiveHintEngine {
+    final saved = _hintEngine;
+    if (saved == 'same') return 'same';
+    final resolved = looksLikeEngineId(saved)
+        ? saved
+        : resolveSelectedEngineId(savedName: saved, profiles: _customProfiles);
+    return _hintEngineChoices.any((choice) => choice.$1 == resolved)
+        ? resolved
+        : 'same';
+  }
+
+  /// Label for [id] in the hint-engine row.
+  String _hintEngineLabel(String id) {
+    for (final (value, label) in _hintEngineChoices) {
+      if (value == id) return label;
+    }
+    return id;
+  }
 
   /// Canonical built-in name behind the selection, or null for a custom engine.
   String? get _selectedBuiltInName => builtInNameFromId(_selectedEngineId);
@@ -827,9 +845,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Divider(),
                   ListTile(
                     title: Text(l?.hintEngine ?? 'Hint Engine'),
-                    subtitle: Text(_hintEngine == 'same'
-                        ? (l?.sameAsOpponent ?? 'Same as opponent')
-                        : _hintEngine,
+                    subtitle: Text(
+                        _hintEngineLabel(_effectiveHintEngine),
                         style: const TextStyle(fontSize: 12)),
                     contentPadding: EdgeInsets.zero,
                     trailing: DropdownButton<String>(
@@ -837,9 +854,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       // custom engine, or a renamed one) is not among the
                       // items, and DropdownButton asserts on a value it cannot
                       // find. Show "same as opponent" instead.
-                      value: _hintEngineChoices.any((n) => n.$1 == _hintEngine)
-                          ? _hintEngine
-                          : 'same',
+                      value: _effectiveHintEngine,
                       underline: const SizedBox.shrink(),
                       onChanged: (v) => setState(() => _hintEngine = v!),
                       items: [
@@ -1202,7 +1217,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'showValidMoves': _showValidMoves,
             'allowUndo': _allowUndo,
             'animationSpeed': _animationSpeed,
-            'hintEngine': _hintEngine,
+            // Migrated to an id even if the user did not touch the row.
+            'hintEngine': _effectiveHintEngine,
             'playAsBlack': _playAsBlack,
             'pieceTheme': _pieceTheme,
             'engineId': _selectedEngineId,

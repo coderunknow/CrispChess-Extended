@@ -8,6 +8,7 @@ import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
 import 'search_pacing.dart';
+import 'uci_position.dart';
 
 @JS('frozenightLoad')
 external JSPromise<JSAny?> _frozenightLoad();
@@ -41,6 +42,9 @@ class FrozenightEngine implements ChessEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   bool _loaded = false;
   bool _stopped = false;
+
+  /// Whether the analysed position has White to move; see [analyze].
+  bool _whiteToMove = true;
 
   @override
   String get name => 'Frozenight';
@@ -163,6 +167,9 @@ class FrozenightEngine implements ChessEngine {
     _stateNotifier.value = EngineState.thinking;
     _stopped = false;
     _applyPosition(positionCommand);
+    // frozenight reports from the side to move (it is a negamax search);
+    // EvalInfo is from White's.
+    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
 
     // Bounded even when [infinite]: each depth is one uninterruptible WASM
     // call, so the only way to stay responsive is to stop starting new ones.
@@ -196,10 +203,10 @@ class FrozenightEngine implements ChessEngine {
         final spent = (sw.elapsed - before).inMilliseconds;
         _nodesPerMs = updatedRate(_nodesPerMs, nodes, spent);
       }
-      final eval = _frozenightGetEval().toDartInt;
+      final sideToMove = _frozenightGetEval().toDartInt / 100.0;
 
       yield EvalInfo(
-        score: eval / 100.0,
+        score: _whiteToMove ? sideToMove : -sideToMove,
         depth: d,
         bestMove: move.isNotEmpty && move != '0000' ? move : null,
       );

@@ -101,9 +101,40 @@ class GenericUciEngine
   /// Engine Manager — saw a successful `await initialize()` and saved a profile
   /// for an engine that could never run. The state is still set to error before
   /// the exception leaves, so state listeners keep working.
+  /// The handshake currently in flight.
+  ///
+  /// Two callers can start the engine at once — the Engine Manager's "test"
+  /// button and the screen that switches to it, a rebuild racing a retry — and
+  /// two `Process.start` calls left one process with no reader, alive until the
+  /// app exited. Repeated calls therefore join the attempt already running.
+  Future<void>? _pendingInit;
+
+  bool get _isDisposed => _stateNotifier.value == EngineState.disposed;
+
+  /// Sets the state unless the engine has been disposed, so work that finishes
+  /// after [dispose] cannot bring a dead engine back to `ready` — which would
+  /// also mean adding to the eval stream after it was closed.
+  void _setState(EngineState state) {
+    if (_isDisposed) return;
+    _stateNotifier.value = state;
+  }
+
   @override
-  Future<void> initialize() async {
-    if (_stateNotifier.value == EngineState.ready) return;
+  Future<void> initialize() {
+    if (_isDisposed) {
+      return Future.error(StateError('Engine disposed'));
+    }
+    if (_stateNotifier.value == EngineState.ready) return Future.value();
+    final pending = _pendingInit;
+    if (pending != null) return pending;
+    final run = _initializeOnce();
+    _pendingInit = run;
+    return run.whenComplete(() {
+      if (identical(_pendingInit, run)) _pendingInit = null;
+    });
+  }
+
+  Future<void> _initializeOnce() async {
     _stateNotifier.value = EngineState.initializing;
     await _teardownProcess(announce: false);
 
@@ -181,12 +212,18 @@ class GenericUciEngine
       profile.optionCount = options.length;
 
       _send('isready');
+      if (_isDisposed) {
+        // Disposed while the handshake was running: the caller is gone and the
+        // process has to go with it.
+        await _teardownProcess(announce: false);
+        throw StateError('Engine disposed during initialization');
+      }
       _stateNotifier.value = EngineState.ready;
       debugPrint('[UCI] $name ready (${options.length} options)');
     } catch (e) {
       debugPrint('[UCI] Init failed: $e');
       await _teardownProcess();
-      _stateNotifier.value = EngineState.error;
+      _setState(EngineState.error);
       rethrow;
     }
   }
@@ -246,13 +283,14 @@ class GenericUciEngine
 
       if (score != null) {
         // UCI scores are from the side to move; the app's are from White's.
-        if (!_whiteToMove) score = -score;
+        final whiteScore = _whiteToMove ? score : -score;
         final pvMatch = _pvRegex.firstMatch(t);
         final pv = pvMatch?.group(1);
         final bestMove = pv?.split(' ').first;
         final mpvMatch = _multipvRegex.firstMatch(t);
+        if (_evalController.isClosed) return;
         _evalController.add(EvalInfo(
-          score: score,
+          score: whiteScore,
           depth: int.parse(depthMatch.group(1)!),
           bestMove: bestMove,
           pv: pv,
@@ -359,7 +397,12 @@ class GenericUciEngine
     // Ask the engine to stop, but leave the search registered: its `bestmove`
     // is still coming and must be consumed here, not by the next request.
     if (isSearching) _send('stop');
-    _stateNotifier.value = EngineState.ready;
+    // Only a running search can be stopped. Reporting `ready` unconditionally
+    // turned a disposed engine back into a live one, and told the UI an engine
+    // that had just failed to start was usable.
+    if (_stateNotifier.value == EngineState.thinking) {
+      _stateNotifier.value = EngineState.ready;
+    }
   }
 
   /// Stops the process and forgets it, reporting nothing about the exit.

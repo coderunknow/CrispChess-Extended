@@ -270,4 +270,84 @@ void main() {
       expect(await mateScore('position startpos moves d2d4'), lessThan(0));
     });
   });
+
+  group('lifecycle after the handshake', () {
+    // A disposed engine is finished. Work that was already in flight could
+    // still move its state, and `stop()` did so unconditionally: the Engine
+    // Manager disposes its probe engine and the screen's engine is disposed on
+    // a switch, so a stale `stop()` reporting `ready` put a dead engine back on
+    // the board — with no process behind it.
+    test('stop() does not resurrect a disposed engine', () async {
+      final fake = _workingEngine();
+      final engine =
+          GenericUciEngine(EngineProfile(name: 'W', path: fake.path));
+      await engine.initialize();
+      engine.dispose();
+
+      engine.stop();
+
+      expect(engine.state, EngineState.disposed);
+    });
+
+    test('initialising a disposed engine throws instead of spawning', () async {
+      final fake = _workingEngine();
+      final engine =
+          GenericUciEngine(EngineProfile(name: 'W', path: fake.path));
+      await engine.initialize();
+      engine.dispose();
+
+      await expectLater(engine.initialize(), throwsA(isA<StateError>()));
+    });
+
+    test('two initialise calls at once start one process', () async {
+      // The Engine Manager probes an engine and the screen that selects it
+      // starts the same one. Two handshakes meant two processes, one of them
+      // with no reader and alive until the app exited.
+      final log = '${_dir.path}/starts.log';
+      final file = File('${_dir.path}/once.sh');
+      file.writeAsStringSync('#!/bin/bash\n'
+          'echo start >> "$log"\n'
+          'while IFS= read -r line; do\n'
+          '  case "$line" in\n'
+          '    uci) echo "id name Once"; echo "uciok" ;;\n'
+          '    isready) echo "readyok" ;;\n'
+          '  esac\n'
+          'done\n');
+      Process.runSync('chmod', ['+x', file.path]);
+
+      final engine =
+          GenericUciEngine(EngineProfile(name: 'Once', path: file.path));
+      addTearDown(engine.dispose);
+
+      await Future.wait([engine.initialize(), engine.initialize()]);
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      expect(engine.state, EngineState.ready);
+      expect(
+        _logLines(log).where((line) => line == 'start').length,
+        1,
+        reason: 'a second Process.start leaves a process nobody reads',
+      );
+    });
+
+    test('a retry after a failed initialise is allowed', () async {
+      // The in-flight guard must not latch: an engine whose first attempt died
+      // is retried by the restart path.
+      final fake = _workingEngine();
+      final profile =
+          EngineProfile(name: 'W', path: '${_dir.path}/missing-binary');
+      final engine = GenericUciEngine(profile);
+      await expectLater(engine.initialize(), throwsA(isA<Object>()));
+      expect(engine.state, EngineState.error);
+
+      // The same object, now pointing at a working binary — the user corrected
+      // the path. The in-flight guard must have been cleared by the failure,
+      // or every later attempt would return the old failed future.
+      profile.path = fake.path;
+      await engine.initialize();
+
+      expect(engine.state, EngineState.ready);
+      engine.dispose();
+    });
+  });
 }

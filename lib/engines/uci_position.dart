@@ -33,9 +33,15 @@ String fenFromPositionCommand(String command) =>
 /// White's. Without knowing whose turn it is there is no way to reconcile the
 /// two, and the evaluation of every Black-to-move position came out inverted.
 bool positionCommandIsWhiteToMove(String command) {
-  final fen = fenFromPositionCommand(command);
-  final parts = fen.split(' ');
-  return !(parts.length > 1 && parts[1] == 'b');
+  final (:baseFen, :moves) = parsePositionCommand(command);
+  final fields = baseFen.split(' ');
+  final baseIsWhite = fields.length < 2 || fields[1] != 'b';
+  // Every legal move passes the turn, so whose turn it is at the end depends
+  // only on the parity of the move list. Deriving it from a replayed FEN meant
+  // one move the FEN parser could not reproduce — a variant castling, a
+  // promotion written differently — silently reported the previous side to
+  // move, which is exactly the inversion this helper exists to prevent.
+  return moves.length.isEven ? baseIsWhite : !baseIsWhite;
 }
 
 /// Splits a UCI `position` command into its base FEN and the list of UCI moves

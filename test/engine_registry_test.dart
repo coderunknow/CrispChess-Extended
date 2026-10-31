@@ -140,6 +140,20 @@ void main() {
       engine.dispose();
     });
 
+    test('an unknown built-in id is reported, not silently replaced', () {
+      // `createEngine` historically answered an unknown name with the built-in
+      // engine, so this id used to build a working engine while the settings
+      // screen went on showing a name that does not exist.
+      expect(
+        () => createEngineForId('builtin:NoSuchEngine', profiles: const []),
+        throwsA(isA<EngineUnavailableException>()),
+      );
+      expect(
+        () => createEngineForId('builtin:', profiles: const []),
+        throwsA(isA<EngineUnavailableException>()),
+      );
+    });
+
     test('an unknown custom id is reported, not silently replaced', () {
       expect(
         () => createEngineForId('custom:missing', profiles: const []),
@@ -151,6 +165,21 @@ void main() {
       expect(builtInNameFromId(fallbackEngineId), 'Built-in',
           reason: 'kFallbackEngineName and fallbackEngineId must agree');
       expect(DartEngine().name, 'Built-in');
+    });
+  });
+
+  group('looksLikeEngineId', () {
+    test('accepts both id kinds', () {
+      expect(looksLikeEngineId(builtInEngineId('Lynx')), isTrue);
+      expect(looksLikeEngineId(customEngineIdForProfileId('abc')), isTrue);
+    });
+
+    test('rejects the names saved by older builds', () {
+      // The hint-engine setting used to store a display name; telling the two
+      // apart is what lets it be migrated instead of dropped.
+      expect(looksLikeEngineId('Lynx'), isFalse);
+      expect(looksLikeEngineId('same'), isFalse);
+      expect(looksLikeEngineId(''), isFalse);
     });
   });
 

@@ -29,6 +29,10 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
 
   Future<void> _loadProfiles() async {
     await _store.init();
+    // Reading the store is asynchronous (shared_preferences), so the screen can
+    // be gone by the time it answers — which threw "setState() called after
+    // dispose" whenever it was popped quickly.
+    if (!mounted) return;
     setState(() {
       _profiles = _store.profiles;
       _loading = false;

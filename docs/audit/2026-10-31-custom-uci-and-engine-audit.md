@@ -374,3 +374,249 @@ so no conflicting identity is published now.
 Because every available verification channel was unavailable, the honest
 classification of this change is: **implemented, syntax-checked, and manually
 reviewed — not unit-tested, not built, and not runtime-tested.**
+
+---
+
+## 8. Second audit round — adversarial re-review of this change
+
+The first round was audited by reading the files that the change touched. This
+round re-read the same change looking for the same *classes* of defect applied
+elsewhere, and for defects the fix itself could have introduced. Everything below
+was found in code written or touched by this change, except where stated.
+
+The environment did not change: still no Flutter/Dart toolchain, still no
+GitHub Actions. Every claim below is therefore still "implemented and
+syntax-checked", except where a test is named — and no test could be executed
+here, so even those are unverified until someone runs `flutter test`.
+
+### P1-7 — The evaluation inversion was only half fixed
+
+- **Files:** `lib/engines/stockfish_downloadable_engine.dart`,
+  `lib/engines/stockfish_web_engine.dart`, `lib/engines/lynx_web_engine.dart`,
+  `lib/engines/lc0_engine.dart`
+- **Observed:** P1-1 fixed the perspective for `GenericUciEngine`,
+  `StockfishEngine` (the process one) and `LynxEngine`. Three more UCI text
+  parsers were left emitting the raw side-to-move score, and one neural engine
+  emitted a side-to-move value:
+  - `stockfish_downloadable_engine.dart` — the Stockfish that **iOS actually
+    runs** (stockfish.js inside WebKit) and the native download path;
+  - `stockfish_web_engine.dart` — the browser build, which also had no
+    `score mate` handling at all (P1-2 in another file);
+  - `lynx_web_engine.dart` — the WASM Lynx;
+  - `lc0_engine.dart` — `NnEval.value` is documented in `lc0_dart/mcts.dart` as
+    the expected outcome *from the side to move*, and this build emitted it
+    directly while its own web counterpart (`lc0_web_engine.dart`) already
+    converted. The two builds of the same engine disagreed about the sign of
+    every Black-to-move position.
+- **Expected:** `EvalInfo.score` in pawns from White's perspective, everywhere.
+- **Fix:** each parser reads `positionCommandIsWhiteToMove(...)` at the same
+  point it sends the position (inside the coordinator/serialization lock, so a
+  queued search cannot describe a different position by the time it runs) and
+  negates `score cp`, `score mate` and the Lc0 value when Black is to move.
+  Mate is parsed in both Stockfish parsers now.
+- **Verification:** `stockfish_web_engine.dart` and `lynx_web_engine.dart`
+  import `dart:js_interop`/`dart:ui_web` and cannot be loaded by a VM test, so
+  the sign decision was moved into `positionCommandIsWhiteToMove`, which is
+  tested. The call sites themselves are reviewed, not executed — stated plainly
+  rather than counted as verified.
+- **Regression test:** `test/uci_position_test.dart` → group
+  `positionCommandIsWhiteToMove`, including an oracle cross-check against the
+  FEN the command describes.
+- **Not covered by a test:** the four parsers themselves.
+
+### P1-8 — Switching engines sent the options to the engine that had just been disposed
+
+- **File:** `lib/screens/chess_game_screen.dart`
+- **Observed:** `_engineService.switchEngine(...)` was called without `await`,
+  immediately followed by `_applyEngineOptions()`. `switchEngine` awaits
+  `_analysisSubscription.cancel()` before it swaps engines, so the options went
+  to the **old** engine — or, once it had been swapped, to the new one before
+  its process existed. Either way `Hash`, `Threads` and `UCI_Chess960` were
+  never delivered after a switch, and for a Chess960 game the missing variant
+  flag means the engine reads the castling rights wrong.
+  `_engineId` was also assigned *before* the switch, so a new engine that failed
+  to start left the app showing it as selected.
+- **Fix:** one `_switchEngineTo(id)` path that awaits the switch, records the id
+  only if the engine started, applies options after it did, and — when it did
+  not — rebuilds the previous engine and puts it back, saying so. The
+  "Switch to Built-in" action on the failure snackbar uses the same path.
+- **Depends on:** `EngineService.initialize()`/`switchEngine()` now return
+  whether the engine started (`Future<bool>`); the failure is still emitted as
+  `EngineErrorEvent` for the UI.
+- **Regression test:** `test/engine_service_test.dart` → group
+  `EngineService.switchEngine` (reports success, reports a failed start, and
+  reports success again after a recovery).
+- **Not covered by a test:** the screen path itself.
+
+### P1-9 — Two user-added engines with the same name crashed the settings screen
+
+- **File:** `lib/screens/settings_screen.dart`
+- **Observed:** the hint-engine dropdown was keyed by **display name**
+  (`(profile.displayName, profile.displayName)`), while the engine dropdown next
+  to it was already keyed by id. Two profiles may legitimately share a name —
+  and a profile named `Stockfish` collided with the real one — producing two
+  identical `DropdownButton` values, which asserts.
+- **Fix:** the hint list is built from `_availableEngines`, so it is keyed by id
+  and cannot drift from the main selector; a saved display name is migrated to
+  an id when the screen builds; the value's label is looked up rather than
+  printed raw.
+- **Regression test:** `looksLikeEngineId` (registry test group) — the
+  "is this persisted value an id or a legacy name" decision the migration rests
+  on. The widget itself is not covered by a test.
+
+### P2-7 — An unknown `builtin:` id silently played as the built-in engine
+
+- **Files:** `lib/engines/engine_factory.dart`, `lib/engines/engine_registry.dart`
+- **Observed:** `createEngineForId('builtin:X')` called `createEngine('X')`,
+  whose documented behaviour is to fall back to `DartEngine` for an unknown
+  name. A saved id naming an engine that does not exist therefore produced a
+  working engine and a screen that displayed the missing one — the same class of
+  defect this change set out to remove, left in the one place that resolved ids.
+- **Fix:** `createEngineOrNull` (same switch, no fallback) plus an explicit
+  `case 'Built-in'`; the registry throws `EngineUnavailableException` when it
+  returns null. `createEngine` keeps its fallback for the callers that rely on
+  it, and its existing test still asserts it.
+- **Regression test:** "an unknown built-in id is reported, not silently
+  replaced"; "createEngineOrNull tells \"no such engine\" from \"built-in\"".
+
+### P2-8 — Disposal could be undone by a state write
+
+- **File:** `lib/engines/generic_uci_engine.dart`
+- **Observed:** three ways for a dead engine to be reported alive:
+  - `stop()` set `EngineState.ready` unconditionally, so calling it on a
+    disposed engine (or one that had just failed) turned it back into a ready
+    engine with no process behind it;
+  - an `initialize()` still in flight when `dispose()` ran set `error` (or
+    `ready`) afterwards, resurrecting a disposed engine;
+  - `_handleLine` could add to the eval controller after `dispose()` closed it.
+- **Fix:** `stop()` only moves `thinking → ready`; state writes go through
+  `_setState`, which is a no-op once disposed; a handshake that finishes after
+  disposal tears the process down and throws; the eval controller is checked
+  before adding.
+- **Regression test:** "stop() does not resurrect a disposed engine",
+  "initialising a disposed engine throws instead of spawning".
+
+### P2-9 — Two concurrent `initialize()` calls started two processes
+
+- **File:** `lib/engines/generic_uci_engine.dart`
+- **Observed:** the Engine Manager probes an engine and the screen that selects
+  it starts the same one; both saw a state that was not `ready` and both ran the
+  handshake. One process was left with no reader — alive until the app exited,
+  holding the binary open.
+- **Fix:** the in-flight attempt is stored and awaited by later callers; it is
+  cleared on completion, including on failure, so a retry is still possible.
+- **Regression test:** "two initialise calls at once start one process" (counts
+  the process's own start marker in a log), "a retry after a failed initialise
+  is allowed".
+
+### P2-10 — The Engine Manager could call `setState` after it was disposed
+
+- **File:** `lib/screens/engine_manager_screen.dart`
+- **Observed:** `_loadProfiles()` awaits `SharedPreferences`, then calls
+  `setState` with no `mounted` check — popping the screen quickly threw
+  "setState() called after dispose".
+- **Fix:** guarded. (Pre-existing, surfaced while reviewing the new code path
+  that adds a profile and reloads.)
+
+### P2-11 — The side to move was derived from a replay that can fail
+
+- **File:** `lib/engines/uci_position.dart`
+- **Observed:** `positionCommandIsWhiteToMove` replayed the move list through
+  `package:chess` and read the turn out of the resulting FEN. `_playUci` stops at
+  the first move it cannot reproduce; any such move — a variant castling
+  notation, a promotion written differently — left the helper reporting the
+  *previous* side to move, which inverts the evaluation, the exact bug it was
+  added to prevent.
+- **Fix:** derived from the parity of the move list instead: every legal move
+  passes the turn, so no move has to be reproducible for the answer to be right.
+  Cheaper, too (no FEN parsing per call).
+- **Regression test:** the oracle cross-check above, plus explicit
+  Black-to-move FEN cases.
+
+### P3-2 — A repaired duplicate profile id changed on every read
+
+- **File:** `lib/services/engine_profile_store.dart`
+- **Observed:** a duplicate id was repaired by constructing a new profile, which
+  generated a random id. Every read of the same stored JSON produced a different
+  id, so an edit addressed an id no later read would ever produce — until a
+  rewrite happened to land first.
+- **Fix:** the repaired id is derived from the original id and the position, so
+  every read agrees.
+
+### Evaluation perspective after both rounds
+
+Traced at the source, for every engine that produces an evaluation:
+
+| Engine | Convention at the source | Result |
+|---|---|---|
+| `dart_engine.dart` (built-in) | `crisp_chess_engine`, negamax | converted ✓ (round 2, see P1-10) |
+| `GenericUciEngine` | UCI, side to move | converted ✓ (round 1) |
+| `StockfishEngine` | UCI, side to move | converted ✓ (round 1) |
+| `LynxEngine` | UCI, side to move | converted ✓ (round 1) |
+| `stockfish_downloadable_engine.dart` | UCI, side to move | converted ✓ (round 2) |
+| `stockfish_web_engine.dart` | UCI, side to move | converted, mate added ✓ (round 2) |
+| `lynx_web_engine.dart` | UCI, side to move | converted ✓ (round 2) |
+| `lc0_engine.dart` | `NnEval.value`, side to move | converted ✓ (round 2) |
+| `lc0_web_engine.dart` | already White-relative | unchanged ✓ |
+| `maia3_dart_engine.dart` | win probability, White encoding | unchanged ✓ |
+| `searchless_engine.dart` | `whiteToMove ? p : -p` | unchanged ✓ |
+| `chessmamba_engine.dart` | `mambaValueToPawns(..., whiteToMove:)` | unchanged ✓ |
+| `frozenight_engine.dart` (Rust FFI) | `frozenight_get_score` → `eval_to_cp(SearchInfo.eval)`, negamax | converted ✓ (round 2, see P1-10) |
+| `frozenight_web_engine.dart` | `frozenightGetEval`, same search | converted ✓ (round 2, see P1-10) |
+
+### P1-10 — The built-in engine and Frozenight inverted the evaluation
+
+- **Files:** `lib/engines/dart_engine.dart`, `lib/engines/frozenight_engine.dart`,
+  `lib/engines/frozenight_web_engine.dart`
+- **Observed:** the same omission as P1-7 in three more places, including the
+  two most visible engines in the app:
+  - `dart_engine.dart` — the **built-in engine**, the default opponent on a
+    fresh install. Both `analyze()` paths (isolate and web) emitted
+    `result.score / 100` unchanged.
+  - `frozenight_engine.dart` — `frozenight_get_score() / 100`, and it is the
+    default Black side in engine-versus-engine matches.
+  - `frozenight_web_engine.dart` — the same with `frozenightGetEval()`.
+- **Evidence:** both are negamax searches, read at the source rather than
+  assumed:
+  - `crisp_chess_engine` (`lib/src/search.dart`, `_searchRoot`):
+    `final score = -_alphaBeta(depth - 1, -beta, -alpha, 1);`, maximising over
+    negated child scores.
+  - `frozenight` (`Cargo.toml` → git `CrispStrobe/frozenight`, `main`):
+    `Searcher::qsearch` computes `let v = -self.qsearch(...)`, `search_moves`
+    maximises over those, and a mated side to move returns `-Eval::MATE`; that
+    value is what reaches `SearchInfo.eval`.
+
+  Both are therefore relative to the side to move — the ordinary engine
+  convention, the same one UCI prints as `score cp`.
+- **Fix:** each `analyze()` records `positionCommandIsWhiteToMove(positionCommand)`
+  and negates when Black is to move, as the other parsers now do.
+- **Verification:** none of the three can be exercised here — `dart_engine`
+  needs the isolate worker or a browser, Frozenight needs the FFI library built
+  and its WASM bundle downloaded. Implemented, syntax-checked and reviewed, not
+  executed. The existing `dart_engine` analysis tests all use `position
+  startpos` (White to move), so they neither covered this nor broke when the
+  sign changed — which is exactly why it was never noticed.
+
+### A limitation of the perspective fix, recorded rather than hidden
+
+All six parsers keep the side to move in an instance field, set at the point the
+position is sent. That is correct for the way this app drives engines — one
+search at a time, and analysis is cancelled before a move request — but it is
+not per-search state: two searches genuinely overlapping on one engine instance
+could read the other's colour. Fixing that properly means threading the colour
+through the search coordinator into `EvalInfo` construction, which is a larger
+change than this audit; it is recorded here instead of being claimed as solved.
+
+The five engines that already converted are the evidence for the convention: an
+engine that reports a human eval in *pawns* on this app is expected to convert,
+and the ones that did not were the outliers.
+
+### Additional regression tests added this round
+
+| File | What it covers |
+|---|---|
+| `test/uci_position_test.dart` | `positionCommandIsWhiteToMove`, with a FEN oracle cross-check |
+| `test/engine_service_test.dart` | `switchEngine` reporting whether the new engine started |
+| `test/engine_registry_test.dart` | unknown `builtin:` id throws; `looksLikeEngineId` |
+| `test/engine_contract_test.dart` | `createEngineOrNull` vs the documented fallback |
+| `test/generic_uci_init_test.dart` | post-handshake lifecycle: no resurrection, one process for concurrent starts, retry after failure |

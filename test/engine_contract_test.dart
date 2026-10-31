@@ -113,6 +113,17 @@ void main() {
       expect(engine, isA<DartEngine>());
     });
 
+    test('createEngineOrNull tells "no such engine" from "built-in"', () {
+      // The fallback above is a trap for anything resolving a saved selection:
+      // it turns a name that no longer exists into a different engine than the
+      // one asked for. This variant reports it instead.
+      expect(createEngineOrNull('NonExistent'), isNull);
+      expect(createEngineOrNull('Built-in'), isA<DartEngine>());
+      expect(createEngineOrNull('Lynx'), isNotNull);
+      // The retired JS-bridge name still resolves, so an old preference works.
+      expect(createEngineOrNull('Maia3'), isNotNull);
+    });
+
     test('createEngine accepts playerElo', () {
       final engine = createEngine('Built-in', playerElo: 1800);
       expect(engine, isNotNull);

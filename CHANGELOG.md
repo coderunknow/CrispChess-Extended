@@ -21,8 +21,11 @@
   rebuild.
 - **Evaluation is no longer inverted on Black-to-move positions.** UCI reports
   `score cp`/`score mate` from the side to move; the app draws it from White's.
-  Custom UCI, Stockfish and Lynx now convert. Stockfish also reports forced
-  mates, which it used to drop entirely.
+  Every engine that reports an evaluation now converts: the built-in engine,
+  custom UCI, Stockfish (all three builds — process, downloaded/iOS and
+  browser), Lynx (native and WASM), Lc0 native, and Frozenight (native FFI and
+  WASM). Stockfish and Lynx also report forced mates, which the browser builds
+  used to drop entirely.
 - **Engine switching** stops the previous engine before disposing it, resets
   the crash-restart budget, and rebuilds the *new* engine after a crash (the
   rebuild closure used to keep pointing at the engine selected at start-up).
@@ -32,6 +35,22 @@
   longer discards the results of the others.
 - The hint-engine setting is persisted (it never was) and takes effect
   immediately when changed (the hint engine was built once and then reused).
+
+### Fixed in the review of this change
+
+- Switching engines did not deliver `Hash`, `Threads` or `UCI_Chess960`: the
+  options were applied before the new engine had finished starting, and so went
+  to the engine that had just been disposed. The switch is now awaited, the new
+  selection is only recorded once it actually started, and an engine that fails
+  to start is replaced by the previous one with a message saying so.
+- An engine id naming an engine that does not exist no longer quietly plays as
+  the built-in engine.
+- Two user-added engines with the same name no longer crash the settings screen
+  (the hint-engine list is keyed by id, like the engine selector, and a name
+  saved by an older version is migrated to one).
+- A disposed engine can no longer be brought back to "ready" by a late `stop()`
+  or a handshake finishing after disposal, and two simultaneous start attempts
+  no longer leave a second process running.
 
 ### Data
 

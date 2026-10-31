@@ -113,7 +113,12 @@ class EngineService {
   EngineService(this._engine, {this.rebuildEngine});
 
   /// Initialize the engine and start listening for state changes.
-  Future<void> initialize() async {
+  ///
+  /// Returns whether the engine actually started. The failure is still reported
+  /// as an [EngineErrorEvent] so the UI can show it, but the result lets a
+  /// caller that has just switched engines say the new one did not come up
+  /// instead of assuming it did.
+  Future<bool> initialize() async {
     _stateListener = () {
       _eventController.add(StateChangeEvent(_engine.state));
     };
@@ -121,8 +126,10 @@ class EngineService {
 
     try {
       await _engine.initialize();
+      return true;
     } catch (e) {
       _eventController.add(EngineErrorEvent('Init failed: $e', kind: EngineFailure.startup));
+      return false;
     }
   }
 
@@ -130,7 +137,7 @@ class EngineService {
   ///
   /// [rebuilder] replaces [rebuildEngine] for the new engine; omit it only when
   /// the new engine is never to be rebuilt automatically.
-  Future<void> switchEngine(
+  Future<bool> switchEngine(
     ChessEngine newEngine, {
     ChessEngine Function()? rebuilder,
   }) async {
@@ -157,7 +164,7 @@ class EngineService {
     _engine = newEngine;
     rebuildEngine = rebuilder;
     _eventController.add(StateChangeEvent(EngineState.initializing));
-    await initialize();
+    return initialize();
   }
 
   /// Request the best move for a position.

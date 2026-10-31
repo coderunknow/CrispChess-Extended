@@ -74,7 +74,9 @@ class PreferencesService {
   int get hintDepth => _prefs?.getInt(_keyHintDepth) ?? 15;
   set hintDepth(int v) => _prefs?.setInt(_keyHintDepth, v);
 
-  /// Which engine answers hints: 'same' (the opponent) or an engine name.
+  /// Which engine answers hints: 'same' (the opponent), an engine id
+  /// (`builtin:…` / `custom:…`), or — from a build that predates ids — an
+  /// engine display name, resolved when the hint is requested.
   ///
   /// This setting existed in the UI but was never stored, so it reset to
   /// 'same' on every launch.

@@ -67,9 +67,19 @@ class EngineProfileStore {
         _needsRewrite = true;
         continue;
       }
-      // A duplicate id would make "delete this profile" ambiguous again.
-      if (!seenIds.add(profile.id)) {
+      // A duplicate id would make "delete this profile" ambiguous again. The
+      // replacement is derived from the id and the position rather than
+      // generated, so every read of the same stored JSON agrees on it — a
+      // random one changed on each parse and made an edit of the second entry
+      // address an id that no read would ever produce again.
+      if (seenIds.contains(profile.id)) {
+        var repaired = '${profile.id}-dup';
+        var n = 2;
+        while (seenIds.contains(repaired)) {
+          repaired = '${profile.id}-dup${n++}';
+        }
         profile = EngineProfile(
+          id: repaired,
           name: profile.name,
           path: profile.path,
           optionOverrides: Map.of(profile.optionOverrides),
@@ -77,9 +87,9 @@ class EngineProfileStore {
           detectedAuthor: profile.detectedAuthor,
           optionCount: profile.optionCount,
         );
-        seenIds.add(profile.id);
         _needsRewrite = true;
       }
+      seenIds.add(profile.id);
       if (!entry.containsKey('id') || entry['id'] == null) _needsRewrite = true;
       profiles.add(profile);
     }

@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'uci_position.dart';
 import 'search_pacing.dart';
 import 'lynx_build.dart';
 
@@ -51,6 +52,10 @@ class LynxEngine implements ChessEngine {
   final _evalController = StreamController<EvalInfo>.broadcast();
   bool _loaded = false;
   bool _stopping = false;
+
+  /// Whether the position on the engine has White to move. UCI reports scores
+  /// from the side to move; [EvalInfo] is from White's.
+  bool _whiteToMove = true;
   String _version = 'WASM';
 
   /// One search at a time. The .NET/Mono search runs to completion on the UI
@@ -180,6 +185,10 @@ class LynxEngine implements ChessEngine {
         await Future.delayed(const Duration(milliseconds: 50));
 
         final watch = Stopwatch()..start();
+        // Inside the lock: `_serialized` queues searches, so setting this
+        // outside it could describe the wrong position by the time the
+        // queued search actually runs.
+        _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
         await _lynxSendUci(positionCommand.toJS).toDart;
         final result = (await _lynxSearch(goCmd.toJS).toDart).toDart;
         if (depth == null) {
@@ -232,6 +241,7 @@ class LynxEngine implements ChessEngine {
     final goCmd = 'go movetime ${kFixedDepthTimeCap.inMilliseconds}';
     await _serialized(() async {
       try {
+        _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
         await _lynxSendUci(positionCommand.toJS).toDart;
         final result = (await _lynxSearch(goCmd.toJS).toDart).toDart;
 
@@ -271,12 +281,15 @@ class LynxEngine implements ChessEngine {
     }
     if (score == null) return;
 
+    // UCI reports from the side to move; the app consumes White's.
+    final whiteScore = _whiteToMove ? score : -score;
+
     final pvMatch = _pvRegex.firstMatch(line);
     final mpvMatch = _multipvRegex.firstMatch(line);
     final pv = pvMatch?.group(1);
 
     _evalController.add(EvalInfo(
-      score: score,
+      score: whiteScore,
       depth: int.parse(depthMatch.group(1)!),
       bestMove: pv?.split(' ').first,
       pv: pv,
