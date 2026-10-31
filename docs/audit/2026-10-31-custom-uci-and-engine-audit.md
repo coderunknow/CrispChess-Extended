@@ -866,3 +866,129 @@ third-party app's).
   (measured), never through their own code paths.
 - UI behaviour (engine shown as active before initialisation, stale eval bars,
   error banners) remains code-reviewed only.
+
+---
+
+## 11. Fourth round — why CI never ran, and what could still be executed
+
+Objective for this round: unblock real CI, then run the gates against the exact
+head. Head throughout: `a366106c1f7df1d7a4c111076650b25b8a1d5630`.
+
+### 11.1 The root cause, with evidence
+
+`.github/workflows/ci.yml` exists on `main` (blob `3c4b916`, 10,602 bytes) and on
+this branch, and it declares `push: branches: [main]`, `pull_request: branches:
+[main]` and `workflow_dispatch:`. The trigger is **not** the problem. These are
+the measurements:
+
+| Probe | Result |
+|---|---|
+| `GET /repos/…/actions/workflows` | **`{"total_count":0,"workflows":[]}`** — no workflow is registered, not even as `disabled_manually` |
+| `GET /repos/…/actions/runs` | **`total_count: 0`** |
+| …`&event=push` / `pull_request` / `workflow_dispatch` / `schedule` | **0 / 0 / 0 / 0** |
+| `GET https://github.com/coderunknow/ScrispChess-Extended/actions` | renders “**0 workflow runs** — There are no workflow runs yet.” |
+| `GET …/actions/workflows/ci.yml` (web) | **404** — an unregistered workflow |
+| Check runs on the base commit `0d01798` | **0** — GitHub's own CI check has never appeared on any commit |
+| Check runs on `a366106` | only third-party apps (CodeRabbit, Kilo) |
+| Parent `CrispStrobe/CrispChess` `/actions/workflows` | **13 workflows, every one `active`** — the same files, upstream |
+| PR #1 | exists since `2026-10-31T01:16:33Z`, base `main` — the `pull_request` event has existed for hours |
+| Fork metadata | `fork: true`, public, `created_at 2026-10-31T00:47:32Z`, `archived:false`, `disabled:false` |
+
+A valid workflow file on the default branch, a live pull request against that
+default branch, and a repository that lists **zero** workflows and has produced
+**zero** runs for every event that could fire. The files are fine — they are
+`active` in the upstream repository they came from. What is missing is the
+repository-level switch: **GitHub does not run workflows in a fork until the
+fork's owner enables them**, and this fork has never had them enabled or
+registered.
+
+The trigger theory is excluded by the fourth row: `workflow_dispatch` is not a
+pattern-matched trigger, and it produces nothing either. So are the YAML theory
+(all twelve files parse with PyYAML and every path they reference exists — §11.3)
+and the path-filter theory (`paths-ignore` suppresses a run for a matching
+*push*; it cannot suppress `pull_request` or `workflow_dispatch`).
+
+**This credential cannot fix it.** Every endpoint that reads or writes the
+repository's Actions settings refuses it:
+
+| Endpoint | Result |
+|---|---|
+| `GET /actions/permissions` | `403 Resource not accessible by integration` |
+| `GET /actions/permissions/workflow` | `403` |
+| `GET /actions/permissions/selected-actions` | `403` |
+| `GET /branches/main/protection` | `403` (so it is the app's `administration` grant, not this endpoint) |
+| `POST /actions/workflows/ci.yml/dispatches` | `403` (the app also lacks `actions: write`, so it cannot even ask for a run) |
+| `gh auth status` | installation token — `X-OAuth-Scopes` is empty |
+
+`GET /repos/…` reports `permissions.admin: true`, but that is the app's own
+grant summary; the administration endpoints say what is actually callable.
+
+**The one action that unblocks every remaining gate** is performed in the
+browser by the fork owner, and takes seconds:
+
+1. `https://github.com/coderunknow/ScrispChess-Extended/settings/actions`
+2. *Actions permissions* → **Allow all actions and reusable workflows** → **Save**.
+3. If the Actions tab shows *“Workflows aren't being run on this forked
+   repository”*, press **I understand my workflows, go ahead and enable them**.
+4. Then re-run this round's gate step: opening/re-synchronising PR #1 (or
+   `workflow_dispatch` on `ci.yml` for this branch) starts all 14 jobs.
+
+Nothing in this repository needs to change for that to work; the workflow file
+is already correct and already covers this branch.
+
+### 11.2 What could still be executed here, and was
+
+The first step of the `analyze` job does not need Flutter, so it can be run
+exactly as CI runs it:
+
+```
+$ python3 -m unittest discover -s tools/tests -v
+...
+Ran 19 tests in 0.153s
+OK
+```
+
+**19/19 passed** at `a366106`. They cover the release tooling that the App Store
+jobs depend on (`verify_macos_app.py`, version handling in `pubspec.yaml`,
+attach-only build selection, ad-hoc signing).
+
+Pre-flight for the jobs that cannot run here — every path `ci.yml` names, checked
+at this head: `tool/perf/tournament.dart`, `tools/tests`, `tools/verify_macos_app.py`,
+`pubspec.yaml`, `analysis_options.yaml`, `native/frozenight/Cargo.toml`,
+`native/frozenight-wasm/Cargo.toml` — **all present**. So when Actions is
+enabled, the workflow will not fail on a missing file.
+
+Still unavailable, for the reasons already proved in §10.1: no Dart or Flutter
+SDK anywhere on the filesystem or reachable from it; `cargo`, `rustc` and
+`wasm-pack` are not installed either, so the seven Frozenight jobs cannot be
+built here (and `sh.rustup.rs` is outside the reachable host set).
+
+### 11.3 Gate matrix for `a366106`
+
+| Gate | Command | Result |
+|---|---|---|
+| YAML validity | PyYAML over all 12 workflow files | **PASS** (14 jobs in `ci.yml`) |
+| Dart syntax | `python3 tool/dev/parse_check.py` | **PASS** — 234 files, tree-sitter-dart |
+| Release tooling | `python3 -m unittest discover -s tools/tests -v` | **PASS** — 19/19 |
+| `flutter pub get` | — | **BLOCKED** — no SDK, no `pub.dev` |
+| `flutter analyze` | — | **BLOCKED** — same |
+| `flutter test` | — | **BLOCKED** — same |
+| Engine tournament (`flutter test tool/perf/tournament.dart`) | — | **BLOCKED** — same |
+| Frozenight Linux/macOS/Windows/WASM/iOS/Android builds | `cargo build --release` | **BLOCKED** — no Rust toolchain |
+| Android / iOS / macOS / Linux / Web builds | `flutter build …` | **BLOCKED** — no SDK |
+| Real-engine protocol (external harness, Stockfish 11) | `python3 /tmp/protocol_game.py` | **PASS** — 3 games, 80 plies, all legal (§10.2) |
+| GitHub Actions (`ci.yml`, 14 jobs) | — | **BLOCKED** — 0 workflows registered, 0 runs (§11.1) |
+
+No Dart source was changed in this round, so nothing above is a regression of a
+previous pass; the round exists to establish, or refuse to establish, the CI
+evidence.
+
+### 11.4 Independent review of the final head
+
+Asked twice. `@coderabbitai review` at `a366106` (01:57:20Z) was answered
+`⚠️ Action not completed — Review rate limited`, the same as at 01:49:48Z; the
+check run is `completed / neutral`, not `success`. Kilo remains
+`action_required`, Copilot reported insufficient quota, Qodo is paused. The four
+findings CodeRabbit did raise at `33e74d0` are fixed (§10.4) but the commits
+after that point carry no independent review, and nothing here pretends
+otherwise.
