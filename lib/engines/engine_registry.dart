@@ -215,6 +215,33 @@ String resolveSelectedEngineId({
   return fallbackEngineId;
 }
 
+/// Numbers repeated labels so a list that shows only labels can still tell its
+/// entries apart: the first of a repeated label becomes `X (1)`, the second
+/// `X (2)`, and a label that occurs once is returned unchanged.
+///
+/// The ids behind these labels are already distinct; this is about what the
+/// user can *see*, in the match dropdowns, the tournament chips and the
+/// hint-engine list, where two engines called "Stockfish" are one choice too
+/// many.
+List<String> disambiguateLabels(List<String> labels) {
+  final totals = <String, int>{};
+  for (final label in labels) {
+    totals[label] = (totals[label] ?? 0) + 1;
+  }
+  final seen = <String, int>{};
+  final out = <String>[];
+  for (final label in labels) {
+    if ((totals[label] ?? 0) > 1) {
+      final n = (seen[label] ?? 0) + 1;
+      seen[label] = n;
+      out.add('$label ($n)');
+    } else {
+      out.add(label);
+    }
+  }
+  return out;
+}
+
 /// The engine selections offered for engine-versus-engine matches.
 ///
 /// Built-in names come from the caller (the match screen owns their ordering),
@@ -228,26 +255,17 @@ List<({String id, String label})> matchEngineChoices(
       (id: builtInEngineId(name), label: name),
   ];
   if (customEnginesSupported) {
-    // Two profiles may share a display name — ids are exactly what tells them
-    // apart — but these labels are all the match dropdowns have to go on, and
-    // identical labels there mean the wrong engine can be picked without the
-    // user being able to see it. Number the ones that would otherwise collide.
-    final totals = <String, int>{};
     for (final profile in profiles) {
-      totals[profile.displayName] = (totals[profile.displayName] ?? 0) + 1;
-    }
-    final seen = <String, int>{};
-    for (final profile in profiles) {
-      var label = profile.displayName;
-      if ((totals[label] ?? 0) > 1) {
-        final n = (seen[label] ?? 0) + 1;
-        seen[label] = n;
-        label = '$label ($n)';
-      }
-      choices.add((id: customEngineId(profile), label: label));
+      choices.add((id: customEngineId(profile), label: profile.displayName));
     }
   }
-  return choices;
+  // Collisions are counted across built-ins *and* profiles: a user-added engine
+  // called "Stockfish" collides with the built-in one just as badly as with
+  // another profile.
+  final labels = disambiguateLabels([for (final c in choices) c.label]);
+  return [
+    for (var i = 0; i < choices.length; i++) (id: choices[i].id, label: labels[i]),
+  ];
 }
 
 /// Convenience for screens that keep their own store instance.

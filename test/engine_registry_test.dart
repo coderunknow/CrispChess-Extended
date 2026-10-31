@@ -227,6 +227,20 @@ void main() {
           reason: 'the ids were always distinct; the labels now are too');
     });
 
+    test('a user-added engine colliding with a built-in is told apart too', () {
+      final namesake = _profile('Stockfish', id: 's1');
+      final choices = matchEngineChoices(['Stockfish'], [namesake]);
+      expect(choices.map((c) => c.label).toList(),
+          ['Stockfish (1)', 'Stockfish (2)']);
+      expect(choices.first.id, builtInEngineId('Stockfish'));
+      expect(choices.last.id, customEngineId(namesake));
+    });
+
+    test('disambiguateLabels leaves unique labels untouched', () {
+      expect(disambiguateLabels(['A', 'B', 'C']), ['A', 'B', 'C']);
+      expect(disambiguateLabels(['A', 'B', 'A']), ['A (1)', 'B', 'A (2)']);
+    });
+
     test('a unique name is left alone', () {
       final choices =
           matchEngineChoices(['Built-in'], [_profile('Mine', id: 'm1')]);

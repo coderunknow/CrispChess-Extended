@@ -273,10 +273,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// stable — the list used to be keyed by them, so two user-added engines
   /// sharing a name produced two identical `DropdownButton` values, which
   /// asserts, and a custom engine called "Stockfish" collided with the real one.
-  List<(String, String)> get _hintEngineChoices => [
-        ('same', AppLocalizations.of(context)?.sameAsOpponent ?? 'Same as opponent'),
-        for (final engine in _availableEngines) (engine.id, engine.name),
-      ];
+  List<(String, String)> get _hintEngineChoices {
+    final engines = _availableEngines;
+    final labels = disambiguateLabels([for (final engine in engines) engine.name]);
+    return [
+      ('same', AppLocalizations.of(context)?.sameAsOpponent ?? 'Same as opponent'),
+      for (var i = 0; i < engines.length; i++) (engines[i].id, labels[i]),
+    ];
+  }
 
   /// The hint engine as an id, migrating a display name saved by an older
   /// build. Null-unsafe values ('same', a removed engine) fall back to the
