@@ -32,7 +32,21 @@ class EngineLabStore {
 
   Future<List<EngineBenchmarkRun>> load() async {
     final primary = await _read();
-    if (primary == null || primary.isEmpty) return [];
+    if (primary == null || primary.isEmpty) {
+      final backup = await _readBackup();
+      if (backup == null || backup.isEmpty) return [];
+      late List<EngineBenchmarkRun> runs;
+      try {
+        runs = _decode(backup);
+      } catch (backupError) {
+        throw EngineLabCorruptHistoryException(
+          'Primary benchmark history is missing and the recovery snapshot is unreadable: $backupError',
+        );
+      }
+      recoveredFromBackup = true;
+      await _write(_encode(runs));
+      return runs;
+    }
     try {
       return _decode(primary);
     } catch (primaryError) {

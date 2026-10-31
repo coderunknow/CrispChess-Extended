@@ -42,6 +42,12 @@ class EvalInfo {
       'EvalInfo(score: $score, depth: $depth, bestMove: $bestMove, pv#$pvIndex)';
 }
 
+/// Optional capability for engines that can await a stopped UCI search's
+/// protocol response before the same connection is reused.
+abstract interface class SearchDrainableEngine {
+  Future<void> drainSearch({Duration timeout = const Duration(seconds: 5)});
+}
+
 /// Abstract interface for pluggable chess engines.
 ///
 /// All engines must implement this interface. The app codes against

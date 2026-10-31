@@ -56,7 +56,7 @@ class GameResult {
 /// Match configuration.
 class MatchConfig {
   final int numGames;
-  final int depthPerMove;
+  final int? depthPerMove;
   final Duration? moveTime;
   final bool alternateColors;
   final int plyLimit;
@@ -364,7 +364,7 @@ class TournamentRoundStart extends MatchEvent {
 class TournamentService {
   final List<ChessEngine> engines;
   final List<String> engineIds;
-  final int depthPerMove;
+  final int? depthPerMove;
   final int gamesPerPairing;
   final Duration? moveTime;
   final int plyLimit;
@@ -451,6 +451,11 @@ class TournamentService {
           results.addAll(await match.run());
         } finally {
           await sub.cancel();
+          for (final engine in [engines[w], engines[b]]) {
+            if (engine.state == EngineState.thinking && engine is SearchDrainableEngine) {
+              await engine.drainSearch();
+            }
+          }
           match.dispose();
           _activeMatch = null;
         }

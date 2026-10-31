@@ -135,7 +135,7 @@ silently substituted engine.
 - Quick, Standard, Accurate and Custom round-robin benchmark presets with workload estimates and cancellation
 - Stable profile IDs, explicit forfeits/aborts, and balanced color assignments
 - Relative Bradley–Terry leaderboard with standard errors, 95% intervals and disconnected-cohort warnings; calibrated Elo is withheld without environment-matched reference evidence
-- Locally persistent benchmark history, JSON import/export, CSV rating export, PGN copying and median/P95 move-latency measurements
+- Locally persistent benchmark history, JSON import/export, CSV rating export, PGN copying and median/P95/P99/maximum move-response latency
 - Automatic Quick benchmark after adding a custom UCI engine is opt-in in Engine Manager
 - Custom UCI executables cannot run in Web; nodes/NPS, CPU and memory measurements are unavailable through the current engine API
 - Custom UCI binaries receive cached SHA-256 fingerprints; opt-in Quick rebenchmarking checks for changes when Engine Lab opens. Built-in version changes, calibrated anchors, opening suites, gauntlet mode and configuration sweeps are not yet implemented

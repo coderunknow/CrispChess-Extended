@@ -94,6 +94,20 @@ void main() {
     expect((await secondInstance.load()).length, 1);
   });
 
+  test('missing primary history recovers from a validated backup', () async {
+    String? written;
+    final backup = jsonEncode({'schemaVersion': engineLabSchemaVersion, 'runs': [sampleRun().toJson()]});
+    final store = EngineLabStore(
+      read: () async => null,
+      readBackup: () async => backup,
+      write: (value) async { written = value; },
+    );
+    final runs = await store.load();
+    expect(runs.single.id, 'run-1');
+    expect(store.recoveredFromBackup, isTrue);
+    expect(written, contains('run-1'));
+  });
+
   test('corrupt primary history recovers from validated backup', () async {
     String? written;
     final backup = jsonEncode({'schemaVersion': engineLabSchemaVersion, 'runs': [sampleRun().toJson()]});

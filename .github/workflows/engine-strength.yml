@@ -33,6 +33,9 @@ on:
         default: "160"
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   round-robin:
     name: Round robin
@@ -125,21 +128,31 @@ jobs:
       # The harness prints through the test runner, which prefixes its output.
       - name: Publish the tables
         if: always()
+        env:
+          MOVE_TIME_MS: ${{ inputs.movetime_ms }}
+          GAMES_PER_PAIRING: ${{ inputs.games }}
+          PLY_CAP: ${{ inputs.ply_cap }}
         run: |
           {
             echo "### Engine strength"
             echo
-            echo "Commit: \`${GITHUB_SHA}\`"
-            echo
-            echo "\`${{ inputs.movetime_ms }}ms\` per move, "
-            echo "\`${{ inputs.games }}\` game(s) per ordered pair, "
-            echo "\`${{ inputs.ply_cap }}\` ply cap."
+            printf 'Commit: `%s`\n\n' "$GITHUB_SHA"
+            printf '`%sms` per move, `%s` game(s) per ordered pair, `%s` ply cap.\n' \
+              "$MOVE_TIME_MS" "$GAMES_PER_PAIRING" "$PLY_CAP"
             echo
             echo '```'
-            sed -n 's/^Shell: //p' run.log || true
+            if [[ -f run.log ]]; then
+              sed -n 's/^Shell: //p' run.log || true
+            else
+              echo 'Benchmark log was not created; no engine table is available.'
+            fi
             echo '```'
             echo
-            echo 'Full log and benchmark-metadata.json are attached as the engine-strength artifact.'
+            if [[ -f run.log ]]; then
+              echo 'Full log and benchmark-metadata.json are attached as the engine-strength artifact.'
+            else
+              echo 'Only benchmark-metadata.json is attached because run.log was not created.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

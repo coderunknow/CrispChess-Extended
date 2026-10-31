@@ -215,6 +215,19 @@ void main() {
       expect(sent, isNot(contains('setoption name Skill Level value 2')));
     });
 
+    test('the application strength level is sent when no profile override exists', () async {
+      final fake = _workingEngine(advertisesSkillLevel: true);
+      final engine = GenericUciEngine(EngineProfile(
+        name: 'Skill slider test',
+        path: fake.path,
+      ));
+      await engine.initialize();
+      addTearDown(engine.dispose);
+
+      await engine.bestMove('position startpos', skillLevel: 2);
+      expect(_logLines(fake.log), contains('setoption name Skill Level value 2'));
+    });
+
     test('initialising twice does not duplicate the option list', () async {
       // The options list is a field, and the handshake appends to it: a second
       // handshake on the same instance (which EngineSlot could trigger) would

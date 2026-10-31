@@ -21,12 +21,12 @@
   calculated from observed games rather than the numerical stabilizing prior.
   Calibrated Elo is explicitly unavailable without matched published reference
   data.
-- Recorded per-engine move-response latency samples and report median, P95 and
-  maximum latency. Nodes, NPS, CPU and memory remain unavailable through the
+- Recorded per-engine move-response latency samples and report median, P95,
+  P99 and maximum latency. Nodes, NPS, CPU and memory remain unavailable through the
   current engine interface and are not fabricated.
 - Added an opt-in automatic Quick benchmark after a custom UCI engine is
-  successfully added. The global strength level no longer sends `Skill Level`
-  to a custom UCI profile, preserving the profile's explicit override.
+  successfully added. Custom UCI profiles keep explicit `Skill Level` overrides;
+  the global slider still applies when no profile override is saved.
 - Improved cancellation/event cleanup in matches and prevented round-robin
   selection from silently dropping a selected engine that cannot be built.
 - Fixed release Web fallback selection: a valid WASM build requires

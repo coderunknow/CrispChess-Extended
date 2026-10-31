@@ -10,13 +10,15 @@ Future<File> _dataFile() async {
 
 Future<String?> readEngineLabData() async {
   final file = await _dataFile();
-  return file.exists() ? file.readAsString() : null;
+  if (!await file.exists()) return null;
+  return file.readAsString();
 }
 
 Future<String?> readEngineLabBackup() async {
   final file = await _dataFile();
   final backup = File('${file.path}.bak');
-  return backup.exists() ? backup.readAsString() : null;
+  if (!await backup.exists()) return null;
+  return backup.readAsString();
 }
 
 /// Flush a complete new snapshot before replacing the old file. Keep the last

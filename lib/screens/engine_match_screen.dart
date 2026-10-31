@@ -643,7 +643,7 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
               TableRow(children: [
                 for (final heading in [
                   localizations?.engine ?? 'Engine',
-                  localizations?.rating ?? 'Rel. Elo (95% CI)',
+                  "${localizations?.rating ?? 'Rating'} · Rel. Elo (95% CI)",
                   '+ / = / −',
                   '%',
                 ])

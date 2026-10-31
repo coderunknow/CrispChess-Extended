@@ -235,6 +235,7 @@ class _EngineLabScreenState extends State<EngineLabScreen> {
       engines: engines,
       engineIds: ids,
       gamesPerPairing: config.gamesPerPairing,
+      depthPerMove: null,
       moveTime: Duration(milliseconds: config.timePerMoveMs),
       plyLimit: config.plyLimit,
     );
@@ -281,7 +282,7 @@ class _EngineLabScreenState extends State<EngineLabScreen> {
       }).map((identity) => identity.name).toList();
       if (games.isNotEmpty) {
         final run = EngineBenchmarkRun(
-          id: '${startedAt.microsecondsSinceEpoch}-${math.Random().nextInt(1 << 32).toRadixString(16)}',
+          id: '${startedAt.microsecondsSinceEpoch}-${math.Random().nextInt(1 << 30).toRadixString(16)}',
           startedAt: startedAt,
           platform: kIsWeb ? 'web' : defaultTargetPlatform.name,
           environment: 'device-local; hardware identity not collected',

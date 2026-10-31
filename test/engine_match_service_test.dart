@@ -5,13 +5,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:crispchess/engines/chess_engine.dart';
 import 'package:crispchess/services/engine_match_service.dart';
 
-class _FakeEngine implements ChessEngine {
+class _FakeEngine implements ChessEngine, SearchDrainableEngine {
   @override
   final String name;
   final String move;
   final Completer<void>? searching;
   final Completer<String>? pending;
-  _FakeEngine(this.name, this.move, {this.searching, this.pending});
+  final Completer<void>? drainGate;
+  final Completer<void>? drainStarted;
+  final bool leaveThinkingAfterMove;
+  int drainCalls = 0;
+  _FakeEngine(this.name, this.move, {
+    this.searching,
+    this.pending,
+    this.drainGate,
+    this.drainStarted,
+    this.leaveThinkingAfterMove = false,
+  });
 
   EngineState _state = EngineState.idle;
   final ValueNotifier<EngineState> _notifier = ValueNotifier(EngineState.idle);
@@ -38,10 +48,25 @@ class _FakeEngine implements ChessEngine {
   }
   @override
   Future<String> bestMove(String positionCommand, {int? depth, Duration? moveTime, int? skillLevel}) async {
-    searching?.complete();
+    _state = EngineState.thinking;
+    _notifier.value = _state;
+    if (searching != null && !searching!.isCompleted) searching!.complete();
     final wait = pending;
-    if (wait != null) return await wait.future;
-    return move;
+    final result = wait != null ? await wait.future : move;
+    if (!leaveThinkingAfterMove) {
+      _state = EngineState.ready;
+      _notifier.value = _state;
+    }
+    return result;
+  }
+
+  @override
+  Future<void> drainSearch({Duration timeout = const Duration(seconds: 5)}) async {
+    drainCalls++;
+    if (drainStarted != null && !drainStarted!.isCompleted) drainStarted!.complete();
+    if (drainGate != null) await drainGate!.future.timeout(timeout);
+    _state = EngineState.ready;
+    _notifier.value = _state;
   }
   @override
   Stream<EvalInfo> analyze(String positionCommand, {int? depth, bool infinite = false}) async* {}
@@ -137,6 +162,38 @@ void main() {
     tournament.dispose();
     white.dispose();
     black.dispose();
+  });
+
+  test('tournament drains a stopped UCI search before reusing the engine', () async {
+    final draining = Completer<void>();
+    final drainStarted = Completer<void>();
+    final first = _FakeEngine(
+      'first',
+      'e2e5',
+      drainGate: draining,
+      drainStarted: drainStarted,
+      leaveThinkingAfterMove: true,
+    );
+    final second = _FakeEngine('second', 'e7e5');
+    final tournament = TournamentService(
+      engines: [first, second],
+      engineIds: const ['first-id', 'second-id'],
+      gamesPerPairing: 2,
+    );
+    final future = tournament.run();
+    // Let the one-game match finish and enter the bounded protocol drain.
+    await drainStarted.future.timeout(const Duration(seconds: 1));
+    expect(first.state, EngineState.thinking);
+    expect(tournament.results, hasLength(1));
+
+    draining.complete();
+    final results = await future;
+    expect(first.drainCalls, 1);
+    expect(results, hasLength(2));
+    expect(results.every((result) => result.status == GameResultStatus.forfeit), isTrue);
+    tournament.dispose();
+    first.dispose();
+    second.dispose();
   });
 
   test('round robin preserves identities and emits one aggregate completion', () async {
