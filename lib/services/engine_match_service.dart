@@ -147,17 +147,19 @@ class EngineMatchService {
     } else if (engine1.state != EngineState.ready) {
       _engine1InitError = StateError('Engine is ${engine1.state}');
     }
-    if (engine2.state == EngineState.idle) {
-      try {
-        await engine2.initialize();
-        if (engine2.state != EngineState.ready) {
-          throw StateError('Initialization ended in ${engine2.state}');
+    if (!_stopped) {
+      if (engine2.state == EngineState.idle) {
+        try {
+          await engine2.initialize();
+          if (engine2.state != EngineState.ready) {
+            throw StateError('Initialization ended in ${engine2.state}');
+          }
+        } catch (e) {
+          _engine2InitError = e;
         }
-      } catch (e) {
-        _engine2InitError = e;
+      } else if (engine2.state != EngineState.ready) {
+        _engine2InitError = StateError('Engine is ${engine2.state}');
       }
-    } else if (engine2.state != EngineState.ready) {
-      _engine2InitError = StateError('Engine is ${engine2.state}');
     }
 
     for (var i = 0; i < config.numGames && !_stopped; i++) {

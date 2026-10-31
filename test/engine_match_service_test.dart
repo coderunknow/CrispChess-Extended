@@ -130,6 +130,34 @@ void main() {
     expect(EngineMatchService.scoresById(results), {'custom:a': 1, 'custom:b': 0});
   });
 
+  test('match cancellation does not start the second engine initialization', () async {
+    final initializeStarted = Completer<void>();
+    final initializeGate = Completer<void>();
+    final white = _FakeEngine(
+      'white',
+      'e2e4',
+      initializeGate: initializeGate,
+      initializeStarted: initializeStarted,
+    );
+    final black = _FakeEngine('black', 'e7e5');
+    final match = EngineMatchService(
+      engine1: white,
+      engine2: black,
+      config: const MatchConfig(numGames: 1),
+    );
+    final future = match.run();
+    await initializeStarted.future.timeout(const Duration(seconds: 1));
+    match.stop();
+    initializeGate.complete();
+
+    expect(await future, isEmpty);
+    expect(white.initializeCalls, 1);
+    expect(black.initializeCalls, 0);
+    match.dispose();
+    white.dispose();
+    black.dispose();
+  });
+
   test('cancelling during a search is classified, not scored as a draw or forfeit', () async {
     final searching = Completer<void>();
     final pending = Completer<String>();
