@@ -151,4 +151,57 @@ void main() {
     await store.add(profile);
     await expectLater(store.add(profile), throwsArgumentError);
   });
+
+  // An entry saved without an id used to be given a *random* one on every read,
+  // and only `load()` wrote the migrated list back — so code that read the
+  // store directly held ids that no later read reproduced, and `remove(id)` /
+  // `update(profile)` matched nothing and silently did nothing. The fallback id
+  // is now derived from the entry, and every mutation goes through `load()`.
+  group('a store written by an older version (no ids)', () {
+    const legacy = [
+      {'name': 'Old Engine', 'path': '/usr/bin/old'},
+      {'name': 'Older Engine', 'path': '/usr/bin/older'},
+    ];
+
+    test('remove() works on the id that load() reported', () async {
+      SharedPreferences.setMockInitialValues(
+          {_key: jsonEncode(legacy)});
+      final store = EngineProfileStore();
+
+      final profiles = await store.load();
+      expect(profiles, hasLength(2));
+
+      expect(await store.remove(profiles.first.id), isTrue,
+          reason: 'the id load() handed out has to be actionable');
+      final after = await EngineProfileStore().load();
+      expect(after.map((p) => p.path), ['/usr/bin/older']);
+    });
+
+    test('update() works on the id that load() reported', () async {
+      SharedPreferences.setMockInitialValues(
+          {_key: jsonEncode(legacy)});
+      final store = EngineProfileStore();
+
+      final profiles = await store.load();
+      final edited = profiles.first.copyWith(path: '/opt/moved');
+
+      expect(await store.update(edited), isTrue);
+      final after = await EngineProfileStore().load();
+      expect(after.first.path, '/opt/moved');
+    });
+
+    test('mutating before any explicit load() still finds the entry', () async {
+      // The manager screen used to read `profiles` directly, then call
+      // `remove(id)` — the id came from a read the store itself could not
+      // reproduce.
+      SharedPreferences.setMockInitialValues(
+          {_key: jsonEncode(legacy)});
+      final store = EngineProfileStore();
+      await store.init();
+      final firstId = store.profiles.first.id;
+
+      expect(await store.remove(firstId), isTrue);
+      expect((await EngineProfileStore().load()).single.name, 'Older Engine');
+    });
+  });
 }

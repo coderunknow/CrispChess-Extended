@@ -45,6 +45,19 @@
   to start is replaced by the previous one with a message saying so.
 - An engine id naming an engine that does not exist no longer quietly plays as
   the built-in engine.
+- The evaluation keeps the colour of the search it came from. A real engine
+  emits a burst of `info` lines while the previous search is being stopped, and
+  the colour was read from a field the caller had already overwritten — so the
+  eval bar briefly flipped sign whenever a search replaced another.
+- Engine profiles saved by an older version (no id) can be removed and edited
+  again. Their id was generated afresh on every read, so the delete or update
+  matched nothing and silently did nothing; the id is now derived from the entry
+  and written back, and every mutation re-reads the store first.
+- The Engine Manager's removal confirmation names an auto-detected engine by the
+  name it reports instead of by its (empty) user-supplied name.
+- The Maia3 (Dart) analysis is no longer shown inverted for Black. Its value
+  head is the *mover's* win probability — the board is mirrored into the model
+  when Black is to move — and it was reported as White's.
 - Two user-added engines with the same name no longer crash the settings screen
   (the hint-engine list is keyed by id, like the engine selector, and a name
   saved by an older version is migrated to one).

@@ -124,8 +124,10 @@ class EngineProfileStore {
   /// Adds [profile]. Two profiles may share a path (the same binary with
   /// different option sets) but never share an id.
   Future<void> add(EngineProfile profile) async {
-    await init();
-    final list = profiles;
+    // `load()`, not `profiles`: it repairs ids saved by an older version and
+    // writes them back, so the entry this call adds is addressed by the same id
+    // every later read produces.
+    final list = await load();
     if (list.any((p) => p.id == profile.id)) {
       throw ArgumentError.value(profile.id, 'profile.id', 'already exists');
     }
@@ -138,8 +140,7 @@ class EngineProfileStore {
   /// Returns false when no such profile is stored, which is the case when it
   /// was removed in the Engine Manager while another screen still held it.
   Future<bool> update(EngineProfile profile) async {
-    await init();
-    final list = profiles;
+    final list = await load();
     final index = list.indexWhere((p) => p.id == profile.id);
     if (index < 0) return false;
     list[index] = profile;
@@ -148,8 +149,7 @@ class EngineProfileStore {
   }
 
   Future<bool> remove(String id) async {
-    await init();
-    final list = profiles;
+    final list = await load();
     final index = list.indexWhere((p) => p.id == id);
     if (index < 0) return false;
     list.removeAt(index);
@@ -160,8 +160,7 @@ class EngineProfileStore {
   /// Removes the profile at [index]. Kept for callers that only have a
   /// position; new code should use [remove] with an id.
   Future<void> removeAt(int index) async {
-    await init();
-    final list = profiles;
+    final list = await load();
     if (index >= 0 && index < list.length) {
       await remove(list[index].id);
     }
@@ -170,8 +169,7 @@ class EngineProfileStore {
   /// Replaces the profile at [index]. Kept for callers that only have a
   /// position; new code should use [update] with a profile.
   Future<void> updateAt(int index, EngineProfile profile) async {
-    await init();
-    final list = profiles;
+    final list = await load();
     if (index >= 0 && index < list.length) {
       list[index] = profile;
       await save(list);

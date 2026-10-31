@@ -18,6 +18,24 @@ String newEngineProfileId() {
   return '$now$noise';
 }
 
+/// Identifier for a profile written before profiles had ids.
+///
+/// Derived from the entry's own content, not generated: a fresh random id on
+/// every read meant the id a screen was holding was not the id the next read
+/// produced, so `remove(id)` and `update(profile)` silently matched nothing —
+/// the store looked like it was saving while the entry stayed put. `load()`
+/// writes these ids back, after which they are ordinary ids.
+///
+/// The hash is a shift-and-add rather than a multiply so it stays exact in the
+/// 32-bit bitwise arithmetic the web build uses as well.
+String legacyEngineProfileId(String name, String path) {
+  var hash = 0x811c9dc5;
+  for (final unit in '$name\u0000$path'.codeUnits) {
+    hash = ((hash << 5) - hash + unit) & 0xffffffff;
+  }
+  return 'legacy-${hash.toRadixString(36)}';
+}
+
 /// A user-added UCI engine.
 ///
 /// [name] is what the user sees (their own label if they typed one, otherwise
@@ -101,6 +119,8 @@ class EngineProfile {
   /// [profiles] throw and the whole Engine Manager screen fail to open.
   factory EngineProfile.fromJson(Map<String, dynamic> json) {
     final rawId = json['id'];
+    final name = json['name'] is String ? json['name'] as String : '';
+    final path = json['path'] is String ? json['path'] as String : '';
     final rawOptions = json['options'];
     final overrides = <String, String>{};
     if (rawOptions is Map) {
@@ -110,9 +130,11 @@ class EngineProfile {
     }
     final rawCount = json['optionCount'];
     return EngineProfile(
-      id: rawId is String && rawId.isNotEmpty ? rawId : null,
-      name: json['name'] is String ? json['name'] as String : '',
-      path: json['path'] is String ? json['path'] as String : '',
+      id: rawId is String && rawId.isNotEmpty
+          ? rawId
+          : legacyEngineProfileId(name, path),
+      name: name,
+      path: path,
       optionOverrides: overrides,
       detectedName: json['detectedName'] is String
           ? json['detectedName'] as String

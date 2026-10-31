@@ -28,13 +28,26 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
   }
 
   Future<void> _loadProfiles() async {
-    await _store.init();
-    // Reading the store is asynchronous (shared_preferences), so the screen can
-    // be gone by the time it answers — which threw "setState() called after
-    // dispose" whenever it was popped quickly.
+    // `load()`, not the raw `profiles` getter: an entry saved by an older
+    // version has no id, and the getter mints a *new* random one on every read.
+    // Only `load()` writes the migrated list back, so reading the getter here
+    // meant the ids on screen were not the ids the next read would produce —
+    // and `remove(id)` / `update(profile)` then matched nothing and silently
+    // did nothing. Reading is asynchronous (shared_preferences), so the screen
+    // can also be gone by the time it answers, which threw
+    // "setState() called after dispose".
+    List<EngineProfile> profiles;
+    try {
+      profiles = await _store.load();
+    } catch (e) {
+      debugPrint('[EngineManager] could not load engine profiles: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+      return;
+    }
     if (!mounted) return;
     setState(() {
-      _profiles = _store.profiles;
+      _profiles = profiles;
       _loading = false;
     });
   }
@@ -193,7 +206,11 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l?.removeEngine ?? 'Remove Engine?'),
-        content: Text(l?.removeEngineConfirm(profile.name) ?? 'Remove "${profile.name}" from your engine list?'),
+        // `displayName`, like the list tile and the confirmation snackbar: the
+        // name field is empty when the user let the engine's own `id name`
+        // stand in for it.
+        content: Text(l?.removeEngineConfirm(profile.displayName) ??
+            'Remove "${profile.displayName}" from your engine list?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l?.cancel ?? 'Cancel')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l?.remove ?? 'Remove')),

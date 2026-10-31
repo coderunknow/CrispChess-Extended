@@ -35,7 +35,8 @@ CrispChess uses a plugin architecture that lets you swap between chess engines a
 - **LM bot zoo** — eight small chess *language models* from the Hugging Face Hub (see NOTICE.md for authors), each exported with a KV cache and tokenized in Dart exactly as upstream. A bot writes the game as PGN text and picks among the legal moves by how likely it finds each one's text, so it can never play an illegal move. Given the real game, the best of them (Chess Llama 68M) plays the move a human played in 41% of positions from real Lichess games, against 1-9% for the blind prompt the Chess LLM Arena uses. In play they are weak: about 400 against Maia anchored at 1100 (they never won a game there). Odd, human-ish opponents, not engines.
 - **Custom UCI** — load any UCI engine via the Engine Manager (desktop/mobile only). Auto-detects engine identity and options.
 
-GPL-3.0 engines are never compiled into the app binary.
+GPL-3.0 engines are never compiled into the app binary. They run as separate
+processes or are downloaded at runtime, keeping the app itself MIT-licensed.
 
 ### Adding your own UCI engine
 
@@ -76,8 +77,10 @@ says which engine failed and offers **Switch to Built-in** — the built-in
 engine is never substituted silently while the failing one is still shown as
 selected. If a custom engine crashes mid-game, it is restarted up to three
 times; after that the failure is reported and you can pick another engine.
-Profiles whose binary has been moved or deleted are reported in the selector
-and skipped by matches instead of breaking them. They run as separate processes or are downloaded at runtime, keeping the app itself MIT-licensed.
+A profile whose binary has been moved or deleted stays in the selector — the
+path is not probed until the engine is started — and the failure is reported
+there: at add time, on the first move, or as a failed match rather than a
+silently substituted engine.
 
 ## Features
 

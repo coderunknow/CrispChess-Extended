@@ -142,8 +142,9 @@ change; **none of them have been run in this environment** (see §0).
   direct map access. A single unreadable entry threw out of the `profiles`
   getter, which is called from `_loadProfiles()` in the manager's `initState`.
 - **Fix:** tolerant decode — unreadable entries dropped, unreadable JSON yields
-  an empty list, duplicate ids regenerated, migrated list written back. The
-  screens also catch storage failures rather than taking the screen down.
+  an empty list, duplicate ids deterministically repaired, migrated list written
+  back. The screens also catch storage failures rather than taking the screen
+  down.
 - **Regression test:** "a corrupt store yields an empty list instead of
   throwing", "unreadable entries are dropped, readable ones kept", "duplicate
   ids are repaired so a delete is unambiguous".
@@ -277,15 +278,14 @@ change; **none of them have been run in this environment** (see §0).
 
 ## 2. Deliberately not changed
 
-- **`createEngine(name)`'s silent fallback for an *unknown built-in name*.**
-  `createEngineForId` validates custom ids and throws, but an unrecognised
-  `builtin:` id still reaches `createEngine`'s `default:` branch and yields
-  `DartEngine`. A canonical list of built-in names does not exist anywhere
-  (each screen contributes its own ordering and localised descriptions), and
-  inventing one to validate against would have re-created the duplicated list
-  this change removes. In practice only values written by this app reach here,
-  and they are always produced by `builtInEngineId(...)`. Recorded as a
-  remaining limitation rather than papered over.
+- **`createEngine(name)` keeps its silent fallback for an unknown name when it
+  is called directly.** That is its documented historical behaviour and
+  `test/engine_contract_test.dart` asserts it. It is no longer how a *saved
+  selection* is resolved: `createEngineForId` calls `createEngineOrNull` and
+  throws `EngineUnavailableException` for an unrecognised `builtin:` id, so a
+  persisted engine id can no longer be silently replaced by a different engine.
+  Nothing in the app calls `createEngine` with a name it did not construct from
+  a canonical built-in id.
 - **`engine_match_service._playGame`'s move parsing** passes
   `'promotion': null` for ordinary moves. `uci_position.dart` deliberately omits
   the key instead. Without the `chess` package sources available offline this
@@ -661,3 +661,154 @@ and `flutter build`.
 - The `continue-on-error` uses that remain in `ci.yml` are on optional native
   cross-builds and the WASM attempt, each followed by a step that fails if no
   artifact was produced; none of them sits on the analyze/test gate.
+
+---
+
+## 10. Third round — execution evidence, a real engine, and the CodeRabbit review
+
+This round was asked to establish working behaviour rather than to re-read
+code. What could be executed was executed; what could not is listed with the
+exact reason and the exact remedy.
+
+### 10.1 The toolchain question, answered with probes rather than assumption
+
+| Probe | Result |
+|---|---|
+| `command -v dart flutter pub dartaotruntime fvm` | nothing |
+| `find / -maxdepth 6 \( -name dart -o -name flutter -o -name dart-sdk \)` | only `linux/flutter` and `windows/flutter` — this project's own platform folders, not an SDK |
+| `ls /opt /usr/local` | yarn, gcc, node — no Dart |
+| `curl https://storage.googleapis.com` | **000** (unreachable) |
+| `curl https://download.flutter.io` | **000** |
+| `curl https://pub.dev`, `https://api.pub.dev` | **000** |
+| `api.github.com/repos/dart-lang/sdk/releases` | `count 0` — no release assets exist to download |
+| `api.github.com/repos/flutter/flutter/releases` | 7 releases, **0 assets on every one** |
+| `pypi.org/pypi/dart-sdk/json` | **404** — no such package |
+| `github.com`, `api.github.com`, `registry.npmjs.org`, `pypi.org` | 200 |
+
+So the SDK is not obtainable here by any route that could be *verified*: the
+official hosts are unreachable, and the GitHub projects that publish Dart and
+Flutter do not attach SDK binaries to their releases. The remaining candidates
+are third-party re-packages on npm/PyPI, which cannot be checked against a
+published checksum from this sandbox (`storage.googleapis.com`, which serves
+them, is blocked) — installing one would be exactly the "arbitrary prebuilt
+binary" this audit was told to avoid. **`flutter pub get`, `flutter analyze`,
+`flutter test` and every platform build remain unexecutable here.**
+
+### 10.2 A real UCI engine was built and used
+
+Stockfish 11 was fetched from `codeload.github.com/official-stockfish/Stockfish`
+(tag `sf_11`, the last classical-eval release, so it needs no network at build
+time) and compiled with `make -j2 build ARCH=x86-64` — **exit 0**, a 397 KB
+binary. Everything below was produced by talking to it.
+
+**Protocol facts the parsers depend on, measured:**
+
+| Question | Measured answer |
+|---|---|
+| Is `score cp` relative to the side to move? | Yes. White up a queen, White to move → `score cp 1330`; the same imbalance with **Black to move** → `score cp 1329` **positive**, i.e. from Black's point of view. Converting that to White's must negate it. |
+| Is `score mate` the same convention? | Yes. `7k/5K2/8/8/8/8/8/6R1 w` → `score mate 1`; the mirror `6r1/8/8/8/8/8/5k2/7K b` → `score mate 1` again, positive for the mover. |
+| Does `stop` still produce `bestmove`? | Yes, and **16 `info` lines arrive between `stop` and `bestmove`** — the measurement behind §10.3. |
+| What does `bestmove` look like? | `bestmove e2e4 ponder e7e6` — a `ponder` field follows, so only field 1 may be read as the move. |
+| How are promotions spelled? | `bestmove a7a8q` — one lowercase letter, matching `PieceType.name` and `uci_position.dart`'s promotion handling. |
+| Can a second `go` while one is running confuse the caller? | Yes — two queued searches produce two `bestmove` lines. A harness that took the first match in its buffer re-used the *previous* `bestmove` and got an illegal move, reproducing the exact defect `UciSearchCoordinator` exists to prevent. |
+
+**A whole game, driven the way the app drives an engine.** The harness mirrors
+`chess_game.dart`'s `positionCommand` (`position startpos moves …`, or
+`position fen … moves …`), `uciGoCommand` (`go movetime <ms>`) and
+`thinkTimeForLevel` (`200 + level*90` ms), re-sending the full move list every
+ply as `generic_uci_engine.bestMove` does:
+
+| Run | Result |
+|---|---|
+| `startpos`, level 10 (1100 ms/move), 40 plies | 40 plies played, **every move legal** (checked against `python-chess`), slowest move 1110 ms against the 1100 ms budget, engine exited 0 |
+| `position fen r3k2r/pppq1ppp/2npbn2/4p3/4P3/2NPBN2/PPPQ1PPP/R3K2R w KQkq - 0 1`, level 6, 20 plies | 20 plies, every move legal, slowest 750 ms against 740 ms, exited 0 |
+
+This is protocol-level evidence, not application evidence: the Dart code that
+would send those same commands was never executed.
+
+### 10.3 P2-12 — the evaluation perspective was still a race
+
+- **Files:** `lib/engines/uci_search_coordinator.dart` plus every engine that
+  mixes it in — `generic_uci_engine.dart`, `lynx_engine.dart`,
+  `stockfish_engine.dart`, `stockfish_downloadable_engine.dart`,
+  `stockfish_web_engine.dart`; `frozenight_engine.dart` and
+  `frozenight_web_engine.dart`; `lynx_web_engine.dart`.
+- **Observed:** the side to move was stored in an instance field that the
+  caller set *before* asking for the search. `startSearch` begins by draining
+  the previous search — `stop`, then wait for its `bestmove` — and the
+  measurement above shows a real engine emits ~16 `info` lines during that
+  window. Those lines belong to the **previous** position but were converted
+  with the **new** position's colour, so the eval bar flickered to the opposite
+  sign on every search that replaced another. Recorded as a "known limitation"
+  in §8; the instruction for this round was not to leave a reachable race
+  documented when it can be fixed.
+- **Fix:** the colour travels with the search. `startSearch(..., whiteToMove:)`
+  stores it *after* the drain, and exposes it as `searchWhiteToMove` for the
+  `info` handler. The five coordinator engines no longer keep a field.
+  `frozenight_*` compute it as a local inside the `analyze` generator (one value
+  per stream, nothing can change it underneath), and `lynx_web_engine` passes it
+  as a parameter to `_parseInfoLine` inside its serialization lock.
+- **Regression test:** "an eval still arriving from the stopped search keeps its
+  colour" (`test/generic_uci_init_test.dart`) — two searches back to back
+  through a fake engine that pauses on `go`: the first eval must stay `+1.00`
+  (White to move) even though the second search, for a Black-to-move position,
+  has already been requested.
+
+### 10.4 CodeRabbit review of 33e74d0 — reconciled
+
+The review completed on commit `33e74d0` (check run `CodeRabbit` →
+`completed / success`, 01:44Z) with four findings. All four were checked against
+the code and all four were **valid**:
+
+| # | Finding | Verdict | Action |
+|---|---|---|---|
+| 1 | The audit doc still claimed `createEngine`'s fallback reaches `builtin:` ids, and still said duplicate ids are "regenerated" | valid (stale doc) | Both statements corrected in §0/§1 (P0-6) and §2 |
+| 2 | `EngineManager._loadProfiles` read `_store.profiles` instead of `load()`, so ids of legacy entries were not the ids later reads produce | valid | `_loadProfiles` uses `load()`; **and** the root cause fixed: an id-less entry now gets a *derived* id (`legacyEngineProfileId`) instead of a random one, and every store mutation goes through `load()` |
+| 3 | `_removeEngine` built its confirmation from `profile.name`, which is empty when the user let the engine's `id name` stand in | valid | Uses `displayName`, like the list tile and the success snackbar |
+| 4 | The README claimed missing binaries are "reported in the selector and skipped by matches", and a licensing sentence had a dangling "They" | valid | Claim replaced with what the code does (the path is not probed until the engine starts); the MIT sentence moved to the GPL-3.0 note where "They" has a referent |
+
+Because the fixes change code, `33e74d0`'s review is **stale for the new
+commit** — a fresh review is required and was requested.
+
+### 10.5 Every score producer, enumerated
+
+`EvalInfo.score` is documented as **pawns, from White's perspective**
+(`lib/engines/chess_engine.dart:26`). Every class that can emit one:
+
+| Producer | What it produces | POV it is measured in | Converted? |
+|---|---|---|---|
+| `DartEngine` (built-in, `dart_engine.dart`, both the search and the static path) | negamax score | **side to move** | yes, negated |
+| `GenericUciEngine` (`generic_uci_engine.dart`) | UCI `score cp` / `score mate` | side to move (measured, §10.2) | yes, both kinds |
+| `StockfishEngine`, `StockfishDownloadableEngine`, `StockfishWebEngine` | as UCI | side to move | yes, both kinds |
+| `LynxEngine`, `LynxWebEngine` | as UCI | side to move | yes, both kinds |
+| `FrozenightEngine` (FFI), `FrozenightWebEngine` | engine score | side to move (verified in the upstream C++: `qsearch` negates children, a mated side is `-MATE.add_time(ply)`) | yes, both kinds |
+| `Lc0Engine`, `Lc0WebEngine` | WDL from `lc0` | side to move | yes |
+| `ChessMambaEngine` | as UCI | side to move | yes |
+| `ChessLmEngine` | constant 0 (no numeric eval) | — | n/a |
+| `SearchlessEngine` (`searchless_engine.dart:224`) | logistic of win probability | **side to move**, negated at the yield | **yes** |
+| `Maia3DartEngine` (`maia3_dart_engine.dart:282`) | WDL value head | **side to move** — the board is mirrored into the model when Black is to move, and the policy's move is mirrored back | **was not** — see below |
+
+`Maia3DartEngine` was the one producer that emitted the mover's value
+unconverted: on a Black-to-move position the eval bar showed Black's
+probability of winning as White's. It is outside PR #1's diff (the file is
+untouched by this branch), so this is a pre-existing defect, not a regression of
+the change; it is fixed here because a known inverted eval in a selectable
+engine would otherwise be left standing. The conversion is `1 - p` on a
+Black-to-move position, which is exact: `win + 0.5*draw` for one side is
+`loss + 0.5*draw` for the other.
+
+**Not proven by execution.** The Maia3 conclusion comes from the code's own
+mirroring (`_legalLogits` mirrors the lookup move and comments that the model
+"always sees white POV") and from `1 - p` being the correct identity; the model
+cannot be run here (weights are multi-hundred-megabyte downloads from a host
+this sandbox cannot reach). The conversion is therefore reasoned, not measured —
+unlike the UCI engines, whose convention was measured against a real binary.
+
+### 10.6 What the third round did not establish
+
+- No Dart or Flutter process was executed: no `pub get`, no `analyze`, no test
+  run, no build, no app launch.
+- The engine parsers were exercised only through their protocol inputs
+  (measured), never through their own code paths.
+- UI behaviour (engine shown as active before initialisation, stale eval bars,
+  error banners) remains code-reviewed only.
