@@ -2102,6 +2102,1095 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Voice input failed: {error}'**
   String voiceFailed(Object error);
+  /// No description provided for @engineLab.
+  ///
+  /// In en, this message translates to:
+  /// **'Engine Lab'**
+  String get engineLab;
+
+  /// No description provided for @engineLabSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Benchmark engines, keep the results and compare versions'**
+  String get engineLabSubtitle;
+
+  /// No description provided for @engineLabDashboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Dashboard'**
+  String get engineLabDashboard;
+
+  /// No description provided for @engineLabBenchmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Benchmark'**
+  String get engineLabBenchmark;
+
+  /// No description provided for @engineLabLeaderboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Leaderboard'**
+  String get engineLabLeaderboard;
+
+  /// No description provided for @engineLabHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get engineLabHistory;
+
+  /// No description provided for @engineLabDiagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostics'**
+  String get engineLabDiagnostics;
+
+  /// No description provided for @benchmarkNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Benchmark Now'**
+  String get benchmarkNow;
+
+  /// No description provided for @benchmarkPresets.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset'**
+  String get benchmarkPresets;
+
+  /// No description provided for @presetQuick.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick'**
+  String get presetQuick;
+
+  /// No description provided for @presetStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'Standard'**
+  String get presetStandard;
+
+  /// No description provided for @presetAccurate.
+  ///
+  /// In en, this message translates to:
+  /// **'Accurate'**
+  String get presetAccurate;
+
+  /// No description provided for @presetCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get presetCustom;
+
+  /// No description provided for @customConfiguration.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom configuration'**
+  String get customConfiguration;
+
+  /// No description provided for @engineLabCustomHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Every setting is stored with the result, so the run can be repeated'**
+  String get engineLabCustomHint;
+
+  /// No description provided for @timePerMoveMs.
+  ///
+  /// In en, this message translates to:
+  /// **'Time per move (ms)'**
+  String get timePerMoveMs;
+
+  /// No description provided for @searchDepthLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Fixed search depth (0 = time)'**
+  String get searchDepthLabel;
+
+  /// No description provided for @gamesPerPairing.
+  ///
+  /// In en, this message translates to:
+  /// **'Games per pairing'**
+  String get gamesPerPairing;
+
+  /// No description provided for @maxGames.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum games (0 = no cap)'**
+  String get maxGames;
+
+  /// No description provided for @maxDurationMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum duration (min, 0 = none)'**
+  String get maxDurationMinutes;
+
+  /// No description provided for @plyLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Ply limit'**
+  String get plyLimit;
+
+  /// No description provided for @openingSuite.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening suite'**
+  String get openingSuite;
+
+  /// No description provided for @randomSeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Random seed'**
+  String get randomSeed;
+
+  /// No description provided for @warmUpGames.
+  ///
+  /// In en, this message translates to:
+  /// **'Warm-up games'**
+  String get warmUpGames;
+
+  /// No description provided for @threadsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Threads (0 = engine default)'**
+  String get threadsLabel;
+
+  /// No description provided for @hashLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Hash MB (0 = engine default)'**
+  String get hashLabel;
+
+  /// No description provided for @optionOverrides.
+  ///
+  /// In en, this message translates to:
+  /// **'UCI option overrides (Name=Value, …)'**
+  String get optionOverrides;
+
+  /// No description provided for @adaptiveStopping.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop early when the uncertainty target is met'**
+  String get adaptiveStopping;
+
+  /// No description provided for @targetStdErr.
+  ///
+  /// In en, this message translates to:
+  /// **'Target standard error (Elo)'**
+  String get targetStdErr;
+
+  /// No description provided for @engineLabRepetitions.
+  ///
+  /// In en, this message translates to:
+  /// **'Repetitions'**
+  String get engineLabRepetitions;
+
+  /// No description provided for @estimatedWorkload.
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated workload'**
+  String get estimatedWorkload;
+
+  /// No description provided for @engineLabSelectEngines.
+  ///
+  /// In en, this message translates to:
+  /// **'Engines'**
+  String get engineLabSelectEngines;
+
+  /// No description provided for @engineLabSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'selected'**
+  String get engineLabSelected;
+
+  /// No description provided for @engineLabUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'unavailable'**
+  String get engineLabUnavailable;
+
+  /// No description provided for @engineLabUnavailableHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Engines marked ✕ cannot be benchmarked on this platform; the reason appears on hover'**
+  String get engineLabUnavailableHint;
+
+  /// No description provided for @selectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all'**
+  String get selectAll;
+
+  /// No description provided for @clearSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get clearSelection;
+
+  /// No description provided for @formatRoundRobin.
+  ///
+  /// In en, this message translates to:
+  /// **'Round robin'**
+  String get formatRoundRobin;
+
+  /// No description provided for @formatGauntlet.
+  ///
+  /// In en, this message translates to:
+  /// **'Gauntlet'**
+  String get formatGauntlet;
+
+  /// No description provided for @referenceEngine.
+  ///
+  /// In en, this message translates to:
+  /// **'Reference engine'**
+  String get referenceEngine;
+
+  /// No description provided for @engineLabGauntletNeedsReference.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a reference engine for the gauntlet.'**
+  String get engineLabGauntletNeedsReference;
+
+  /// No description provided for @startBenchmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Start benchmark'**
+  String get startBenchmark;
+
+  /// No description provided for @pauseBenchmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get pauseBenchmark;
+
+  /// No description provided for @resumeBenchmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get resumeBenchmark;
+
+  /// No description provided for @cancelBenchmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get cancelBenchmark;
+
+  /// No description provided for @benchmarkRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Benchmark running'**
+  String get benchmarkRunning;
+
+  /// No description provided for @engineLabStarting.
+  ///
+  /// In en, this message translates to:
+  /// **'Starting engines…'**
+  String get engineLabStarting;
+
+  /// No description provided for @engineLabCancelling.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelling…'**
+  String get engineLabCancelling;
+
+  /// No description provided for @engineLabFinished.
+  ///
+  /// In en, this message translates to:
+  /// **'Benchmark complete.'**
+  String get engineLabFinished;
+
+  /// No description provided for @engineLabFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The benchmark failed'**
+  String get engineLabFailed;
+
+  /// No description provided for @engineLabLastMove.
+  ///
+  /// In en, this message translates to:
+  /// **'Last move'**
+  String get engineLabLastMove;
+
+  /// No description provided for @engineLabConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Start this benchmark?'**
+  String get engineLabConfirmTitle;
+
+  /// No description provided for @engineLabStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Start'**
+  String get engineLabStart;
+
+  /// No description provided for @engineLabEngines.
+  ///
+  /// In en, this message translates to:
+  /// **'Engines'**
+  String get engineLabEngines;
+
+  /// No description provided for @engineLabGames.
+  ///
+  /// In en, this message translates to:
+  /// **'Games'**
+  String get engineLabGames;
+
+  /// No description provided for @engineLabBudget.
+  ///
+  /// In en, this message translates to:
+  /// **'Per move'**
+  String get engineLabBudget;
+
+  /// No description provided for @engineLabEstimate.
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated time'**
+  String get engineLabEstimate;
+
+  /// No description provided for @engineLabWorstCase.
+  ///
+  /// In en, this message translates to:
+  /// **'Worst case'**
+  String get engineLabWorstCase;
+
+  /// No description provided for @engineLabWarnings.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes'**
+  String get engineLabWarnings;
+
+  /// No description provided for @engineLabRuns.
+  ///
+  /// In en, this message translates to:
+  /// **'runs'**
+  String get engineLabRuns;
+
+  /// No description provided for @engineLabRatedGames.
+  ///
+  /// In en, this message translates to:
+  /// **'rated games'**
+  String get engineLabRatedGames;
+
+  /// No description provided for @engineLabForfeits.
+  ///
+  /// In en, this message translates to:
+  /// **'forfeits'**
+  String get engineLabForfeits;
+
+  /// No description provided for @engineLabAborted.
+  ///
+  /// In en, this message translates to:
+  /// **'aborted'**
+  String get engineLabAborted;
+
+  /// No description provided for @engineLabAdjudicated.
+  ///
+  /// In en, this message translates to:
+  /// **'adjudicated'**
+  String get engineLabAdjudicated;
+
+  /// No description provided for @engineLabLastRun.
+  ///
+  /// In en, this message translates to:
+  /// **'Last run'**
+  String get engineLabLastRun;
+
+  /// No description provided for @engineLabNever.
+  ///
+  /// In en, this message translates to:
+  /// **'never'**
+  String get engineLabNever;
+
+  /// No description provided for @engineLabLatestResult.
+  ///
+  /// In en, this message translates to:
+  /// **'Latest result'**
+  String get engineLabLatestResult;
+
+  /// No description provided for @engineLabOpenReport.
+  ///
+  /// In en, this message translates to:
+  /// **'Report'**
+  String get engineLabOpenReport;
+
+  /// No description provided for @noBenchmarksYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No benchmarks yet'**
+  String get noBenchmarksYet;
+
+  /// No description provided for @engineLabEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick two or more engines and run a Quick benchmark. The result is kept.'**
+  String get engineLabEmptyHint;
+
+  /// No description provided for @engineLabLeaderboardHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The leaderboard is built from the runs stored on this device.'**
+  String get engineLabLeaderboardHint;
+
+  /// No description provided for @engineLabHistoryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Every run is stored on this device and can be exported as JSON, CSV or PGN.'**
+  String get engineLabHistoryHint;
+
+  /// No description provided for @engineLabNoRatings.
+  ///
+  /// In en, this message translates to:
+  /// **'No rated games yet.'**
+  String get engineLabNoRatings;
+
+  /// No description provided for @engineLabNoGames.
+  ///
+  /// In en, this message translates to:
+  /// **'No games recorded yet.'**
+  String get engineLabNoGames;
+
+  /// No description provided for @engineLabChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Engines that changed'**
+  String get engineLabChanged;
+
+  /// No description provided for @engineLabChangedSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'These builds differ from the last benchmark'**
+  String get engineLabChangedSubtitle;
+
+  /// No description provided for @engineLabRebenchmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-benchmark'**
+  String get engineLabRebenchmark;
+
+  /// No description provided for @engineLabAutomatic.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic benchmarks'**
+  String get engineLabAutomatic;
+
+  /// No description provided for @engineLabAutomaticSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic runs are always a capped Quick benchmark'**
+  String get engineLabAutomaticSubtitle;
+
+  /// No description provided for @engineLabAutoAfterAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'After adding an engine'**
+  String get engineLabAutoAfterAdd;
+
+  /// No description provided for @engineLabAutoAfterChange.
+  ///
+  /// In en, this message translates to:
+  /// **'After an engine changes'**
+  String get engineLabAutoAfterChange;
+
+  /// No description provided for @engineLabAutoBudget.
+  ///
+  /// In en, this message translates to:
+  /// **'Budget'**
+  String get engineLabAutoBudget;
+
+  /// No description provided for @engineLabRelativeScaleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Relative Elo: 1500 is the average of the engines in this run, not an absolute strength'**
+  String get engineLabRelativeScaleHint;
+
+  /// No description provided for @engineLabCompareTwo.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare two engines'**
+  String get engineLabCompareTwo;
+
+  /// No description provided for @engineLabCompareHint.
+  ///
+  /// In en, this message translates to:
+  /// **'A difference without its uncertainty is not a result'**
+  String get engineLabCompareHint;
+
+  /// No description provided for @engineLabPickTwo.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick two engines.'**
+  String get engineLabPickTwo;
+
+  /// No description provided for @relativeElo.
+  ///
+  /// In en, this message translates to:
+  /// **'Relative Elo'**
+  String get relativeElo;
+
+  /// No description provided for @calibratedElo.
+  ///
+  /// In en, this message translates to:
+  /// **'Calibrated Elo'**
+  String get calibratedElo;
+
+  /// No description provided for @calibrationUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Calibrated Elo unavailable'**
+  String get calibrationUnavailable;
+
+  /// No description provided for @calibrationAnchors.
+  ///
+  /// In en, this message translates to:
+  /// **'Calibration anchors'**
+  String get calibrationAnchors;
+
+  /// No description provided for @uncertainty.
+  ///
+  /// In en, this message translates to:
+  /// **'Uncertainty'**
+  String get uncertainty;
+
+  /// No description provided for @ratingQuality.
+  ///
+  /// In en, this message translates to:
+  /// **'Quality'**
+  String get ratingQuality;
+
+  /// No description provided for @engineLabScore.
+  ///
+  /// In en, this message translates to:
+  /// **'Score'**
+  String get engineLabScore;
+
+  /// No description provided for @performanceMetrics.
+  ///
+  /// In en, this message translates to:
+  /// **'Performance'**
+  String get performanceMetrics;
+
+  /// No description provided for @engineLabPerformanceHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Measured around every move; counters the engine does not report stay unavailable'**
+  String get engineLabPerformanceHint;
+
+  /// No description provided for @nodesPerSecond.
+  ///
+  /// In en, this message translates to:
+  /// **'Nodes per second'**
+  String get nodesPerSecond;
+
+  /// No description provided for @latencyP50.
+  ///
+  /// In en, this message translates to:
+  /// **'Median'**
+  String get latencyP50;
+
+  /// No description provided for @latencyP95.
+  ///
+  /// In en, this message translates to:
+  /// **'p95'**
+  String get latencyP95;
+
+  /// No description provided for @latencyP99.
+  ///
+  /// In en, this message translates to:
+  /// **'p99'**
+  String get latencyP99;
+
+  /// No description provided for @engineLabMax.
+  ///
+  /// In en, this message translates to:
+  /// **'Max'**
+  String get engineLabMax;
+
+  /// No description provided for @engineLabDepth.
+  ///
+  /// In en, this message translates to:
+  /// **'Depth'**
+  String get engineLabDepth;
+
+  /// No description provided for @engineLabInitMs.
+  ///
+  /// In en, this message translates to:
+  /// **'Init'**
+  String get engineLabInitMs;
+
+  /// No description provided for @unavailableLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'unavailable'**
+  String get unavailableLabel;
+
+  /// No description provided for @engineLabMoves.
+  ///
+  /// In en, this message translates to:
+  /// **'Moves'**
+  String get engineLabMoves;
+
+  /// No description provided for @engineLabEngine.
+  ///
+  /// In en, this message translates to:
+  /// **'Engine'**
+  String get engineLabEngine;
+
+  /// No description provided for @engineLabCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check'**
+  String get engineLabCheck;
+
+  /// No description provided for @engineLabPassed.
+  ///
+  /// In en, this message translates to:
+  /// **'Passed'**
+  String get engineLabPassed;
+
+  /// No description provided for @engineLabMedian.
+  ///
+  /// In en, this message translates to:
+  /// **'Median'**
+  String get engineLabMedian;
+
+  /// No description provided for @engineLabWorst.
+  ///
+  /// In en, this message translates to:
+  /// **'Worst'**
+  String get engineLabWorst;
+
+  /// No description provided for @stabilityCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Stability check'**
+  String get stabilityCheck;
+
+  /// No description provided for @stabilityPassed.
+  ///
+  /// In en, this message translates to:
+  /// **'Passed'**
+  String get stabilityPassed;
+
+  /// No description provided for @stabilityFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get stabilityFailed;
+
+  /// No description provided for @engineLabStabilityHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeated initialisation, repeated searches and a clean shutdown'**
+  String get engineLabStabilityHint;
+
+  /// No description provided for @engineLabRunStability.
+  ///
+  /// In en, this message translates to:
+  /// **'Run check'**
+  String get engineLabRunStability;
+
+  /// No description provided for @engineLabIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'Engine identity'**
+  String get engineLabIdentity;
+
+  /// No description provided for @engineLabIdentityHint.
+  ///
+  /// In en, this message translates to:
+  /// **'What the benchmark records, and what decides whether two runs are comparable'**
+  String get engineLabIdentityHint;
+
+  /// No description provided for @engineLabIdentityEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Inspect an engine to see its id, fingerprint, backend and configuration digest.'**
+  String get engineLabIdentityEmpty;
+
+  /// No description provided for @engineLabInspect.
+  ///
+  /// In en, this message translates to:
+  /// **'Inspect'**
+  String get engineLabInspect;
+
+  /// No description provided for @engineLabEnvironment.
+  ///
+  /// In en, this message translates to:
+  /// **'Environment'**
+  String get engineLabEnvironment;
+
+  /// No description provided for @engineLabPlatform.
+  ///
+  /// In en, this message translates to:
+  /// **'Platform'**
+  String get engineLabPlatform;
+
+  /// No description provided for @engineLabVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get engineLabVersion;
+
+  /// No description provided for @engineLabMetricsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'CPU time and memory usage are not exposed by the engine protocol, so they are reported as unavailable rather than estimated.'**
+  String get engineLabMetricsHint;
+
+  /// No description provided for @engineLabLicense.
+  ///
+  /// In en, this message translates to:
+  /// **'Suite license'**
+  String get engineLabLicense;
+
+  /// No description provided for @engineLabProgressionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Relative rating of each engine over the runs stored here'**
+  String get engineLabProgressionHint;
+
+  /// No description provided for @engineLabDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this run?'**
+  String get engineLabDeleteTitle;
+
+  /// No description provided for @engineLabReport.
+  ///
+  /// In en, this message translates to:
+  /// **'Benchmark report'**
+  String get engineLabReport;
+
+  /// No description provided for @engineLabReportMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Report unavailable'**
+  String get engineLabReportMissing;
+
+  /// No description provided for @engineLabSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Summary'**
+  String get engineLabSummary;
+
+  /// No description provided for @engineLabStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Started'**
+  String get engineLabStarted;
+
+  /// No description provided for @engineLabDuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Duration'**
+  String get engineLabDuration;
+
+  /// No description provided for @engineLabTrigger.
+  ///
+  /// In en, this message translates to:
+  /// **'Trigger'**
+  String get engineLabTrigger;
+
+  /// No description provided for @engineLabStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped because'**
+  String get engineLabStopped;
+
+  /// No description provided for @engineLabFormat.
+  ///
+  /// In en, this message translates to:
+  /// **'Format'**
+  String get engineLabFormat;
+
+  /// No description provided for @engineLabConfiguration.
+  ///
+  /// In en, this message translates to:
+  /// **'Configuration'**
+  String get engineLabConfiguration;
+
+  /// No description provided for @engineLabFailures.
+  ///
+  /// In en, this message translates to:
+  /// **'Engine problems'**
+  String get engineLabFailures;
+
+  /// No description provided for @engineLabStandings.
+  ///
+  /// In en, this message translates to:
+  /// **'Standings'**
+  String get engineLabStandings;
+
+  /// No description provided for @engineLabGamesList.
+  ///
+  /// In en, this message translates to:
+  /// **'Games'**
+  String get engineLabGamesList;
+
+  /// No description provided for @engineLabShowAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all'**
+  String get engineLabShowAll;
+
+  /// No description provided for @engineLabShowLess.
+  ///
+  /// In en, this message translates to:
+  /// **'Show fewer'**
+  String get engineLabShowLess;
+
+  /// No description provided for @engineLabExportReport.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy report'**
+  String get engineLabExportReport;
+
+  /// No description provided for @engineLabMethod.
+  ///
+  /// In en, this message translates to:
+  /// **'Method'**
+  String get engineLabMethod;
+
+  /// No description provided for @engineLabMethodBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Bradley–Terry maximum likelihood over every rated game, centred on the average of the engines in the run. The 95% interval is the rating ± 1.96 × standard error, from the Fisher information of the fit. Adjudicated, aborted, cancelled and forfeited games are counted but not rated: a game that did not finish is not a draw.'**
+  String get engineLabMethodBody;
+
+  /// No description provided for @exportJson.
+  ///
+  /// In en, this message translates to:
+  /// **'Export JSON'**
+  String get exportJson;
+
+  /// No description provided for @exportCsv.
+  ///
+  /// In en, this message translates to:
+  /// **'Export CSV'**
+  String get exportCsv;
+
+  /// No description provided for @exportPgn.
+  ///
+  /// In en, this message translates to:
+  /// **'Export PGN'**
+  String get exportPgn;
+
+  /// No description provided for @importBenchmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get importBenchmark;
+
+  /// No description provided for @delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get delete;
+
+  /// No description provided for @copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get copy;
+
+
+  /// `elo`.
+  String get elo;
+
+  /// `refresh`.
+  String get refresh;
+
+  /// `retry`.
+  String get retry;
+
+  /// `engineLabAdaptiveStopping`.
+  String get engineLabAdaptiveStopping;
+
+  /// `engineLabAppVersion`.
+  String get engineLabAppVersion;
+
+  /// `engineLabBackend`.
+  String get engineLabBackend;
+
+  /// `engineLabBalanceColors`.
+  String get engineLabBalanceColors;
+
+  /// `engineLabBuiltIn`.
+  String get engineLabBuiltIn;
+
+  /// `engineLabCalibrationHint`.
+  String get engineLabCalibrationHint;
+
+  /// `engineLabCalibrationUnavailable`.
+  String get engineLabCalibrationUnavailable;
+
+  /// `engineLabCompare`.
+  String get engineLabCompare;
+
+  /// `engineLabCustom`.
+  String get engineLabCustom;
+
+  /// `engineLabDeleteBody`.
+  String get engineLabDeleteBody;
+
+  /// `engineLabFingerprint`.
+  String get engineLabFingerprint;
+
+  /// `engineLabGauntletHint`.
+  String get engineLabGauntletHint;
+
+  /// `engineLabHash`.
+  String get engineLabHash;
+
+  /// `engineLabHost`.
+  String get engineLabHost;
+
+  /// `engineLabInProgress`.
+  String get engineLabInProgress;
+
+  /// `engineLabMaxGames`.
+  String get engineLabMaxGames;
+
+  /// `engineLabMaxMinutes`.
+  String get engineLabMaxMinutes;
+
+  /// `engineLabMovesPerPairing`.
+  String get engineLabMovesPerPairing;
+
+  /// `engineLabNoAnchors`.
+  String get engineLabNoAnchors;
+
+  /// `engineLabNoFingerprint`.
+  String get engineLabNoFingerprint;
+
+  /// `engineLabNoHistory`.
+  String get engineLabNoHistory;
+
+  /// `engineLabNoHistoryHint`.
+  String get engineLabNoHistoryHint;
+
+  /// `engineLabNoMetrics`.
+  String get engineLabNoMetrics;
+
+  /// `engineLabNoRatedGames`.
+  String get engineLabNoRatedGames;
+
+  /// `engineLabNoRatingsHint`.
+  String get engineLabNoRatingsHint;
+
+  /// `engineLabOpeningSuite`.
+  String get engineLabOpeningSuite;
+
+  /// `engineLabPerformance`.
+  String get engineLabPerformance;
+
+  /// `engineLabPlyCap`.
+  String get engineLabPlyCap;
+
+  /// `engineLabPlyCapHint`.
+  String get engineLabPlyCapHint;
+
+  /// `engineLabPreset`.
+  String get engineLabPreset;
+
+  /// `engineLabProgression`.
+  String get engineLabProgression;
+
+  /// `engineLabQualityHigh`.
+  String get engineLabQualityHigh;
+
+  /// `engineLabQualityInsufficient`.
+  String get engineLabQualityInsufficient;
+
+  /// `engineLabQualityLow`.
+  String get engineLabQualityLow;
+
+  /// `engineLabQualityModerate`.
+  String get engineLabQualityModerate;
+
+  /// `engineLabRated`.
+  String get engineLabRated;
+
+  /// `engineLabReference`.
+  String get engineLabReference;
+
+  /// `engineLabRunning`.
+  String get engineLabRunning;
+
+  /// `engineLabSearchDepth`.
+  String get engineLabSearchDepth;
+
+  /// `engineLabSeed`.
+  String get engineLabSeed;
+
+  /// `engineLabStability`.
+  String get engineLabStability;
+
+  /// `engineLabTargetStdErr`.
+  String get engineLabTargetStdErr;
+
+  /// `engineLabThreads`.
+  String get engineLabThreads;
+
+  /// `engineLabTimePerMoveMs`.
+  String get engineLabTimePerMoveMs;
+
+  /// `engineLabUnchanged`.
+  String get engineLabUnchanged;
+
+  /// `engineLabWarmUp`.
+  String get engineLabWarmUp;
+
+  /// `engineLabWebNote`.
+  String get engineLabWebNote;
+
+  /// `engineLabZeroIsEngineDefault`.
+  String get engineLabZeroIsEngineDefault;
+
+  /// `engineLabZeroIsNever`.
+  String get engineLabZeroIsNever;
+
+  /// `engineLabZeroIsTime`.
+  String get engineLabZeroIsTime;
+
+  /// `engineLabZeroIsUnlimited`.
+  String get engineLabZeroIsUnlimited;
+
+  /// `engineLabAddAnchor`.
+  String get engineLabAddAnchor;
+
+  /// `engineLabRemoveAnchor`.
+  String get engineLabRemoveAnchor;
+
+  /// `engineLabAnchorUsedHint`.
+  String get engineLabAnchorUsedHint;
+
+  /// `engineLabAnchorIntro`.
+  String get engineLabAnchorIntro;
+
+  /// `engineLabAnchorRating`.
+  String get engineLabAnchorRating;
+
+  /// `engineLabAnchorScale`.
+  String get engineLabAnchorScale;
+
+  /// `engineLabAnchorSource`.
+  String get engineLabAnchorSource;
+
+  /// `engineLabAnchorDate`.
+  String get engineLabAnchorDate;
+
+  /// `engineLabAnchorHardware`.
+  String get engineLabAnchorHardware;
+
+  /// `engineLabAnchorTimeControl`.
+  String get engineLabAnchorTimeControl;
+
+  /// `engineLabAnchorBudget`.
+  String get engineLabAnchorBudget;
+
+  /// `engineLabAnchorMissing`.
+  String get engineLabAnchorMissing;
+
+  /// `engineLabAnchorDateHint`.
+  String get engineLabAnchorDateHint;
 }
 
 class _AppLocalizationsDelegate

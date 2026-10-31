@@ -1,0 +1,124 @@
+# Engine Lab diagnostics.
+#
+# The environment that produced this branch has no Flutter/Dart SDK, and the
+# Actions job log is only available to a browser session, not to the tools that
+# can drive the workflow. This job therefore runs the same gates `ci.yml` and
+# `benchmark.yml` run and posts their *verbatim* output as a pull-request
+# comment, where it can be read back through the API.
+#
+# It is a debugging aid, not a gate: it is `workflow_dispatch` only, it never
+# writes to the repository, and the gates that decide whether the branch is
+# good remain `CI` and `Engine Lab`.
+name: Lab diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to post the diagnostics on
+        required: true
+        type: string
+      suites:
+        description: Which extra test files to run (space separated, optional)
+        required: false
+        default: ""
+        type: string
+
+# Least privilege: read the repository, write one comment on the pull request.
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: lab-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostics:
+    name: Analyze and test, post the output
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        id: analyze
+        env:
+          # Inputs arrive as environment variables, never interpolated into the
+          # shell source, so a crafted value cannot become a command.
+          SUITES: ${{ inputs.suites }}
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings \
+            > "$RUNNER_TEMP/analyze.txt" 2>&1
+          echo "analyze_exit=$?" >> "$GITHUB_OUTPUT"
+          tail -n 5 "$RUNNER_TEMP/analyze.txt"
+
+      - name: Test
+        id: test
+        env:
+          SUITES: ${{ inputs.suites }}
+        run: |
+          set +e
+          if [ -n "$SUITES" ]; then
+            flutter test --reporter expanded $SUITES \
+              > "$RUNNER_TEMP/test.txt" 2>&1
+          else
+            flutter test --reporter expanded > "$RUNNER_TEMP/test.txt" 2>&1
+          fi
+          echo "test_exit=$?" >> "$GITHUB_OUTPUT"
+          tail -n 5 "$RUNNER_TEMP/test.txt"
+
+      - name: Post the output as a pull-request comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr }}
+          ANALYZE_EXIT: ${{ steps.analyze.outputs.analyze_exit }}
+          TEST_EXIT: ${{ steps.test.outputs.test_exit }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          def tail(path: str, limit: int = 45000) -> str:
+              try:
+                  text = Path(path).read_text(errors="replace")
+              except FileNotFoundError:
+                  return "_no output: the step did not run_"
+              if len(text) > limit:
+                  text = "_truncated to the last %d characters_\n" % limit + text[-limit:]
+              return text
+
+          body = "\n".join([
+              "## Lab diagnostics for `%s`" % os.environ["HEAD_SHA"][:12],
+              "",
+              "- `flutter analyze` exit: `%s`" % os.environ.get("ANALYZE_EXIT"),
+              "- `flutter test` exit: `%s`" % os.environ.get("TEST_EXIT"),
+              "",
+              "### analyze",
+              "",
+              "```",
+              tail(os.path.join(os.environ["RUNNER_TEMP"], "analyze.txt")),
+              "```",
+              "",
+              "### test",
+              "",
+              "```",
+              tail(os.path.join(os.environ["RUNNER_TEMP"], "test.txt")),
+              "```",
+              "",
+          ])
+          Path("diagnostics.md").write_text(body)
+          PY
+          gh pr comment "$PR_NUMBER" --body-file diagnostics.md

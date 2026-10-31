@@ -1,0 +1,54 @@
+/// Key/value documents for the benchmark history, without a platform.
+///
+/// The interface is deliberately tiny: three operations and a key listing. The
+/// native implementation writes files (atomically, with the previous version
+/// kept as `.bak`); the browser one uses `shared_preferences`, because a
+/// browser has no filesystem. Both are good enough for a few hundred runs of a
+/// few thousand games, and neither needs a new native plugin on six platforms.
+library;
+
+/// A place to keep benchmark documents.
+abstract class BenchmarkStorage {
+  /// Prepares the storage. Safe to call more than once.
+  Future<void> init();
+
+  /// The document stored under [key], or null.
+  Future<String?> read(String key);
+
+  /// Stores [value] under [key], atomically where the platform allows it.
+  Future<void> write(String key, String value);
+
+  /// Removes [key]; missing keys are not an error.
+  Future<void> delete(String key);
+
+  /// Every key that starts with [prefix].
+  Future<List<String>> keys(String prefix);
+}
+
+/// In-memory storage, for tests and for the (unlikely) case where neither
+/// platform backend can be created.
+class MemoryBenchmarkStorage implements BenchmarkStorage {
+  final Map<String, String> _documents = {};
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<String?> read(String key) async => _documents[key];
+
+  @override
+  Future<void> write(String key, String value) async {
+    _documents[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    _documents.remove(key);
+  }
+
+  @override
+  Future<List<String>> keys(String prefix) async => [
+        for (final key in _documents.keys)
+          if (key.startsWith(prefix)) key
+      ];
+}

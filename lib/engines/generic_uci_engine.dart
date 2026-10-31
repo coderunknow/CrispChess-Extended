@@ -12,6 +12,8 @@ import 'package:flutter/foundation.dart';
 
 import 'chess_engine.dart';
 import 'generic_uci_engine_stub.dart';
+import 'search_telemetry.dart';
+import 'uci_capabilities.dart';
 import 'uci_option.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_position.dart';
@@ -22,7 +24,7 @@ export 'chess_engine.dart' show EngineProcessDiedException;
 
 class GenericUciEngine
     with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine {
+    implements ChessEngine, SearchTelemetry, UciOptionAware {
   final EngineProfile profile;
 
   Process? _process;
@@ -46,6 +48,38 @@ class GenericUciEngine
   /// UCI options advertised by the engine.
   final List<UciOption> options = [];
 
+  /// Counters from the last search, for engines that report them.
+  ///
+  /// UCI makes `nodes`, `nps`, `time`, `hashfull` and `tbhits` optional on an
+  /// `info` line, so each is recorded only when the engine actually printed it
+  /// — the Engine Lab shows "unavailable" rather than a zero for the rest.
+  SearchStatistics _lastStats = SearchStatistics.none;
+
+  @override
+  SearchStatistics get lastSearchStatistics => _lastStats;
+
+  @override
+  void resetSearchStatistics() => _lastStats = SearchStatistics.none;
+
+  /// Whether the engine advertises a UCI option called [name], matched
+  /// case-insensitively the way engines match it.
+  ///
+  /// Most engines match option names case-insensitively and ignore an unknown
+  /// one silently, which is why a benchmark has to ask before claiming it
+  /// applied "Threads = 4".
+  @override
+  bool advertisesOption(String name) {
+    final wanted = name.toLowerCase();
+    return options.any((o) => o.name.toLowerCase() == wanted);
+  }
+
+  @override
+  List<String> get advertisedOptionNames =>
+      [for (final option in options) option.name];
+
+  @override
+  void applyOption(String name, String value) => setOption(name, value);
+
   /// Whether the engine answered `uciok` in the last handshake.
   bool _handshakeComplete = false;
 
@@ -54,6 +88,11 @@ class GenericUciEngine
   static final _depthRegex = RegExp(r'depth (\d+)');
   static final _pvRegex = RegExp(r' pv (.+)');
   static final _multipvRegex = RegExp(r' multipv (\d+)');
+  static final _nodesRegex = RegExp(r' nodes (\d+)');
+  static final _npsRegex = RegExp(r' nps (\d+)');
+  static final _timeRegex = RegExp(r' time (\d+)');
+  static final _hashFullRegex = RegExp(r' hashfull (\d+)');
+  static final _tbHitsRegex = RegExp(r' tbhits (\d+)');
 
   /// How long the engine has to answer `uci`.
   ///
@@ -293,6 +332,38 @@ class GenericUciEngine
       return;
     }
 
+    // Search counters. Recorded for any `info` line that carries them, not
+    // only the ones with a depth, because engines print `nodes`/`nps` on the
+    // final line and some print them on every line.
+    if (t.startsWith('info') && !t.startsWith('info string')) {
+      int? grab(RegExp re) {
+        final m = re.firstMatch(t);
+        return m == null ? null : int.tryParse(m.group(1)!);
+      }
+
+      final nodes = grab(_nodesRegex);
+      final nps = grab(_npsRegex);
+      final timeMs = grab(_timeRegex);
+      final hashFull = grab(_hashFullRegex);
+      final tbhits = grab(_tbHitsRegex);
+      final depth = grab(_depthRegex);
+      if (nodes != null ||
+          nps != null ||
+          timeMs != null ||
+          hashFull != null ||
+          tbhits != null ||
+          depth != null) {
+        _lastStats = _lastStats.merge(SearchStatistics(
+          nodes: nodes,
+          nps: nps,
+          timeMs: timeMs,
+          hashFullPerMille: hashFull,
+          tablebaseHits: tbhits,
+          depth: depth,
+        ));
+      }
+    }
+
     // Parse evaluation info lines
     if (t.startsWith('info') && t.contains('depth')) {
       final depthMatch = _depthRegex.firstMatch(t);
@@ -347,6 +418,9 @@ class GenericUciEngine
   }) async {
     if (_process == null) throw StateError('Not initialized');
     if (processGone) throw await processDeathReport();
+    // Counters belong to one search; a merge across two would report the
+    // larger of two depths and the sum-shaped nonsense in between.
+    resetSearchStatistics();
     _stateNotifier.value = EngineState.thinking;
     if (skillLevel != null) {
       _send('setoption name Skill Level value $skillLevel');
@@ -391,6 +465,7 @@ class GenericUciEngine
       if (processGone) debugPrint('[$processLabel] analysis skipped: process gone');
       return const Stream.empty();
     }
+    resetSearchStatistics();
     _stateNotifier.value = EngineState.thinking;
     // Bound the depth search by the clock too. A fixed depth costs whatever
     // that depth costs in the position in front of it — the thing that was

@@ -5,12 +5,11 @@ import '../engines/chess_engine.dart';
 import '../engines/engine_registry.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
-import '../engines/chess_lm_engine.dart' show availableChessLmNames;
-import '../engines/searchless_engine.dart' show availableSearchlessSizes;
 import '../services/engine_match_service.dart';
-import '../services/rating_fit.dart';
+import '../bench/elo.dart';
 import '../chess/chess_game.dart';
 import '../widgets/chess_board.dart';
+import 'engine_lab_screen.dart';
 
 /// Screen for running engine vs engine matches.
 class EngineMatchScreen extends StatefulWidget {
@@ -54,17 +53,9 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
   int _currentGame = 0;
   int _currentMoveCount = 0;
 
-  /// Built-in engines offered by the match screen.
-  static final _builtInNames = [
-    'Built-in',
-    'Frozenight',
-    'Stockfish',
-    'Maia3 Dart',
-    'ChessMamba',
-    'Lc0',
-    for (final s in availableSearchlessSizes) s.engineName,
-    ...availableChessLmNames,
-  ];
+  /// Built-in engines offered by the match screen, from the shared list in
+  /// `engine_registry.dart` so the Engine Lab benchmarks exactly these.
+  static final _builtInNames = builtInMatchEngines;
 
   /// Everything selectable here: the built-ins above plus user-added engines.
   List<({String id, String label})> get _engineChoices =>
@@ -168,6 +159,8 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
     _match = EngineMatchService(
       engine1: e1,
       engine2: e2,
+      engine1Id: _engine1Name,
+      engine2Id: _engine2Name,
       config: MatchConfig(numGames: _numGames, depthPerMove: _depth),
     );
 
@@ -194,9 +187,13 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
           });
         case MatchFinished(:final results):
           final scores = EngineMatchService.scores(results);
+          final skipped = EngineMatchService.unclassified(results);
           setState(() {
             _running = false;
-            _status = 'Match complete! ${scores.entries.map((e) => '${e.key}: ${e.value}').join(' — ')}';
+            _status = 'Match complete! '
+                '${scores.entries.map((e) => '${_labelForId(e.key)}: ${e.value}').join(' — ')}'
+                '${skipped.isEmpty ? '' : ' · not rated: '
+                    '${skipped.entries.map((e) => '${e.value} ${e.key}').join(', ')}'}';
           });
         case TournamentRoundStart():
           break; // Handled in tournament mode
@@ -238,9 +235,13 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
     _disposeOwnedEngines();
 
     final engines = <ChessEngine>[];
+    final engineIds = <String>[];
     for (final id in _tournamentEngines) {
       final engine = _buildEngine(id);
-      if (engine != null) engines.add(engine);
+      if (engine != null) {
+        engines.add(engine);
+        engineIds.add(id);
+      }
     }
     _ownedEngines.addAll(engines);
     if (engines.length < 3) {
@@ -254,7 +255,11 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
       return;
     }
     _tournament = TournamentService(
-        engines: engines, depthPerMove: _depth, gamesPerPairing: _numGames);
+      engines: engines,
+      engineIds: engineIds,
+      depthPerMove: _depth,
+      gamesPerPairing: _numGames,
+    );
 
     _sub = _tournament!.events.listen((event) {
       if (!mounted) return;
@@ -275,9 +280,16 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
           setState(() => _results.add(result));
         case MatchFinished(:final results):
           final standings = TournamentService.standings(results);
+          final skipped = EngineMatchService.unclassified(results);
           setState(() {
             _running = false;
-            _status = 'Tournament complete! Winner: ${standings.first.key}';
+            _status = standings.isEmpty
+                ? 'Tournament complete — no rated games.'
+                : 'Tournament complete! Winner: '
+                    '${_labelForId(standings.first.key)} '
+                    '(${standings.first.value} points)'
+                    '${skipped.isEmpty ? '' : ' · not rated: '
+                        '${skipped.entries.map((e) => '${e.value} ${e.key}').join(', ')}'}';
           });
         default:
           break;
@@ -315,6 +327,17 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
       appBar: AppBar(
         title: Text(l?.engineVsEngine ?? 'Engine vs Engine'),
         actions: [
+          IconButton(
+            tooltip: l?.engineLab ?? 'Engine Lab',
+            icon: const Icon(Icons.science_outlined),
+            onPressed: _running
+                ? null
+                : () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const EngineLabScreen()),
+                    ),
+          ),
           if (_running)
             IconButton(
               icon: const Icon(Icons.stop, color: Colors.red),
@@ -466,7 +489,7 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
                         children: scores.entries.map((e) => Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: Chip(
-                            label: Text('${e.key}: ${e.value}',
+                            label: Text('${_labelForId(e.key)}: ${e.value}',
                               style: const TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         )).toList(),
@@ -483,12 +506,20 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
                           dense: true,
                           leading: CircleAvatar(
                             radius: 14,
-                            backgroundColor: r.result == '1-0' ? Colors.green
-                                : r.result == '0-1' ? Colors.red : Colors.grey,
+                            backgroundColor: r.outcome == GameOutcome.whiteWin
+                                ? Colors.green
+                                : r.outcome == GameOutcome.blackWin
+                                    ? Colors.red
+                                    : r.outcome == GameOutcome.draw
+                                        ? Colors.grey
+                                        : Colors.orange,
                             child: Text('${index + 1}', style: const TextStyle(fontSize: 11, color: Colors.white)),
                           ),
                           title: Text('${r.white} vs ${r.black}', style: const TextStyle(fontSize: 12)),
-                          subtitle: Text('${r.result} — ${r.moves} moves', style: const TextStyle(fontSize: 11)),
+                          subtitle: Text(
+                              '${r.result} — ${r.moves} moves'
+                              '${r.detail == null ? '' : ' · ${r.detail}'}',
+                              style: const TextStyle(fontSize: 11)),
                         );
                       },
                     ),
@@ -507,6 +538,10 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
             ),
     );
   }
+
+  /// Display label for an engine id, used by every summary line because scores
+  /// and standings are keyed by id.
+  String _labelForId(String id) => engineLabelForId(id, _profiles);
 
   Widget _engineDropdown(
       String label, String value, ValueChanged<String> onChanged) {
@@ -568,48 +603,95 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
   /// on 1500, with one standard error — a small match mostly measures noise,
   /// and the error bar says so.
   Widget _ratingsTable() {
-    final ratings = fitRatings([
-      for (final r in _results)
-        (white: r.white, black: r.black, score: r.whiteScore)
-    ]);
+    // Rated games only, keyed by engine id: a forfeit, an aborted game or a
+    // ply-cap adjudication has no score to fit, and two engines that share a
+    // display name are not one player.
+    final rated = [for (final r in _results) if (r.isRated) r];
+    if (rated.isEmpty) return const SizedBox.shrink();
+    // The same fit, interval and quality grade the Engine Lab uses: a rating
+    // shown here and a rating shown there must not be two different numbers.
+    final fit = fitElo(
+      games: [
+        for (final r in rated)
+          (white: r.whiteId, black: r.blackId, score: r.whiteScore ?? 0.5)
+      ],
+      labels: {
+        for (final r in rated) ...{
+          r.whiteId: _labelForId(r.whiteId),
+          r.blackId: _labelForId(r.blackId),
+        },
+      },
+    );
+    final ratings = fit.ratings;
     final l = AppLocalizations.of(context);
+    // With exactly two engines — the ordinary case — say whether the
+    // difference is bigger than its own uncertainty instead of leaving the
+    // reader to compare two numbers that overlap.
+    final comparison = ratings.length == 2
+        ? fit.compare(ratings.first.engineId, ratings.last.engineId)
+        : null;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Table(
-        columnWidths: const {
-          0: FlexColumnWidth(3),
-          1: FlexColumnWidth(2),
-          2: FlexColumnWidth(2),
-          3: FlexColumnWidth(1.4),
-        },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TableRow(children: [
-            for (final h in [
-              l?.engine ?? 'Engine',
-              l?.rating ?? 'Rating',
-              '+ / = / −',
-              '%',
-            ])
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(h,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 12)),
+          Table(
+            columnWidths: const {
+              0: FlexColumnWidth(3),
+              1: FlexColumnWidth(2.4),
+              2: FlexColumnWidth(2),
+              3: FlexColumnWidth(1.4),
+            },
+            children: [
+              TableRow(children: [
+                for (final h in [
+                  l?.engine ?? 'Engine',
+                  l?.rating ?? 'Rating',
+                  '+ / = / −',
+                  '%',
+                ])
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(h,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+              ]),
+              for (final p in ratings)
+                TableRow(children: [
+                  Text(p.label, style: const TextStyle(fontSize: 12)),
+                  Text(
+                      p.stdErr.isFinite
+                          ? '${p.rating.round()} ± ${p.stdErr.round()}'
+                          : '${p.rating.round()}',
+                      style: const TextStyle(fontSize: 12)),
+                  Text('${p.wins} / ${p.draws} / ${p.losses}',
+                      style: const TextStyle(fontSize: 12)),
+                  Text('${p.scorePercent.round()}',
+                      style: const TextStyle(fontSize: 12)),
+                ]),
+            ],
+          ),
+          if (comparison != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '${comparison.verdict} '
+                '(±${(kZ95 * comparison.stdErr).toStringAsFixed(0)} Elo)',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
-          ]),
-          for (final p in ratings)
-            TableRow(children: [
-              Text(p.name, style: const TextStyle(fontSize: 12)),
-              Text(
-                  p.stdErr.isFinite
-                      ? '${p.rating.round()} ± ${p.stdErr.round()}'
-                      : '${p.rating.round()}',
-                  style: const TextStyle(fontSize: 12)),
-              Text('${p.wins} / ${p.draws} / ${p.losses}',
-                  style: const TextStyle(fontSize: 12)),
-              Text('${(p.score * 100).round()}',
-                  style: const TextStyle(fontSize: 12)),
-            ]),
+            ),
+          for (final warning in fit.warnings)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(warning,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ),
         ],
       ),
     );

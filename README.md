@@ -133,8 +133,38 @@ silently substituted engine.
 
 ### Engine vs Engine
 - Match mode — two engines play N games with alternating colors
-- Tournament mode — round-robin for 3+ engines with standings
+- Tournament mode — round-robin (or gauntlet) for 3+ engines with standings
 - Live board display, configurable depth
+- Games that end without a result (crash, timeout, illegal move, ply cap) are
+  reported as forfeits/adjudications, not counted as draws
+
+### Engine Lab (benchmarking)
+- **Presets** — Quick (~10 min), Standard, Accurate, or a fully custom budget:
+  depth or time per move, games per pairing, ply cap, game cap, wall-clock cap,
+  opening suite, seed, threads and hash
+- **Relative Elo with intervals** — Bradley–Terry fitted over every game at
+  once, centred on 1500 across the run, with a 95% interval, a quality grade
+  and connectivity warnings instead of a bare number
+- **Calibrated Elo, only when it is earned** — a published rating you declare
+  (source, date, hardware, time control) plus a matching move budget within
+  20%; otherwise the report says why there is no absolute number
+- **Definitions of a game** — forfeit, abort, adjudication and cancellation are
+  distinct outcomes, excluded from the fit and counted in the report
+- **Performance metrics** — p50/p95/p99/max move latency, nodes and NPS, depth
+  reached, per engine
+- **Stability diagnostics** — repeated start-up and repeated searches, with
+  hangs and leaks reported rather than averaged away
+- **Durable history** — one JSON document per run with a schema version and a
+  SHA-256 checksum; a corrupt document is quarantined and named, never
+  silently dropped, and nothing is ever overwritten
+- **Exports** — PGN of every game, CSV per engine and per game, the full JSON,
+  and a Markdown report
+- **Automatic runs** — optional, quick-preset only, budget-capped, with a
+  visible reason for every decision, including a refusal
+
+See `docs/plans/2026-10-31-engine-lab.md` for the method and its limits, and
+`tool/bench/verify_rating_math.py` for the independent check of the rating
+maths.
 
 ### Training
 - **Puzzles** — ~1600 tactical puzzles (CC0), rating-range filter

@@ -2,7 +2,7 @@ name: crispchess
 description: Cross-platform chess app with pluggable engines.
 publish_to: "none"
 
-version: 2.3.1+17
+version: 2.3.2+18
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -13,6 +13,10 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: any
+  # Engine Lab: SHA-256 of an engine binary and of the fit's digests. Direct
+  # because lib/bench imports it; it was already in the lock file as a
+  # transitive dependency of the Flutter tool chain.
+  crypto: ^3.0.6
   chess: ^0.8.1
   crisp_chess_engine: ^0.8.1
   onnx_runtime_dart:
