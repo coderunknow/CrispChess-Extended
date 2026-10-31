@@ -115,6 +115,25 @@ void main() {
       );
     });
 
+    test('a deleted custom engine is not replaced by a namesake', () {
+      // Two user-added engines may share a display name; ids are what tell
+      // them apart. The selected one is deleted, so its saved name still
+      // matches the remaining one — falling through to that name would start a
+      // different binary without anything failing or saying so.
+      final surviving = _profile('Twin', id: 'a');
+      final deleted = _profile('Twin', id: 'b');
+
+      expect(
+        resolveSelectedEngineId(
+          savedId: customEngineId(deleted),
+          savedName: deleted.displayName,
+          profiles: [surviving],
+        ),
+        fallbackEngineId,
+        reason: 'an id that no longer resolves is authoritative, not its name',
+      );
+    });
+
     test('a legacy saved name is migrated, including a custom engine name', () {
       // Old builds stored only the display name. A user who had a custom
       // engine selected used to land back on the built-in engine.

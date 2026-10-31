@@ -189,6 +189,12 @@ String resolveSelectedEngineId({
       // Keep it only while the profile still exists; otherwise the selection
       // would name an engine that cannot be built.
       if (profileForEngineId(savedId, profiles) != null) return savedId;
+      // The chosen profile is gone, and [savedId] is authoritative: a saved id
+      // means this build wrote the selection, so the name beside it is only a
+      // copy. Matching that name below would hand the app a *different* engine
+      // whenever two profiles share a display name — which is exactly the case
+      // the ids exist for — and it would do so silently, since nothing fails.
+      return fallbackEngineId;
     }
   }
 
