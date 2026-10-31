@@ -216,7 +216,7 @@ class BenchmarkService {
       return EngineIdentity.forBuiltIn(
         name: name,
         engineVersion: engine.version,
-        appBuild: kBenchmarkFormatVersion,
+        appBuild: await appVersion(),
       );
     } finally {
       engine.dispose();
@@ -294,6 +294,9 @@ class BenchmarkService {
 
   /// Runs [runner] to completion, saving it, and releases the "running" flag.
   Future<BenchmarkRun> runWithRunner(BenchmarkRunner runner) async {
+    // createRunner awaits profile/fingerprint IO, so two callers may both
+    // finish construction before either reserves the shared service.
+    if (_active != null) throw StateError('A benchmark is already running.');
     _active = runner;
     try {
       final run = await runner.run();
