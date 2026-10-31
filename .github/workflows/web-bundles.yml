@@ -34,15 +34,19 @@ on:
         default: true
         type: boolean
 
+# Only what the job does: push a branch. It deliberately does not create pull
+# requests (see the note below the build step), nor touch issues, packages or
+# anything else the repository default might allow.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up .NET 10
         if: ${{ contains(fromJSON('["all","lynx","lynx-aot","lynx-lite"]'), inputs.target) }}
@@ -56,11 +60,15 @@ jobs:
         if: ${{ contains(fromJSON('["all","lynx","lynx-aot","lynx-lite"]'), inputs.target) }}
         run: dotnet workload install wasm-tools --skip-sign-check
 
-      - name: Clone Lynx (${{ inputs.lynx_ref }})
+      - name: Clone Lynx
         if: ${{ contains(fromJSON('["all","lynx","lynx-aot","lynx-lite"]'), inputs.target) }}
+        env:
+          # The ref is user-supplied text; it reaches git through the
+          # environment, never as part of the shell source.
+          LYNX_REF: ${{ inputs.lynx_ref }}
         run: |
           rm -rf third_party/lynx-chess
-          git clone --depth 1 --branch "${{ inputs.lynx_ref }}" \
+          git clone --depth 1 --branch "$LYNX_REF" \
             https://github.com/CrispStrobe/lynx-chess.git third_party/lynx-chess
 
       - name: Apply the time-control patch
@@ -201,12 +209,36 @@ jobs:
             web/frozenight_wasm_bg.wasm
           retention-days: 30
 
+  publish-branch:
+    needs: build
+    if: ${{ inputs.open_pr }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Replace only generated engine bundles
+        run: rm -rf web/lynx web/lynx-lite web/frozenight_wasm.js web/frozenight_wasm_bg.wasm
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-engine-bundles
+          path: web
       # Pushes a branch rather than opening a PR: creating PRs from Actions
       # needs "Allow GitHub Actions to create and approve pull requests" turned
       # on for the repo, and a build job should not depend on a setting it
       # cannot see. The compare link in the summary is one click from a PR.
       - name: Push the rebuilt bundle to a branch
         if: ${{ inputs.open_pr }}
+        env:
+          # Inputs and GitHub context arrive through the environment: an input
+          # is user-supplied text and must never become shell source.
+          LYNX_REF: ${{ inputs.lynx_ref }}
+          APPLY_PATCH: ${{ inputs.apply_patch }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           if git diff --quiet -- web && [ -z "$(git status --porcelain web)" ]; then
@@ -215,24 +247,26 @@ jobs:
             exit 0
           fi
 
-          branch=web-bundles-rebuild
+          branch="web-bundles-rebuild-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$branch"
           git add -A web
           git commit -m "chore(web): rebuild the engine bundles
 
-          Lynx ref: ${{ inputs.lynx_ref }}
-          Time-control patch applied: ${{ inputs.apply_patch }}
+          Lynx ref: $LYNX_REF
+          Time-control patch applied: $APPLY_PATCH
           Built with .NET 10 + wasm-tools; AOT verified by native wasm size."
-          git push -f origin "$branch"
+          # Authenticate only in this isolated job; never run build code here.
+          gh auth setup-git
+          git push origin "$branch"
 
-          repo="${{ github.server_url }}/${{ github.repository }}"
+          repo="$SERVER_URL/$REPO"
           {
             echo "### Web engine bundles rebuilt"
             echo
-            echo "- Lynx ref: \`${{ inputs.lynx_ref }}\`"
-            echo "- Time-control patch: \`${{ inputs.apply_patch }}\`"
+            echo "- Lynx ref: \`$LYNX_REF\`"
+            echo "- Time-control patch: \`$APPLY_PATCH\`"
             echo
             echo "[Open a PR from \`$branch\`]($repo/compare/main...$branch?expand=1)"
             echo

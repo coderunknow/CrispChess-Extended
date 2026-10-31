@@ -51,7 +51,7 @@ const _lynxBaseUrl =
 /// Lynx chess engine — downloads and runs as a native UCI process.
 class LynxEngine
     with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine {
+    implements ChessEngine, SearchDrainableEngine {
   /// Accepted for API parity with the web build, which offers a choice of WASM
   /// bundles. There is nothing to choose on native: it runs one downloaded
   /// binary.
@@ -274,8 +274,19 @@ class LynxEngine
     // The `bestmove` this triggers still belongs to the running search; the
     // coordinator consumes it so it can't answer the next request.
     if (isSearching) sendUci('stop');
-    _stateNotifier.value = EngineState.ready;
+    // Only a live search goes back to `ready`. Reporting it unconditionally
+    // turned a disposed engine back into a usable one — and the Engine Lab
+    // reuses one process for a whole benchmark, so it has to be able to trust
+    // this state.
+    if (_stateNotifier.value == EngineState.thinking) {
+      _stateNotifier.value = EngineState.ready;
+    }
   }
+
+  /// Waits for a stopped search's `bestmove` before the connection is reused.
+  @override
+  Future<void> drainSearch({Duration timeout = const Duration(seconds: 5)}) =>
+      quiesceSearch(timeout: timeout);
 
   @override
   void setOption(String name, String value) {

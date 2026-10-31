@@ -1127,4 +1127,662 @@ class AppLocalizationsDe extends AppLocalizations {
   String voiceFailed(Object error) {
     return 'Spracheingabe fehlgeschlagen: $error';
   }
-}
+
+  @override
+  String get engineLab => 'Engine-Labor';
+
+  @override
+  String get engineLabSubtitle => 'Engines benchmarken, Ergebnisse behalten und Versionen vergleichen';
+
+  @override
+  String get engineLabDashboard => 'Übersicht';
+
+  @override
+  String get engineLabBenchmark => 'Benchmark';
+
+  @override
+  String get engineLabLeaderboard => 'Rangliste';
+
+  @override
+  String get engineLabHistory => 'Verlauf';
+
+  @override
+  String get engineLabDiagnostics => 'Diagnose';
+
+  @override
+  String get benchmarkNow => 'Jetzt benchmarken';
+
+  @override
+  String get benchmarkPresets => 'Voreinstellung';
+
+  @override
+  String get presetQuick => 'Schnell';
+
+  @override
+  String get presetStandard => 'Standard';
+
+  @override
+  String get presetAccurate => 'Genau';
+
+  @override
+  String get presetCustom => 'Eigen';
+
+  @override
+  String get customConfiguration => 'Eigene Konfiguration';
+
+  @override
+  String get engineLabCustomHint => 'Jede Einstellung wird mit dem Ergebnis gespeichert, damit der Lauf wiederholbar ist';
+
+  @override
+  String get timePerMoveMs => 'Zeit pro Zug (ms)';
+
+  @override
+  String get searchDepthLabel => 'Feste Suchtiefe (0 = Zeit)';
+
+  @override
+  String get gamesPerPairing => 'Partien pro Paarung';
+
+  @override
+  String get maxGames => 'Maximale Partien (0 = kein Limit)';
+
+  @override
+  String get maxDurationMinutes => 'Maximale Dauer (Min., 0 = keine)';
+
+  @override
+  String get plyLimit => 'Halbzüge bis Abbruch';
+
+  @override
+  String get openingSuite => 'Eröffnungssammlung';
+
+  @override
+  String get randomSeed => 'Zufallswert';
+
+  @override
+  String get warmUpGames => 'Aufwärmpartien';
+
+  @override
+  String get threadsLabel => 'Threads (0 = Engine-Standard)';
+
+  @override
+  String get hashLabel => 'Hash MB (0 = Engine-Standard)';
+
+  @override
+  String get optionOverrides => 'UCI-Optionen überschreiben (Name=Wert, …)';
+
+  @override
+  String get adaptiveStopping => 'Früh stoppen, wenn das Unsicherheitsziel erreicht ist';
+
+  @override
+  String get targetStdErr => 'Ziel-Standardfehler (Elo)';
+
+  @override
+  String get engineLabRepetitions => 'Wiederholungen';
+
+  @override
+  String get estimatedWorkload => 'Geschätzter Aufwand';
+
+  @override
+  String get engineLabSelectEngines => 'Engines';
+
+  @override
+  String get engineLabSelected => 'ausgewählt';
+
+  @override
+  String get engineLabUnavailable => 'nicht verfügbar';
+
+  @override
+  String get engineLabUnavailableHint => 'Engines mit ✕ lassen sich auf dieser Plattform nicht benchmarken; der Grund erscheint beim Überfahren';
+
+  @override
+  String get selectAll => 'Alle';
+
+  @override
+  String get clearSelection => 'Keine';
+
+  @override
+  String get formatRoundRobin => 'Jeder gegen jeden';
+
+  @override
+  String get formatGauntlet => 'Gauntlet';
+
+  @override
+  String get referenceEngine => 'Referenz-Engine';
+
+  @override
+  String get engineLabGauntletNeedsReference => 'Bitte eine Referenz-Engine für das Gauntlet wählen.';
+
+  @override
+  String get startBenchmark => 'Benchmark starten';
+
+  @override
+  String get pauseBenchmark => 'Pause';
+
+  @override
+  String get resumeBenchmark => 'Fortsetzen';
+
+  @override
+  String get cancelBenchmark => 'Abbrechen';
+
+  @override
+  String get benchmarkRunning => 'Benchmark läuft';
+
+  @override
+  String get engineLabStarting => 'Engines werden gestartet…';
+
+  @override
+  String get engineLabCancelling => 'Wird abgebrochen…';
+
+  @override
+  String get engineLabFinished => 'Benchmark abgeschlossen.';
+
+  @override
+  String get engineLabFailed => 'Der Benchmark ist fehlgeschlagen';
+
+  @override
+  String get engineLabLastMove => 'Letzter Zug';
+
+  @override
+  String get engineLabConfirmTitle => 'Diesen Benchmark starten?';
+
+  @override
+  String get engineLabStart => 'Starten';
+
+  @override
+  String get engineLabEngines => 'Engines';
+
+  @override
+  String get engineLabGames => 'Partien';
+
+  @override
+  String get engineLabBudget => 'Pro Zug';
+
+  @override
+  String get engineLabEstimate => 'Geschätzte Dauer';
+
+  @override
+  String get engineLabWorstCase => 'Im schlimmsten Fall';
+
+  @override
+  String get engineLabWarnings => 'Hinweise';
+
+  @override
+  String get engineLabRuns => 'Läufe';
+
+  @override
+  String get engineLabRatedGames => 'gewertete Partien';
+
+  @override
+  String get engineLabForfeits => 'kampflos';
+
+  @override
+  String get engineLabAborted => 'abgebrochen';
+
+  @override
+  String get engineLabAdjudicated => 'abgebrochen (Halbzüge)';
+
+  @override
+  String get engineLabLastRun => 'Letzter Lauf';
+
+  @override
+  String get engineLabNever => 'nie';
+
+  @override
+  String get engineLabLatestResult => 'Letztes Ergebnis';
+
+  @override
+  String get engineLabOpenReport => 'Bericht';
+
+  @override
+  String get noBenchmarksYet => 'Noch keine Benchmarks';
+
+  @override
+  String get engineLabEmptyHint => 'Zwei oder mehr Engines wählen und einen schnellen Benchmark starten. Das Ergebnis bleibt erhalten.';
+
+  @override
+  String get engineLabLeaderboardHint => 'Die Rangliste entsteht aus den auf diesem Gerät gespeicherten Läufen.';
+
+  @override
+  String get engineLabHistoryHint => 'Jeder Lauf wird auf diesem Gerät gespeichert und lässt sich als JSON, CSV oder PGN exportieren.';
+
+  @override
+  String get engineLabNoRatings => 'Noch keine gewerteten Partien.';
+
+  @override
+  String get engineLabNoGames => 'Noch keine Partien aufgezeichnet.';
+
+  @override
+  String get engineLabChanged => 'Engines mit Änderungen';
+
+  @override
+  String get engineLabChangedSubtitle => 'Diese Builds unterscheiden sich vom letzten Benchmark';
+
+  @override
+  String get engineLabRebenchmark => 'Neu benchmarken';
+
+  @override
+  String get engineLabAutomatic => 'Automatische Benchmarks';
+
+  @override
+  String get engineLabAutomaticSubtitle => 'Automatische Läufe sind immer ein begrenzter Schnell-Benchmark';
+
+  @override
+  String get engineLabAutoAfterAdd => 'Nach dem Hinzufügen einer Engine';
+
+  @override
+  String get engineLabAutoAfterChange => 'Wenn sich eine Engine ändert';
+
+  @override
+  String get engineLabAutoBudget => 'Budget';
+
+  @override
+  String get engineLabRelativeScaleHint => 'Relatives Elo: 1500 ist der Durchschnitt der Engines in diesem Lauf, keine absolute Stärke';
+
+  @override
+  String get engineLabCompareTwo => 'Zwei Engines vergleichen';
+
+  @override
+  String get engineLabCompareHint => 'Ein Unterschied ohne seine Unsicherheit ist kein Ergebnis';
+
+  @override
+  String get engineLabPickTwo => 'Zwei Engines wählen.';
+
+  @override
+  String get relativeElo => 'Relatives Elo';
+
+  @override
+  String get calibratedElo => 'Kalibriertes Elo';
+
+  @override
+  String get calibrationUnavailable => 'Kalibriertes Elo nicht verfügbar';
+
+  @override
+  String get calibrationAnchors => 'Kalibrierungsanker';
+
+  @override
+  String get uncertainty => 'Unsicherheit';
+
+  @override
+  String get ratingQuality => 'Qualität';
+
+  @override
+  String get engineLabScore => 'Punkte';
+
+  @override
+  String get performanceMetrics => 'Leistung';
+
+  @override
+  String get engineLabPerformanceHint => 'Um jeden Zug gemessen; Werte, die die Engine nicht meldet, bleiben nicht verfügbar';
+
+  @override
+  String get nodesPerSecond => 'Knoten pro Sekunde';
+
+  @override
+  String get latencyP50 => 'Median';
+
+  @override
+  String get latencyP95 => 'p95';
+
+  @override
+  String get latencyP99 => 'p99';
+
+  @override
+  String get engineLabMax => 'Max';
+
+  @override
+  String get engineLabDepth => 'Tiefe';
+
+  @override
+  String get engineLabInitMs => 'Start';
+
+  @override
+  String get unavailableLabel => 'nicht verfügbar';
+
+  @override
+  String get engineLabMoves => 'Züge';
+
+  @override
+  String get engineLabEngine => 'Engine';
+
+  @override
+  String get engineLabCheck => 'Prüfung';
+
+  @override
+  String get engineLabPassed => 'Bestanden';
+
+  @override
+  String get engineLabMedian => 'Median';
+
+  @override
+  String get engineLabWorst => 'Schlechtester';
+
+  @override
+  String get stabilityCheck => 'Stabilitätsprüfung';
+
+  @override
+  String get stabilityPassed => 'Bestanden';
+
+  @override
+  String get stabilityFailed => 'Fehlgeschlagen';
+
+  @override
+  String get engineLabStabilityHint => 'Wiederholtes Starten, wiederholte Suchen und sauberes Beenden';
+
+  @override
+  String get engineLabRunStability => 'Prüfung starten';
+
+  @override
+  String get engineLabIdentity => 'Engine-Identität';
+
+  @override
+  String get engineLabIdentityHint => 'Was der Benchmark aufzeichnet und was entscheidet, ob zwei Läufe vergleichbar sind';
+
+  @override
+  String get engineLabIdentityEmpty => 'Eine Engine prüfen, um ID, Fingerabdruck, Backend und Konfigurations-Hash zu sehen.';
+
+  @override
+  String get engineLabInspect => 'Prüfen';
+
+  @override
+  String get engineLabEnvironment => 'Umgebung';
+
+  @override
+  String get engineLabPlatform => 'Plattform';
+
+  @override
+  String get engineLabVersion => 'Version';
+
+  @override
+  String get engineLabMetricsHint => 'CPU-Zeit und Speicherverbrauch werden vom Engine-Protokoll nicht gemeldet und daher als nicht verfügbar ausgewiesen statt geschätzt.';
+
+  @override
+  String get engineLabLicense => 'Lizenz der Sammlung';
+
+  @override
+  String get engineLabProgressionHint => 'Relatives Elo jeder Engine über die hier gespeicherten Läufe';
+
+  @override
+  String get engineLabDeleteTitle => 'Diesen Lauf löschen?';
+
+  @override
+  String get engineLabReport => 'Benchmark-Bericht';
+
+  @override
+  String get engineLabReportMissing => 'Bericht nicht verfügbar';
+
+  @override
+  String get engineLabSummary => 'Zusammenfassung';
+
+  @override
+  String get engineLabStarted => 'Gestartet';
+
+  @override
+  String get engineLabDuration => 'Dauer';
+
+  @override
+  String get engineLabTrigger => 'Auslöser';
+
+  @override
+  String get engineLabStopped => 'Beendet wegen';
+
+  @override
+  String get engineLabFormat => 'Format';
+
+  @override
+  String get engineLabConfiguration => 'Konfiguration';
+
+  @override
+  String get engineLabFailures => 'Engine-Probleme';
+
+  @override
+  String get engineLabStandings => 'Tabelle';
+
+  @override
+  String get engineLabGamesList => 'Partien';
+
+  @override
+  String get engineLabShowAll => 'Alle anzeigen';
+
+  @override
+  String get engineLabShowLess => 'Weniger anzeigen';
+
+  @override
+  String get engineLabExportReport => 'Bericht kopieren';
+
+  @override
+  String get engineLabMethod => 'Methode';
+
+  @override
+  String get engineLabMethodBody => 'Bradley-Terry-Maximum-Likelihood über jede gewertete Partie, zentriert auf den Durchschnitt der Engines im Lauf. Das 95%-Intervall ist Rating ± 1,96 × Standardfehler aus der Fisher-Information der Anpassung. Abgebrochene, annullierte und kampflos verlorene Partien werden gezählt, aber nicht gewertet: eine nicht beendete Partie ist kein Remis.';
+
+  @override
+  String get exportJson => 'JSON exportieren';
+
+  @override
+  String get exportCsv => 'CSV exportieren';
+
+  @override
+  String get exportPgn => 'PGN exportieren';
+
+  @override
+  String get importBenchmark => 'Importieren';
+
+  @override
+  String get delete => 'Löschen';
+
+  @override
+  String get copy => 'Kopieren';
+
+  @override
+  String get elo => 'Elo';
+
+  @override
+  String get refresh => 'Aktualisieren';
+
+  @override
+  String get retry => 'Erneut versuchen';
+
+  @override
+  String get engineLabAdaptiveStopping => 'Früh stoppen, sobald das Rating genau genug ist';
+
+  @override
+  String get engineLabAppVersion => 'App-Version';
+
+  @override
+  String get engineLabBackend => 'Backend';
+
+  @override
+  String get engineLabBalanceColors => 'Beide Farben pro Eröffnung';
+
+  @override
+  String get engineLabBuiltIn => 'Im Lieferumfang der App';
+
+  @override
+  String get engineLabCalibrationHint => 'Nur eine veröffentlichte Wertzahl für eine Engine im Lauf macht aus der relativen Skala eine absolute.';
+
+  @override
+  String get engineLabCalibrationUnavailable => 'Kein kalibriertes Rating für diesen Lauf:';
+
+  @override
+  String get engineLabCompare => 'Zwei Engines vergleichen';
+
+  @override
+  String get engineLabCustom => 'eigene';
+
+  @override
+  String get engineLabDeleteBody => 'Die gespeicherten Partien, Ratings und der Bericht werden von diesem Gerät entfernt. Exportierte Kopien bleiben bestehen.';
+
+  @override
+  String get engineLabFingerprint => 'Fingerabdruck';
+
+  @override
+  String get engineLabGauntletHint => 'Jeder Herausforderer spielt gegen die Referenz-Engine; die Referenz spielt nicht gegen sich selbst.';
+
+  @override
+  String get engineLabHash => 'Hash (MB)';
+
+  @override
+  String get engineLabHost => 'Host';
+
+  @override
+  String get engineLabInProgress => 'läuft';
+
+  @override
+  String get engineLabMaxGames => 'Max. Partien';
+
+  @override
+  String get engineLabMaxMinutes => 'Max. Minuten';
+
+  @override
+  String get engineLabMovesPerPairing => 'Partien pro Paarung';
+
+  @override
+  String get engineLabNoAnchors => 'Keine Referenz angegeben; Ratings bleiben relativ.';
+
+  @override
+  String get engineLabNoFingerprint => 'nicht verfügbar';
+
+  @override
+  String get engineLabNoHistory => 'Keine gespeicherten Läufe';
+
+  @override
+  String get engineLabNoHistoryHint => 'Abgeschlossene Benchmarks werden hier mit Partien, Ratings und Bericht aufbewahrt.';
+
+  @override
+  String get engineLabNoMetrics => 'keine Zugzeiten erfasst';
+
+  @override
+  String get engineLabNoRatedGames => 'Dieser Lauf hat keine wertbaren Partien ergeben.';
+
+  @override
+  String get engineLabNoRatingsHint => 'Starte einen Benchmark; die Ratings der beteiligten Engines erscheinen hier, jeweils mit Intervall.';
+
+  @override
+  String get engineLabOpeningSuite => 'Eröffnungssammlung';
+
+  @override
+  String get engineLabPerformance => 'Leistung';
+
+  @override
+  String get engineLabPlyCap => 'Halbzüge bis Abbruch';
+
+  @override
+  String get engineLabPlyCapHint => 'Eine hier gestoppte Partie wird entschieden, nicht als Remis gewertet';
+
+  @override
+  String get engineLabPreset => 'Voreinstellung';
+
+  @override
+  String get engineLabProgression => 'Verlauf';
+
+  @override
+  String get engineLabQualityHigh => 'präzise';
+
+  @override
+  String get engineLabQualityInsufficient => 'zu wenige Partien';
+
+  @override
+  String get engineLabQualityLow => 'grob';
+
+  @override
+  String get engineLabQualityModerate => 'brauchbar';
+
+  @override
+  String get engineLabRated => 'gewertet';
+
+  @override
+  String get engineLabReference => 'Referenz';
+
+  @override
+  String get engineLabRunning => 'Läuft…';
+
+  @override
+  String get engineLabNodeLimit => 'Knotenlimit (0 = deaktiviert)';
+
+  @override
+  String get engineLabSearchDepth => 'Suchtiefe';
+
+  @override
+  String get engineLabSeed => 'Startwert';
+
+  @override
+  String get engineLabStability => 'Stabilität';
+
+  @override
+  String get engineLabTargetStdErr => 'Stoppen bei ±Elo';
+
+  @override
+  String get engineLabThreads => 'Threads';
+
+  @override
+  String get engineLabTimePerMoveMs => 'Zeit pro Zug (ms)';
+
+  @override
+  String get engineLabUnchanged => 'unverändert';
+
+  @override
+  String get engineLabWarmUp => 'Einspielpartien';
+
+  @override
+  String get engineLabWebNote => 'Im Browser laufen nur die mitgelieferten Engines; eine eigene ausführbare Datei kann nicht gestartet werden.';
+
+  @override
+  String get engineLabZeroIsEngineDefault => '0 = Vorgabe der Engine';
+
+  @override
+  String get engineLabZeroIsNever => '0 = ganzen Plan spielen';
+
+  @override
+  String get engineLabZeroIsTime => '0 = Bedenkzeit verwenden';
+
+  @override
+  String get engineLabZeroIsUnlimited => '0 = kein Limit';
+
+  @override
+  String get engineLabAddAnchor => 'Referenz hinzufügen';
+
+  @override
+  String get engineLabRemoveAnchor => 'Referenz entfernen';
+
+  @override
+  String get engineLabAnchorUsedHint => 'Es wird die erste Referenz verwendet, die zu einer Engine im Lauf passt; eine Referenz für eine nicht beteiligte Engine kann nichts kalibrieren.';
+
+  @override
+  String get engineLabAnchorIntro => 'Eine veröffentlichte Wertzahl ist nur brauchbar, wenn Quelle, Datum, Hardware und Zeitkontrolle erfasst sind und die Engine am Lauf teilnimmt.';
+
+  @override
+  String get engineLabAnchorRating => 'Veröffentlichte Wertzahl';
+
+  @override
+  String get engineLabAnchorScale => 'Rangliste oder Skala';
+
+  @override
+  String get engineLabAnchorSource => 'Quelle (URL oder Veröffentlichung)';
+
+  @override
+  String get engineLabAnchorDate => 'Veröffentlicht (JJJJ-MM-TT)';
+
+  @override
+  String get engineLabAnchorHardware => 'Hardware';
+
+  @override
+  String get engineLabAnchorTimeControl => 'Zeitkontrolle';
+
+  @override
+  String get engineLabAnchorBudget => 'Zeitbudget pro Zug (ms)';
+
+  @override
+  String get engineLabAnchorMissing => 'Fehlt';
+
+  @override
+  String get engineLabAnchorDateHint => 'Schreibe das Veröffentlichungsdatum als JJJJ-MM-TT.';
+
+  @override
+  String get engineLabPaused => 'Pausiert.';
+  @override
+  String get copied => 'kopiert';
+  @override
+  String get engineLabImportEmpty => 'Die Zwischenablage ist leer.';
+  @override
+  String get engineLabImported => 'Lauf importiert.';
+  @override
+  String get engineLabImportRenamed => 'Er wurde unter einer neuen Kennung gespeichert, damit der vorhandene Lauf erhalten bleibt.';}

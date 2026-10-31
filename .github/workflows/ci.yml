@@ -247,7 +247,11 @@ jobs:
         with:
           channel: stable
           cache: true
-      - run: flutter build macos --release
+      - name: Build macOS with the verified numeric bundle version
+        shell: bash
+        run: |
+          read -r version build < <(python3 -c 'from tools.release_version import read_version; print(*read_version())')
+          flutter build macos --release --build-name "$version" --build-number "$build"
       - name: Verify macOS app identity and version
         run: python3 tools/verify_macos_app.py build/macos/Build/Products/Release/CrispChess.app
       - uses: actions/upload-artifact@v4
@@ -293,13 +297,19 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Build Web with WASM
-        run: flutter build web --release --wasm
-        continue-on-error: true
-      - name: Fallback to JS if WASM fails
+      - name: Build Web (WASM, with JavaScript fallback)
+        shell: bash
         run: |
-          if [ ! -d "build/web" ] || [ ! -f "build/web/main.dart.js" -a ! -f "build/web/main.dart.wasm" ]; then
+          if flutter build web --release --wasm \
+              && test -s build/web/main.dart.wasm \
+              && test -s build/web/flutter_bootstrap.js; then
+            echo "Using verified Flutter WASM output."
+          else
+            echo "WASM build failed or is incomplete; rebuilding JavaScript."
+            rm -rf build/web
             flutter build web --release
+            test -s build/web/main.dart.js
+            test -s build/web/flutter_bootstrap.js
           fi
       - uses: actions/upload-artifact@v4
         with:

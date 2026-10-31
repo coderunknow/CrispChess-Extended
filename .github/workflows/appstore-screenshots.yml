@@ -59,10 +59,17 @@ jobs:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          # Workflow inputs arrive through the environment, never interpolated
+          # into the shell source: an input is user-supplied text.
+          PLATFORM: ${{ inputs.platform }}
         run: |
           python3 -m pip install --quiet --disable-pip-version-check cryptography
           # A platform's listing and screenshots must describe its own build:
           # the Mac version can lag behind iOS.
-          if [ "${{ inputs.platform }}" = both ]; then only=""; else only="--platform ${{ inputs.platform }}"; fi
+          case "$PLATFORM" in
+            both) only="" ;;
+            IOS|MAC_OS) only="--platform $PLATFORM" ;;
+            *) echo "unknown platform: $PLATFORM" >&2; exit 1 ;;
+          esac
           python3 tools/asc/listing.py $only
           python3 tools/asc/screenshots.py appstore-shots --replace $only

@@ -12,6 +12,8 @@ import 'package:flutter/foundation.dart';
 
 import 'chess_engine.dart';
 import 'generic_uci_engine_stub.dart';
+import 'search_telemetry.dart';
+import 'uci_capabilities.dart';
 import 'uci_option.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_position.dart';
@@ -22,7 +24,7 @@ export 'chess_engine.dart' show EngineProcessDiedException;
 
 class GenericUciEngine
     with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine {
+    implements ChessEngine, SearchTelemetry, UciOptionAware, SearchDrainableEngine, NodeLimitedEngine {
   final EngineProfile profile;
 
   Process? _process;
@@ -46,6 +48,38 @@ class GenericUciEngine
   /// UCI options advertised by the engine.
   final List<UciOption> options = [];
 
+  /// Counters from the last search, for engines that report them.
+  ///
+  /// UCI makes `nodes`, `nps`, `time`, `hashfull` and `tbhits` optional on an
+  /// `info` line, so each is recorded only when the engine actually printed it
+  /// — the Engine Lab shows "unavailable" rather than a zero for the rest.
+  SearchStatistics _lastStats = SearchStatistics.none;
+
+  @override
+  SearchStatistics get lastSearchStatistics => _lastStats;
+
+  @override
+  void resetSearchStatistics() => _lastStats = SearchStatistics.none;
+
+  /// Whether the engine advertises a UCI option called [name], matched
+  /// case-insensitively the way engines match it.
+  ///
+  /// Most engines match option names case-insensitively and ignore an unknown
+  /// one silently, which is why a benchmark has to ask before claiming it
+  /// applied "Threads = 4".
+  @override
+  bool advertisesOption(String name) {
+    final wanted = name.toLowerCase();
+    return options.any((o) => o.name.toLowerCase() == wanted);
+  }
+
+  @override
+  List<String> get advertisedOptionNames =>
+      [for (final option in options) option.name];
+
+  @override
+  void applyOption(String name, String value) => setOption(name, value);
+
   /// Whether the engine answered `uciok` in the last handshake.
   bool _handshakeComplete = false;
 
@@ -54,6 +88,11 @@ class GenericUciEngine
   static final _depthRegex = RegExp(r'depth (\d+)');
   static final _pvRegex = RegExp(r' pv (.+)');
   static final _multipvRegex = RegExp(r' multipv (\d+)');
+  static final _nodesRegex = RegExp(r' nodes (\d+)');
+  static final _npsRegex = RegExp(r' nps (\d+)');
+  static final _timeRegex = RegExp(r' time (\d+)');
+  static final _hashFullRegex = RegExp(r' hashfull (\d+)');
+  static final _tbHitsRegex = RegExp(r' tbhits (\d+)');
 
   /// How long the engine has to answer `uci`.
   ///
@@ -208,16 +247,7 @@ class GenericUciEngine
       // command was written let the first `position`/`go` overtake an engine
       // still working through them.
       //
-      // Bounded and not fatal: an engine that answers `uciok` but never
-      // `readyok` is unusual, and one that is merely slow should still be
-      // usable.
-      final readyAck = Completer<void>();
-      _readyOk = readyAck;
-      _send('isready');
-      await readyAck.future.timeout(const Duration(seconds: 2), onTimeout: () {
-        debugPrint('[$processLabel] no readyok within 2s; continuing');
-      });
-      _readyOk = null;
+      await synchronizeOptions();
       if (_isDisposed) {
         // Disposed while the handshake was running: the caller is gone and the
         // process has to go with it.
@@ -264,6 +294,37 @@ class GenericUciEngine
 
   void _send(String command) => sendUci(command);
 
+  @override
+  Future<void> synchronizeOptions() async {
+    if (_isDisposed || _process == null || processGone) {
+      throw StateError('Engine unavailable during readiness synchronization');
+    }
+    if (_readyOk != null) {
+      throw StateError('Concurrent readiness synchronization');
+    }
+    final ack = Completer<void>();
+    _readyOk = ack;
+    try {
+      _send('isready');
+      await ack.future.timeout(const Duration(seconds: 2));
+      if (_isDisposed || processGone) {
+        throw StateError('Engine lost during readiness synchronization');
+      }
+    } catch (_) {
+      // A late response must never acknowledge a subsequent operation.
+      dispose();
+      rethrow;
+    } finally {
+      if (identical(_readyOk, ack)) _readyOk = null;
+    }
+  }
+
+  @override
+  Future<String> bestMoveWithNodes(String positionCommand, int nodes) {
+    if (nodes < 1) throw ArgumentError.value(nodes, 'nodes');
+    return _bestMove(positionCommand, nodes: nodes);
+  }
+
   /// Completed by the engine's `readyok`.
   Completer<void>? _readyOk;
 
@@ -291,6 +352,38 @@ class GenericUciEngine
         if (opt != null) options.add(opt);
       }
       return;
+    }
+
+    // Search counters. Recorded for any `info` line that carries them, not
+    // only the ones with a depth, because engines print `nodes`/`nps` on the
+    // final line and some print them on every line.
+    if (t.startsWith('info') && !t.startsWith('info string')) {
+      int? grab(RegExp re) {
+        final m = re.firstMatch(t);
+        return m == null ? null : int.tryParse(m.group(1)!);
+      }
+
+      final nodes = grab(_nodesRegex);
+      final nps = grab(_npsRegex);
+      final timeMs = grab(_timeRegex);
+      final hashFull = grab(_hashFullRegex);
+      final tbhits = grab(_tbHitsRegex);
+      final depth = grab(_depthRegex);
+      if (nodes != null ||
+          nps != null ||
+          timeMs != null ||
+          hashFull != null ||
+          tbhits != null ||
+          depth != null) {
+        _lastStats = _lastStats.merge(SearchStatistics(
+          nodes: nodes,
+          nps: nps,
+          timeMs: timeMs,
+          hashFullPerMille: hashFull,
+          tablebaseHits: tbhits,
+          depth: depth,
+        ));
+      }
     }
 
     // Parse evaluation info lines
@@ -344,20 +437,36 @@ class GenericUciEngine
     int? depth,
     Duration? moveTime,
     int? skillLevel,
+  }) => _bestMove(positionCommand,
+      depth: depth, moveTime: moveTime, skillLevel: skillLevel);
+
+  Future<String> _bestMove(String positionCommand, {
+    int? depth, Duration? moveTime, int? skillLevel, int? nodes,
   }) async {
+    if (_isDisposed) throw StateError('Engine disposed');
     if (_process == null) throw StateError('Not initialized');
     if (processGone) throw await processDeathReport();
+    // Counters belong to one search; a merge across two would report the
+    // larger of two depths and the sum-shaped nonsense in between.
+    resetSearchStatistics();
     _stateNotifier.value = EngineState.thinking;
-    if (skillLevel != null) {
-      _send('setoption name Skill Level value $skillLevel');
+    // A custom profile's explicit UCI Skill Level is a user-owned option, so
+    // keep it authoritative. The app-wide strength slider still has to work for
+    // every profile that does *not* override it — dropping it there would leave
+    // the slider silently doing nothing for UCI engines.
+    final hasSkillLevelOverride = profile.optionOverrides.keys
+        .any((key) => key.trim().toLowerCase() == 'skill level');
+    if (skillLevel != null && !hasSkillLevelOverride) {
+      setOption('Skill Level', '$skillLevel');
     }
 
     // Drive play by time rather than a fixed depth: the cost of a given depth
     // grows by an order of magnitude once the position opens up, which is what
     // made moves take seconds by the middlegame.
-    final go = uciGoCommand(
-        depth: depth, moveTime: moveTime, skillLevel: skillLevel);
-    final cap = uciSearchTimeout(
+    final go = nodes == null
+        ? uciGoCommand(depth: depth, moveTime: moveTime, skillLevel: skillLevel)
+        : 'go nodes $nodes';
+    final cap = nodes != null ? const Duration(seconds: 60) : uciSearchTimeout(
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
     final move = await startSearch(
@@ -391,6 +500,7 @@ class GenericUciEngine
       if (processGone) debugPrint('[$processLabel] analysis skipped: process gone');
       return const Stream.empty();
     }
+    resetSearchStatistics();
     _stateNotifier.value = EngineState.thinking;
     // Bound the depth search by the clock too. A fixed depth costs whatever
     // that depth costs in the position in front of it — the thing that was
@@ -424,17 +534,21 @@ class GenericUciEngine
     _send('setoption name $name');
   }
 
+  /// Waits for a stopped search's `bestmove` before this connection is reused.
+  @override
+  Future<void> drainSearch({Duration timeout = const Duration(seconds: 5)}) =>
+      quiesceSearch(timeout: timeout);
+
   @override
   void stop() {
     // Ask the engine to stop, but leave the search registered: its `bestmove`
     // is still coming and must be consumed here, not by the next request.
     if (isSearching) _send('stop');
-    // Only a running search can be stopped. Reporting `ready` unconditionally
-    // turned a disposed engine back into a live one, and told the UI an engine
-    // that had just failed to start was usable.
-    if (_stateNotifier.value == EngineState.thinking) {
-      _stateNotifier.value = EngineState.ready;
-    }
+    // Do not report `ready` here: UCI is not idle until the matching `bestmove`
+    // arrives. `_handleLine` performs that transition after the protocol
+    // response, so a caller cannot start the next search on a connection that
+    // is still finishing the previous one. Reporting `ready` unconditionally
+    // also turned a disposed engine back into a live one.
   }
 
   /// Stops the process and forgets it, reporting nothing about the exit.
@@ -478,6 +592,9 @@ class GenericUciEngine
   void dispose() {
     if (_stateNotifier.value == EngineState.disposed) return;
     beginProcessDispose();
+    final ready = _readyOk;
+    _readyOk = null;
+    if (ready != null && !ready.isCompleted) ready.complete();
     resetSearches();
     _send('quit');
     _stdoutSub?.cancel();

@@ -47,11 +47,16 @@ jobs:
       - name: Measure
         env:
           LYNX_TRACE: '1'
+          # Inputs arrive as environment variables, not as shell source.
+          BUDGET_MS: ${{ inputs.budget_ms || '300' }}
+          OVERHEADS: ${{ inputs.overheads || '50,150,250,350,450' }}
         run: |
           set -o pipefail
+          case "$BUDGET_MS" in ''|*[!0-9]*) echo "budget_ms must be a number" >&2; exit 1 ;; esac
+          case "$OVERHEADS" in ''|*[!0-9,]*) echo "overheads must be a comma-separated list of numbers" >&2; exit 1 ;; esac
           node tool/perf/lynx_overhead.mjs \
-            --budget ${{ inputs.budget_ms || '300' }} \
-            --values ${{ inputs.overheads || '50,150,250,350,450' }} \
+            --budget "$BUDGET_MS" \
+            --values "$OVERHEADS" \
             | tee lynx-overhead.txt
       - uses: actions/upload-artifact@v4
         if: always()

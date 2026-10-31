@@ -1,0 +1,137 @@
+# Engine Lab gates.
+#
+# Three things the Lab claims are checked here, on every push that touches it:
+#
+#   1. The rating maths. The app's fit cannot be checked by reading it, so
+#      `tool/bench/verify_rating_math.py` re-implements the algorithm
+#      independently and asserts what a rating implementation must satisfy
+#      (recovers a known gap, intervals never under-cover, order independence,
+#      anchoring, component detection, the grade thresholds). It runs in a
+#      second and needs no SDK.
+#
+#   2. The Dart side. `flutter analyze` already runs in ci.yml for the whole
+#      app; this job runs the Lab's own tests, so a Lab-only change goes red
+#      in a job that is named after it.
+#
+#   3. The localisations. The Lab's strings are hand-managed (no
+#      `flutter gen-l10n` in this repository), and a key used by a screen but
+#      missing from the ARB files compiles and then shows an English fallback
+#      in German. `--check` fails on exactly that.
+name: Engine Lab
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/bench/**'
+      - 'lib/widgets/engine_lab/**'
+      - 'lib/screens/engine_lab_screen.dart'
+      - 'lib/screens/benchmark_report_screen.dart'
+      - 'lib/services/engine_match_service.dart'
+      - 'lib/l10n/**'
+      - 'test/bench_*_test.dart'
+      - 'tool/bench/**'
+      - '.github/workflows/benchmark.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/bench/**'
+      - 'lib/widgets/engine_lab/**'
+      - 'lib/screens/engine_lab_screen.dart'
+      - 'lib/screens/benchmark_report_screen.dart'
+      - 'lib/services/engine_match_service.dart'
+      - 'lib/l10n/**'
+      - 'test/bench_*_test.dart'
+      - 'tool/bench/**'
+      - '.github/workflows/benchmark.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: engine-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rating-math:
+    name: Rating maths (reference implementation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Unittest discovery is here as well as in ci.yml because this script is
+      # the thing that made the release tooling's tests relevant to the Lab.
+      - name: Release tooling
+        run: python3 -m unittest discover -s tools/tests -v
+      - name: Rating maths
+        run: python3 tool/bench/verify_rating_math.py --trials 400
+      # Same script, different seed: a tolerance that only holds for one random
+      # seed is not a tolerance.
+      - name: Rating maths (second seed)
+        run: python3 tool/bench/verify_rating_math.py --trials 400 --seed 20260101
+
+  localisations:
+    name: Lab strings exist in every language
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Every l?.key the Lab uses has an ARB entry
+        run: python3 tool/dev/l10n_add_keys.py --check
+
+  lab-tests:
+    name: Engine Lab tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Analyze the Lab and what it replaced
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings \
+            lib/bench lib/widgets/engine_lab \
+            lib/screens/engine_lab_screen.dart \
+            lib/screens/benchmark_report_screen.dart \
+            lib/services/engine_match_service.dart
+      - name: Lab tests
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test \
+            test/bench*_test.dart \
+            test/generic_uci_*_test.dart \
+            test/lab_rating_bar_test.dart \
+            test/rating_fit_test.dart \
+            test/match_config_test.dart \
+            test/match_result_test.dart 2>&1 | tee lab-tests.log
+      - name: Surface failed assertions as check annotations
+        if: failure()
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path = Path('lab-tests.log')
+          if path.exists():
+              lines = path.read_text(errors='replace').splitlines()
+              for i, line in enumerate(lines):
+                  if '[E]' in line or 'Error:' in line:
+                      block = '\n'.join(lines[i:i+12])[:9000]
+                      block = block.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                      print('::error title=Lab regression::' + block)
+          PYTHON

@@ -1120,4 +1120,662 @@ class AppLocalizationsEn extends AppLocalizations {
   String voiceFailed(Object error) {
     return 'Voice input failed: $error';
   }
-}
+
+  @override
+  String get engineLab => 'Engine Lab';
+
+  @override
+  String get engineLabSubtitle => 'Benchmark engines, keep the results and compare versions';
+
+  @override
+  String get engineLabDashboard => 'Dashboard';
+
+  @override
+  String get engineLabBenchmark => 'Benchmark';
+
+  @override
+  String get engineLabLeaderboard => 'Leaderboard';
+
+  @override
+  String get engineLabHistory => 'History';
+
+  @override
+  String get engineLabDiagnostics => 'Diagnostics';
+
+  @override
+  String get benchmarkNow => 'Benchmark Now';
+
+  @override
+  String get benchmarkPresets => 'Preset';
+
+  @override
+  String get presetQuick => 'Quick';
+
+  @override
+  String get presetStandard => 'Standard';
+
+  @override
+  String get presetAccurate => 'Accurate';
+
+  @override
+  String get presetCustom => 'Custom';
+
+  @override
+  String get customConfiguration => 'Custom configuration';
+
+  @override
+  String get engineLabCustomHint => 'Every setting is stored with the result, so the run can be repeated';
+
+  @override
+  String get timePerMoveMs => 'Time per move (ms)';
+
+  @override
+  String get searchDepthLabel => 'Fixed search depth (0 = time)';
+
+  @override
+  String get gamesPerPairing => 'Games per pairing';
+
+  @override
+  String get maxGames => 'Maximum games (0 = no cap)';
+
+  @override
+  String get maxDurationMinutes => 'Maximum duration (min, 0 = none)';
+
+  @override
+  String get plyLimit => 'Ply limit';
+
+  @override
+  String get openingSuite => 'Opening suite';
+
+  @override
+  String get randomSeed => 'Random seed';
+
+  @override
+  String get warmUpGames => 'Warm-up games';
+
+  @override
+  String get threadsLabel => 'Threads (0 = engine default)';
+
+  @override
+  String get hashLabel => 'Hash MB (0 = engine default)';
+
+  @override
+  String get optionOverrides => 'UCI option overrides (Name=Value, …)';
+
+  @override
+  String get adaptiveStopping => 'Stop early when the uncertainty target is met';
+
+  @override
+  String get targetStdErr => 'Target standard error (Elo)';
+
+  @override
+  String get engineLabRepetitions => 'Repetitions';
+
+  @override
+  String get estimatedWorkload => 'Estimated workload';
+
+  @override
+  String get engineLabSelectEngines => 'Engines';
+
+  @override
+  String get engineLabSelected => 'selected';
+
+  @override
+  String get engineLabUnavailable => 'unavailable';
+
+  @override
+  String get engineLabUnavailableHint => 'Engines marked ✕ cannot be benchmarked on this platform; the reason appears on hover';
+
+  @override
+  String get selectAll => 'Select all';
+
+  @override
+  String get clearSelection => 'Clear';
+
+  @override
+  String get formatRoundRobin => 'Round robin';
+
+  @override
+  String get formatGauntlet => 'Gauntlet';
+
+  @override
+  String get referenceEngine => 'Reference engine';
+
+  @override
+  String get engineLabGauntletNeedsReference => 'Pick a reference engine for the gauntlet.';
+
+  @override
+  String get startBenchmark => 'Start benchmark';
+
+  @override
+  String get pauseBenchmark => 'Pause';
+
+  @override
+  String get resumeBenchmark => 'Resume';
+
+  @override
+  String get cancelBenchmark => 'Cancel';
+
+  @override
+  String get benchmarkRunning => 'Benchmark running';
+
+  @override
+  String get engineLabStarting => 'Starting engines…';
+
+  @override
+  String get engineLabCancelling => 'Cancelling…';
+
+  @override
+  String get engineLabFinished => 'Benchmark complete.';
+
+  @override
+  String get engineLabFailed => 'The benchmark failed';
+
+  @override
+  String get engineLabLastMove => 'Last move';
+
+  @override
+  String get engineLabConfirmTitle => 'Start this benchmark?';
+
+  @override
+  String get engineLabStart => 'Start';
+
+  @override
+  String get engineLabEngines => 'Engines';
+
+  @override
+  String get engineLabGames => 'Games';
+
+  @override
+  String get engineLabBudget => 'Per move';
+
+  @override
+  String get engineLabEstimate => 'Estimated time';
+
+  @override
+  String get engineLabWorstCase => 'Worst case';
+
+  @override
+  String get engineLabWarnings => 'Notes';
+
+  @override
+  String get engineLabRuns => 'runs';
+
+  @override
+  String get engineLabRatedGames => 'rated games';
+
+  @override
+  String get engineLabForfeits => 'forfeits';
+
+  @override
+  String get engineLabAborted => 'aborted';
+
+  @override
+  String get engineLabAdjudicated => 'adjudicated';
+
+  @override
+  String get engineLabLastRun => 'Last run';
+
+  @override
+  String get engineLabNever => 'never';
+
+  @override
+  String get engineLabLatestResult => 'Latest result';
+
+  @override
+  String get engineLabOpenReport => 'Report';
+
+  @override
+  String get noBenchmarksYet => 'No benchmarks yet';
+
+  @override
+  String get engineLabEmptyHint => 'Pick two or more engines and run a Quick benchmark. The result is kept.';
+
+  @override
+  String get engineLabLeaderboardHint => 'The leaderboard is built from the runs stored on this device.';
+
+  @override
+  String get engineLabHistoryHint => 'Every run is stored on this device and can be exported as JSON, CSV or PGN.';
+
+  @override
+  String get engineLabNoRatings => 'No rated games yet.';
+
+  @override
+  String get engineLabNoGames => 'No games recorded yet.';
+
+  @override
+  String get engineLabChanged => 'Engines that changed';
+
+  @override
+  String get engineLabChangedSubtitle => 'These builds differ from the last benchmark';
+
+  @override
+  String get engineLabRebenchmark => 'Re-benchmark';
+
+  @override
+  String get engineLabAutomatic => 'Automatic benchmarks';
+
+  @override
+  String get engineLabAutomaticSubtitle => 'Automatic runs are always a capped Quick benchmark';
+
+  @override
+  String get engineLabAutoAfterAdd => 'After adding an engine';
+
+  @override
+  String get engineLabAutoAfterChange => 'After an engine changes';
+
+  @override
+  String get engineLabAutoBudget => 'Budget';
+
+  @override
+  String get engineLabRelativeScaleHint => 'Relative Elo: 1500 is the average of the engines in this run, not an absolute strength';
+
+  @override
+  String get engineLabCompareTwo => 'Compare two engines';
+
+  @override
+  String get engineLabCompareHint => 'A difference without its uncertainty is not a result';
+
+  @override
+  String get engineLabPickTwo => 'Pick two engines.';
+
+  @override
+  String get relativeElo => 'Relative Elo';
+
+  @override
+  String get calibratedElo => 'Calibrated Elo';
+
+  @override
+  String get calibrationUnavailable => 'Calibrated Elo unavailable';
+
+  @override
+  String get calibrationAnchors => 'Calibration anchors';
+
+  @override
+  String get uncertainty => 'Uncertainty';
+
+  @override
+  String get ratingQuality => 'Quality';
+
+  @override
+  String get engineLabScore => 'Score';
+
+  @override
+  String get performanceMetrics => 'Performance';
+
+  @override
+  String get engineLabPerformanceHint => 'Measured around every move; counters the engine does not report stay unavailable';
+
+  @override
+  String get nodesPerSecond => 'Nodes per second';
+
+  @override
+  String get latencyP50 => 'Median';
+
+  @override
+  String get latencyP95 => 'p95';
+
+  @override
+  String get latencyP99 => 'p99';
+
+  @override
+  String get engineLabMax => 'Max';
+
+  @override
+  String get engineLabDepth => 'Depth';
+
+  @override
+  String get engineLabInitMs => 'Init';
+
+  @override
+  String get unavailableLabel => 'unavailable';
+
+  @override
+  String get engineLabMoves => 'Moves';
+
+  @override
+  String get engineLabEngine => 'Engine';
+
+  @override
+  String get engineLabCheck => 'Check';
+
+  @override
+  String get engineLabPassed => 'Passed';
+
+  @override
+  String get engineLabMedian => 'Median';
+
+  @override
+  String get engineLabWorst => 'Worst';
+
+  @override
+  String get stabilityCheck => 'Stability check';
+
+  @override
+  String get stabilityPassed => 'Passed';
+
+  @override
+  String get stabilityFailed => 'Failed';
+
+  @override
+  String get engineLabStabilityHint => 'Repeated initialisation, repeated searches and a clean shutdown';
+
+  @override
+  String get engineLabRunStability => 'Run check';
+
+  @override
+  String get engineLabIdentity => 'Engine identity';
+
+  @override
+  String get engineLabIdentityHint => 'What the benchmark records, and what decides whether two runs are comparable';
+
+  @override
+  String get engineLabIdentityEmpty => 'Inspect an engine to see its id, fingerprint, backend and configuration digest.';
+
+  @override
+  String get engineLabInspect => 'Inspect';
+
+  @override
+  String get engineLabEnvironment => 'Environment';
+
+  @override
+  String get engineLabPlatform => 'Platform';
+
+  @override
+  String get engineLabVersion => 'Version';
+
+  @override
+  String get engineLabMetricsHint => 'CPU time and memory usage are not exposed by the engine protocol, so they are reported as unavailable rather than estimated.';
+
+  @override
+  String get engineLabLicense => 'Suite license';
+
+  @override
+  String get engineLabProgressionHint => 'Relative rating of each engine over the runs stored here';
+
+  @override
+  String get engineLabDeleteTitle => 'Delete this run?';
+
+  @override
+  String get engineLabReport => 'Benchmark report';
+
+  @override
+  String get engineLabReportMissing => 'Report unavailable';
+
+  @override
+  String get engineLabSummary => 'Summary';
+
+  @override
+  String get engineLabStarted => 'Started';
+
+  @override
+  String get engineLabDuration => 'Duration';
+
+  @override
+  String get engineLabTrigger => 'Trigger';
+
+  @override
+  String get engineLabStopped => 'Stopped because';
+
+  @override
+  String get engineLabFormat => 'Format';
+
+  @override
+  String get engineLabConfiguration => 'Configuration';
+
+  @override
+  String get engineLabFailures => 'Engine problems';
+
+  @override
+  String get engineLabStandings => 'Standings';
+
+  @override
+  String get engineLabGamesList => 'Games';
+
+  @override
+  String get engineLabShowAll => 'Show all';
+
+  @override
+  String get engineLabShowLess => 'Show fewer';
+
+  @override
+  String get engineLabExportReport => 'Copy report';
+
+  @override
+  String get engineLabMethod => 'Method';
+
+  @override
+  String get engineLabMethodBody => 'Bradley–Terry maximum likelihood over every rated game, centred on the average of the engines in the run. The 95% interval is the rating ± 1.96 × standard error, from the Fisher information of the fit. Adjudicated, aborted, cancelled and forfeited games are counted but not rated: a game that did not finish is not a draw.';
+
+  @override
+  String get exportJson => 'Export JSON';
+
+  @override
+  String get exportCsv => 'Export CSV';
+
+  @override
+  String get exportPgn => 'Export PGN';
+
+  @override
+  String get importBenchmark => 'Import';
+
+  @override
+  String get delete => 'Delete';
+
+  @override
+  String get copy => 'Copy';
+
+  @override
+  String get elo => 'Elo';
+
+  @override
+  String get refresh => 'Refresh';
+
+  @override
+  String get retry => 'Try again';
+
+  @override
+  String get engineLabAdaptiveStopping => 'Stop early once the rating is precise';
+
+  @override
+  String get engineLabAppVersion => 'App version';
+
+  @override
+  String get engineLabBackend => 'Backend';
+
+  @override
+  String get engineLabBalanceColors => 'Both colours per opening';
+
+  @override
+  String get engineLabBuiltIn => 'Ships with the app';
+
+  @override
+  String get engineLabCalibrationHint => 'A published rating for an engine in the run is the only way the relative scale becomes an absolute one.';
+
+  @override
+  String get engineLabCalibrationUnavailable => 'No calibrated rating for this run:';
+
+  @override
+  String get engineLabCompare => 'Compare two engines';
+
+  @override
+  String get engineLabCustom => 'custom';
+
+  @override
+  String get engineLabDeleteBody => 'The stored games, ratings and report are removed from this device. Exported copies are not affected.';
+
+  @override
+  String get engineLabFingerprint => 'Fingerprint';
+
+  @override
+  String get engineLabGauntletHint => 'Each challenger plays the reference engine; the reference is not rated against itself.';
+
+  @override
+  String get engineLabHash => 'Hash (MB)';
+
+  @override
+  String get engineLabHost => 'Host';
+
+  @override
+  String get engineLabInProgress => 'in progress';
+
+  @override
+  String get engineLabMaxGames => 'Max games';
+
+  @override
+  String get engineLabMaxMinutes => 'Max minutes';
+
+  @override
+  String get engineLabMovesPerPairing => 'Games per pairing';
+
+  @override
+  String get engineLabNoAnchors => 'No anchor declared; ratings stay relative.';
+
+  @override
+  String get engineLabNoFingerprint => 'unavailable';
+
+  @override
+  String get engineLabNoHistory => 'No stored runs';
+
+  @override
+  String get engineLabNoHistoryHint => 'Finished benchmarks are kept here with their games, ratings and report.';
+
+  @override
+  String get engineLabNoMetrics => 'no move timing recorded';
+
+  @override
+  String get engineLabNoRatedGames => 'This run produced no rating-eligible games.';
+
+  @override
+  String get engineLabNoRatingsHint => 'Run a benchmark and the ratings for the engines that took part appear here, with the interval behind each number.';
+
+  @override
+  String get engineLabOpeningSuite => 'Opening suite';
+
+  @override
+  String get engineLabPerformance => 'Performance';
+
+  @override
+  String get engineLabPlyCap => 'Ply cap';
+
+  @override
+  String get engineLabPlyCapHint => 'A game stopped here is adjudicated, not drawn';
+
+  @override
+  String get engineLabPreset => 'Preset';
+
+  @override
+  String get engineLabProgression => 'Progression';
+
+  @override
+  String get engineLabQualityHigh => 'precise';
+
+  @override
+  String get engineLabQualityInsufficient => 'too few games';
+
+  @override
+  String get engineLabQualityLow => 'rough';
+
+  @override
+  String get engineLabQualityModerate => 'usable';
+
+  @override
+  String get engineLabRated => 'rated';
+
+  @override
+  String get engineLabReference => 'Reference';
+
+  @override
+  String get engineLabRunning => 'Running…';
+
+  @override
+  String get engineLabNodeLimit => 'Node limit (0 = disabled)';
+
+  @override
+  String get engineLabSearchDepth => 'Search depth';
+
+  @override
+  String get engineLabSeed => 'Seed';
+
+  @override
+  String get engineLabStability => 'Stability';
+
+  @override
+  String get engineLabTargetStdErr => 'Stop at ±Elo';
+
+  @override
+  String get engineLabThreads => 'Threads';
+
+  @override
+  String get engineLabTimePerMoveMs => 'Time per move (ms)';
+
+  @override
+  String get engineLabUnchanged => 'unchanged';
+
+  @override
+  String get engineLabWarmUp => 'Warm-up games';
+
+  @override
+  String get engineLabWebNote => 'In a browser only the engines that ship with the app can run; a user-supplied executable cannot start.';
+
+  @override
+  String get engineLabZeroIsEngineDefault => '0 = engine\'s own';
+
+  @override
+  String get engineLabZeroIsNever => '0 = run the whole plan';
+
+  @override
+  String get engineLabZeroIsTime => '0 = use the clock';
+
+  @override
+  String get engineLabZeroIsUnlimited => '0 = no limit';
+
+  @override
+  String get engineLabAddAnchor => 'Add anchor';
+
+  @override
+  String get engineLabRemoveAnchor => 'Remove anchor';
+
+  @override
+  String get engineLabAnchorUsedHint => 'The first anchor that matches an engine in the run is used; an anchor for an engine that is not in the run cannot calibrate anything.';
+
+  @override
+  String get engineLabAnchorIntro => 'A published rating is only usable if its source, date, hardware and time control are recorded, and the engine takes part in the run.';
+
+  @override
+  String get engineLabAnchorRating => 'Published rating';
+
+  @override
+  String get engineLabAnchorScale => 'Rating list or scale';
+
+  @override
+  String get engineLabAnchorSource => 'Source (URL or publication)';
+
+  @override
+  String get engineLabAnchorDate => 'Published (YYYY-MM-DD)';
+
+  @override
+  String get engineLabAnchorHardware => 'Hardware';
+
+  @override
+  String get engineLabAnchorTimeControl => 'Time control';
+
+  @override
+  String get engineLabAnchorBudget => 'Move budget (ms)';
+
+  @override
+  String get engineLabAnchorMissing => 'Missing';
+
+  @override
+  String get engineLabAnchorDateHint => 'Write the publication date as YYYY-MM-DD.';
+
+  @override
+  String get engineLabPaused => 'Paused.';
+  @override
+  String get copied => 'copied';
+  @override
+  String get engineLabImportEmpty => 'The clipboard is empty.';
+  @override
+  String get engineLabImported => 'Run imported.';
+  @override
+  String get engineLabImportRenamed => 'It was stored under a new id so the existing run was kept.';}

@@ -313,7 +313,11 @@ class LynxEngine implements ChessEngine {
       // Send stop command (fire-and-forget)
       _lynxSendUci('stop'.toJS).toDart.ignore();
     }
-    _stateNotifier.value = EngineState.ready;
+    // A disposed or failed engine must not be reported as ready: the Engine Lab
+    // asks `state` before reusing a process.
+    if (_stateNotifier.value == EngineState.thinking) {
+      _stateNotifier.value = EngineState.ready;
+    }
   }
 
   @override

@@ -93,17 +93,22 @@ jobs:
           ls -la web/ort/
 
       - name: Build Flutter web
+        shell: bash
         run: |
-          # Try WASM first, fall back to JS
-          if flutter build web --release --wasm \
-            --dart-define=GIT_HASH=$(git rev-parse --short HEAD) \
-            --dart-define=BUILD_DATE=$(date -u +%Y-%m-%d); then
-            echo "WASM build succeeded"
+          build_defines=(
+            "--dart-define=GIT_HASH=$(git rev-parse --short HEAD)"
+            "--dart-define=BUILD_DATE=$(date -u +%Y-%m-%d)"
+          )
+          if flutter build web --release --wasm "${build_defines[@]}" \
+              && test -s build/web/main.dart.wasm \
+              && test -s build/web/flutter_bootstrap.js; then
+            echo "Using verified Flutter WASM output."
           else
-            echo "WASM failed, trying JS build..."
-            flutter build web --release \
-              --dart-define=GIT_HASH=$(git rev-parse --short HEAD) \
-              --dart-define=BUILD_DATE=$(date -u +%Y-%m-%d)
+            echo "WASM build failed or is incomplete; rebuilding JavaScript."
+            rm -rf build/web
+            flutter build web --release "${build_defines[@]}"
+            test -s build/web/main.dart.js
+            test -s build/web/flutter_bootstrap.js
           fi
 
       - name: Log build type

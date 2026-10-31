@@ -1,5 +1,78 @@
 # Changelog
 
+## 2.3.2-dev2 — Engine Lab
+
+### What to test
+
+- **Engine Lab** — Settings → Engine Lab, or the in-game Learn menu. Pick two
+  or more engines, choose a preset (Quick / Standard / Accurate / Custom), and
+  run a round robin or a gauntlet. The run has a live board, per-game progress,
+  pause/resume/cancel, and a report afterwards with ratings, intervals, rating
+  quality, performance percentiles, a PGN of every game and CSV/JSON exports.
+- **Ratings you can argue with.** Ratings are fitted to all games at once
+  (Bradley–Terry, not move-by-move Elo), centred on 1500 across the engines in
+  the run, and always shown with a 95% interval and a quality grade. A rating
+  from eight games is labelled as such instead of being printed next to a
+  rating from a thousand.
+- **No invented absolute Elo.** Calibrated Elo only appears when you have
+  declared a published rating for an engine in the run (with its source, date,
+  hardware and time control) *and* the run's move budget matches it within 20%.
+  Declare one under Benchmark → Calibration anchors; the form asks for every
+  field the check needs and refuses an anchor with a gap. Otherwise the report
+  says why there is no absolute number.
+- **Games that were not chess are not rated.** A forfeit (engine crashed,
+  timed out, illegal move), an aborted game, or a game stopped at the ply cap
+  is counted, given a reason and kept out of the fit — it used to be recorded
+  as a draw.
+- **Stability check** — start an engine repeatedly and search repeatedly, and
+  see whether it leaks, hangs or reports nonsense. This is the check that
+  would have caught the engines that were not spending the time they were
+  given.
+- **Benchmarks run themselves, within a budget**: after adding an engine, and
+  after an engine's binary changes. Quick preset, at most 24 games and ten
+  minutes, and every decision — including a refusal — carries a reason.
+
+### Fixed while consolidating
+
+- **Every cap is a cap.** The game cap counts warm-up games (two games are
+  always kept for evidence), and the wall-clock cap now stops a game in
+  progress instead of waiting for it to end: the engines are stopped mid-search,
+  the game is recorded as aborted and kept out of the rating.
+- **Repetitions are real repetitions.** The configured count used to be stored
+  and ignored; the schedule is now replayed once per repetition with its own
+  seed, and the totals, the estimate and the cap all count them.
+- **The colour-swapped games of a pairing share one opening**, so an opening
+  that favours White cannot be read as an engine that favours White.
+- **A corrupt history recovers instead of disappearing.** The store reads the
+  recovery copy, archives the bad bytes and puts the good document back —
+  without overwriting the recovery copy it just recovered from. A document
+  written by a newer version is refused and left alone rather than downgraded.
+- **A timed match no longer sends a depth.** One search budget per game: a
+  match configured for 100 ms/move measures 100 ms/move, not `go depth 8`.
+- **A failed handshake is a result, not an exception**: the game is a forfeit
+  with `handshakeFailure` as the reason, the run says why it stopped, and
+  cancelling during one handshake no longer starts the next engine.
+- **Exported CSV is spreadsheet-safe**: a cell that starts with `=`, `+`, `-`,
+  `@`, a tab or a carriage return is prefixed so that opening the file cannot
+  execute it, and every field is still readable.
+- **A profile's own `Skill Level` survives the strength slider**, and Lynx is in
+  the engine list the Lab and the match screen share.
+
+### Engines
+
+- Engine results, standings and ratings are keyed by a stable engine id, not by
+  the display name. Two profiles called "Stockfish" no longer share a score,
+  and a renamed profile keeps its history.
+- Each benchmark records the engine's fingerprint (SHA-256 of the binary, or
+  size+mtime when hashing is unavailable, marked as the weaker signal), the
+  options it advertised, the options actually applied, and the platform and
+  backend the engine ran on. Mixed-backend comparisons are measurements on this device, not portable
+  strength claims; mixed cohorts are refused for calibrated ratings.
+- Matches and tournaments now use the same game loop as the Lab: legal-move
+  checking, forfeit classification and ply-cap adjudication exist once, and a
+  game that ended without a result is reported as such rather than as a draw.
+
+
 ## Unreleased — custom UCI engines, finished
 
 ### Engines

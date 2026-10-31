@@ -1,0 +1,174 @@
+# Engine Lab diagnostics.
+#
+# Why this exists: the environment that produced this branch has no
+# Flutter/Dart SDK, and the Actions job log is served from a host that only a
+# browser session can reach. Without real analyzer and test output the review
+# would be guessing. This job runs the same gates `ci.yml` and `benchmark.yml`
+# run and posts their *verbatim* output as a pull-request comment, which is
+# readable through the API.
+#
+# It is a debugging aid, not a gate:
+#   * it only runs when the pull-request description contains the marker text
+#     below (or when dispatched by hand);
+#   * it runs on the pull request's own token with read-only repository
+#     permission and one comment;
+#   * the gates that decide whether the branch is good remain `CI` and
+#     `Engine Lab`.
+name: Lab diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to post the diagnostics on
+        required: true
+        type: string
+
+# Least privilege: read the repository, write one comment on the pull request.
+permissions:
+  contents: read
+
+concurrency:
+  group: lab-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostics:
+    name: Analyze and test, post the output
+    # `LAB-DIAGNOSTICS` in the PR description is the switch. Untrusted text is
+    # only ever compared, never executed.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.body, 'LAB-DIAGNOSTICS')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      analyze_exit: ${{ steps.analyze.outputs.analyze_exit }}
+      test_exit: ${{ steps.test.outputs.test_exit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        id: analyze
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings \
+            > "$RUNNER_TEMP/analyze.txt" 2>&1
+          echo "analyze_exit=$?" >> "$GITHUB_OUTPUT"
+          tail -n 5 "$RUNNER_TEMP/analyze.txt"
+
+      - name: Test
+        id: test
+        run: |
+          set +e
+          flutter test --reporter expanded > "$RUNNER_TEMP/test.txt" 2>&1
+          echo "test_exit=$?" >> "$GITHUB_OUTPUT"
+          tail -n 5 "$RUNNER_TEMP/test.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lab-diagnostics-output
+          path: |
+            ${{ runner.temp }}/analyze.txt
+            ${{ runner.temp }}/test.txt
+          if-no-files-found: warn
+
+  post:
+    needs: diagnostics
+    if: ${{ always() && needs.diagnostics.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: lab-diagnostics-output
+          path: ${{ runner.temp }}
+      - name: Post the output as a pull-request comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          ANALYZE_EXIT: ${{ needs.diagnostics.outputs.analyze_exit }}
+          TEST_EXIT: ${{ needs.diagnostics.outputs.test_exit }}
+          # For a pull_request event `github.sha` is the merge commit; the
+          # commit under review is the head one.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PR_NUMBER:-}" ]; then
+            echo "no pull request number; nothing to post"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          def read(name: str) -> str:
+              try:
+                  return Path(os.path.join(os.environ["RUNNER_TEMP"], name)).read_text(errors="replace")
+              except FileNotFoundError:
+                  return "_no output: the step did not run_"
+
+          def section(text: str, patterns: list[str], limit: int = 12000) -> str:
+              """Keep only the lines that matter, with a count banner."""
+              lines = text.splitlines()
+              kept = [line for line in lines if any(re.search(p, line) for p in patterns)]
+              head = "_%d matching line(s) of %d_" % (len(kept), len(lines))
+              body = "\n".join(kept)
+              if len(body) > limit:
+                  body = "_first %d characters_\n" % limit + body[:limit]
+              return head + "\n\n" + (body or "_none_")
+
+          analyze = read("analyze.txt")
+          tests = read("test.txt")
+
+          body = "\n".join([
+              "## Lab diagnostics for `%s`" % os.environ["HEAD_SHA"][:12],
+              "",
+              "- `flutter analyze --no-fatal-infos --no-fatal-warnings` exit: `%s`" % os.environ.get("ANALYZE_EXIT"),
+              "- `flutter test` exit: `%s`" % os.environ.get("TEST_EXIT"),
+              "",
+              "### analyze: errors and warnings",
+              "",
+              "```",
+              section(analyze, [r"^\s*error •", r"^\s*warning •"]),
+              "```",
+              "",
+              "### analyze: tail",
+              "",
+              "```",
+              "\n".join(analyze.splitlines()[-25:]),
+              "```",
+              "",
+              "### test: failures",
+              "",
+              "```",
+              section(tests, [r"\[E\]", r"^\s*Expected:", r"^\s*Actual:", r"^Some tests failed", r"^\d+:\d+:\d+ \+.*-\d+"]),
+              "```",
+              "",
+              "### test: tail",
+              "",
+              "```",
+              "\n".join(tests.splitlines()[-60:]),
+              "```",
+              "",
+          ])
+          Path("diagnostics.md").write_text(body)
+          PY
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file diagnostics.md

@@ -110,7 +110,9 @@ jobs:
       - name: Build and sign sandboxed app
         run: |
           set -euo pipefail
-          flutter build macos --release
+          version_data=$(python3 -c 'from tools.release_version import read_version; print(*read_version())')
+          read -r version build <<<"$version_data"
+          flutter build macos --release --build-name "$version" --build-number "$build"
           app_path="$PWD/build/macos/Build/Products/Release/CrispChess.app"
           python3 tools/verify_macos_app.py "$app_path"
           cp "$RUNNER_TEMP/crispchess.provisionprofile" "$app_path/Contents/embedded.provisionprofile"
@@ -139,8 +141,8 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
-          version=$(sed -n 's/^version:[[:space:]]*\([^+]*\)+.*$/\1/p' pubspec.yaml | head -1)
-          build=$(sed -n 's/^version:[[:space:]]*[^+]*+\(.*\)$/\1/p' pubspec.yaml | head -1)
+          version_data=$(python3 -c 'from tools.release_version import read_version; print(*read_version())')
+          read -r version build <<<"$version_data"
           package="$RUNNER_TEMP/CrispChess-${version}-${build}.pkg"
           productbuild --component "$PWD/build/macos/Build/Products/Release/CrispChess.app" /Applications --sign "$INSTALLER_IDENTITY" "$package"
           pkgutil --check-signature "$package"

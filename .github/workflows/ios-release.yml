@@ -55,6 +55,12 @@ env:
   PROFILE_NAME: CrispChess AppStore CI
   FLUTTER_VERSION: '3.44.2'
 
+# Least privilege: the workflow reads the repository and talks to App Store
+# Connect with its own secrets. Without this block it inherits the repository
+# default, which may be read-write.
+permissions:
+  contents: read
+
 jobs:
   status:
     if: ${{ inputs.status_only }}
@@ -243,6 +249,7 @@ jobs:
           BETA_CONTACT_LAST_NAME: ${{ secrets.BETA_CONTACT_LAST_NAME }}
           BETA_CONTACT_EMAIL: ${{ secrets.BETA_CONTACT_EMAIL }}
           BETA_CONTACT_PHONE: ${{ secrets.BETA_CONTACT_PHONE }}
+          GROUP: ${{ inputs.external_group }}
         run: |
           set -euo pipefail
           # The runner's Python is externally managed (PEP 668), so a bare
@@ -252,7 +259,6 @@ jobs:
           export ASC_API_KEY_P8=$(echo "$ASC_API_KEY_P8_BASE64" | base64 --decode)
           VER=$(grep '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//; s/+.*//')
           BUILD=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
-          GROUP='${{ inputs.external_group }}'
           "$RUNNER_TEMP/asc-venv/bin/python" scripts/testflight_external.py \
             --app-id '${{ secrets.ASC_APP_ID }}' \
             --version "$VER" --build "$BUILD" \

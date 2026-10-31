@@ -26,7 +26,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../services/engine_profile_store.dart';
 import 'chess_engine.dart';
+import 'chess_lm_engine.dart' show availableChessLmNames;
 import 'engine_factory.dart';
+import 'searchless_engine.dart' show availableSearchlessSizes;
 import 'generic_uci_engine_stub.dart';
 
 /// Prefix for engines that ship with the app.
@@ -37,6 +39,28 @@ const String kCustomEnginePrefix = 'custom:';
 
 /// The engine used when nothing else can be resolved.
 const String kFallbackEngineName = 'Built-in';
+
+/// Built-in engines that can play a match or be benchmarked, in the order the
+/// pickers show them.
+///
+/// One list, used by the match screen and by the Engine Lab. The match screen
+/// used to keep its own copy: two lists that have to agree is one list too
+/// many, and the Lab must not be able to benchmark an arrangement of engines
+/// the app cannot otherwise run.
+/// Lynx is included because [createEngineOrNull] can construct it: an engine
+/// the app can play is an engine the Lab must be able to measure, and leaving
+/// it out silently made the strongest bundled MCTS engine unbenchmarkable.
+List<String> get builtInMatchEngines => [
+      'Built-in',
+      'Frozenight',
+      'Stockfish',
+      'Lynx',
+      'Maia3 Dart',
+      'ChessMamba',
+      'Lc0',
+      for (final size in availableSearchlessSizes) size.engineName,
+      ...availableChessLmNames,
+    ];
 
 /// Id of the engine used when nothing else can be resolved.
 String get fallbackEngineId => builtInEngineId(kFallbackEngineName);
