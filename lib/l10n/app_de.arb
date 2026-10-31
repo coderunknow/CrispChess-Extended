@@ -554,5 +554,10 @@
   "engineLabAnchorTimeControl": "Zeitkontrolle",
   "engineLabAnchorBudget": "Zeitbudget pro Zug (ms)",
   "engineLabAnchorMissing": "Fehlt",
-  "engineLabAnchorDateHint": "Schreibe das Veröffentlichungsdatum als JJJJ-MM-TT."
+  "engineLabAnchorDateHint": "Schreibe das Veröffentlichungsdatum als JJJJ-MM-TT.",
+  "engineLabPaused": "Pausiert.",
+  "copied": "kopiert",
+  "engineLabImportEmpty": "Die Zwischenablage ist leer.",
+  "engineLabImported": "Lauf importiert.",
+  "engineLabImportRenamed": "Er wurde unter einer neuen Kennung gespeichert, damit der vorhandene Lauf erhalten bleibt."
 }

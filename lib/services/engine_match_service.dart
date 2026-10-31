@@ -4,7 +4,7 @@ import '../bench/benchmark_plan.dart' show TournamentFormat;
 import '../bench/game_player.dart';
 import '../bench/game_record.dart';
 import '../engines/chess_engine.dart';
-import '../engines/opening_suite.dart' show Opening;
+import '../bench/opening_suite.dart' show Opening;
 import '../engines/search_telemetry.dart';
 
 export '../bench/game_record.dart' show GameOutcome, ForfeitReason;
@@ -471,8 +471,10 @@ class TournamentService {
   List<(int, int)> get _pairings {
     final pairs = <(int, int)>[];
     if (gauntlet) {
-      final reference =
-          referenceEngineId == null ? -1 : engineIds.indexOf(referenceEngineId);
+      // Read once into a local: a public field is not promoted, and
+      // `indexOf` needs the non-null value.
+      final wanted = referenceEngineId;
+      final reference = wanted == null ? -1 : engineIds.indexOf(wanted);
       if (reference < 0) {
         // Without a reference there is no gauntlet to play. Refusing is better
         // than silently running a round robin the caller did not ask for.

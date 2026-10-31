@@ -423,17 +423,20 @@ class BenchmarkService {
   /// Other user-added engines first — same backend, so the comparison means
   /// something — then one built-in engine as a reference point.
   Future<List<String>> _opponentsFor(String engineId) async {
-    final candidates = await candidates();
+    // Not named `candidates`: the method it calls has that name, and a local of
+    // the same name shadows it.
+    final available = await candidates();
     final custom = [
-      for (final candidate in candidates)
-        if (candidate.available && candidate.isCustom && candidate.engineId != engineId)
+      for (final candidate in available)
+        if (candidate.available &&
+            candidate.isCustom &&
+            candidate.engineId != engineId)
           candidate.engineId
     ];
     if (custom.isNotEmpty) return custom.take(3).toList();
     final builtIn = [
-      for (final candidate in candidates)
-        if (candidate.available && !candidate.isCustom)
-          candidate.engineId
+      for (final candidate in available)
+        if (candidate.available && !candidate.isCustom) candidate.engineId
     ];
     return builtIn.take(2).toList();
   }

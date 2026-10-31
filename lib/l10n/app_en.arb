@@ -792,5 +792,10 @@
   "engineLabAnchorTimeControl": "Time control",
   "engineLabAnchorBudget": "Move budget (ms)",
   "engineLabAnchorMissing": "Missing",
-  "engineLabAnchorDateHint": "Write the publication date as YYYY-MM-DD."
+  "engineLabAnchorDateHint": "Write the publication date as YYYY-MM-DD.",
+  "engineLabPaused": "Paused.",
+  "copied": "copied",
+  "engineLabImportEmpty": "The clipboard is empty.",
+  "engineLabImported": "Run imported.",
+  "engineLabImportRenamed": "It was stored under a new id so the existing run was kept."
 }

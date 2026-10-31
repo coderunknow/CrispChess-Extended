@@ -3191,7 +3191,12 @@ abstract class AppLocalizations {
 
   /// `engineLabAnchorDateHint`.
   String get engineLabAnchorDateHint;
-}
+
+  String get engineLabPaused;
+  String get copied;
+  String get engineLabImportEmpty;
+  String get engineLabImported;
+  String get engineLabImportRenamed;}
 
 class _AppLocalizationsDelegate
     extends LocalizationsDelegate<AppLocalizations> {

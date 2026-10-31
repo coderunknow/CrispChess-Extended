@@ -23,7 +23,7 @@ import 'package:chess/chess.dart' as chess;
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../engines/chess_engine.dart'
-    show EngineProcessDiedException, SearchDrainableEngine;
+    show ChessEngine, EngineProcessDiedException, SearchDrainableEngine;
 import '../engines/search_telemetry.dart';
 import 'game_record.dart';
 import 'opening_suite.dart';

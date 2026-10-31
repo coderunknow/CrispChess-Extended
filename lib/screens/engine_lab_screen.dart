@@ -30,6 +30,10 @@ import '../bench/game_record.dart';
 import '../bench/opening_suite.dart';
 import '../bench/stability_probe.dart';
 import '../engines/engine_registry.dart';
+// EngineProfile comes from the platform-independent stub, the same type the
+// profile store persists: importing the io engine would drag dart:io into the
+// web build.
+import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../l10n/generated/app_localizations.dart';
 import '../services/engine_profile_store.dart';
 import '../widgets/engine_lab/lab_widgets.dart';
@@ -283,15 +287,13 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       engineCount: _selected.length,
       pairings: pairings,
     );
-    final gamesPlanned = pairings *
-        (_config.balanceColors && _config.gamesPerPairing.isOdd
-            ? _config.gamesPerPairing + 1
-            : _config.gamesPerPairing);
     final confirmed = await _confirmWorkload(
       l,
       engineCount: _selected.length,
-      gamesPlanned: gamesPlanned,
-      warmUpGames: _config.warmUpGames,
+      // The dialog quotes the estimate's own numbers, so it cannot promise a
+      // different run from the one the planner will schedule.
+      gamesPlanned: estimate.plannedGames,
+      warmUpGames: estimate.warmUpGames,
       estimate: estimate,
       validation: validation,
     );
@@ -302,7 +304,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _paused = false;
       _gamesDone = 0;
       _progress = 0;
-      _gamesTotal = plan.totalGames;
+      _gamesTotal = estimate.scoredGames;
       _liveGames.clear();
       _liveNotices = const [];
       _lastMove = '';
@@ -1832,7 +1834,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   String? _compareB;
 
   String _performanceSummary(AppLocalizations? l, EngineAggregate aggregate) {
-    if (aggregate.moves == 0) {
+    if (aggregate.moveMillis.isEmpty) {
       return l?.engineLabNoMetrics ?? 'no move timing recorded';
     }
     return 'p50 ${aggregate.percentile(50)} ms · '
@@ -2025,27 +2027,33 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                     child: Row(
                       children: [
                         StateChip(
-                          label: check.passed ? 'ok' : 'fail',
-                          color: check.passed
+                          label: check.ok ? 'ok' : 'fail',
+                          color: check.ok
                               ? Theme.of(context).colorScheme.primary
                               : Theme.of(context).colorScheme.error,
-                          icon: check.passed ? Icons.check : Icons.close,
+                          icon: check.ok ? Icons.check : Icons.close,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            '${check.name}${check.detail == null ? '' : ' — ${check.detail}'}',
+                            '${check.name} '
+                            '(${check.passed}/${check.attempts})'
+                            '${check.failures.isEmpty ? '' : ' — ${check.failures.join('; ')}'}',
                             style: const TextStyle(fontSize: 12),
                           ),
                         ),
                       ],
                     ),
                   ),
-                if (report.summary.isNotEmpty)
+                if (report.failures.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: Text(report.summary,
-                        style: const TextStyle(fontSize: 12)),
+                    child: Text(
+                        report.failures.join('\n'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.error,
+                        )),
                   ),
               ],
             ],

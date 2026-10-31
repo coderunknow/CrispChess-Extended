@@ -1772,4 +1772,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get engineLabAnchorDateHint => 'Schreibe das Veröffentlichungsdatum als JJJJ-MM-TT.';
-}
+
+  @override
+  String get engineLabPaused => 'Pausiert.';
+  @override
+  String get copied => 'kopiert';
+  @override
+  String get engineLabImportEmpty => 'Die Zwischenablage ist leer.';
+  @override
+  String get engineLabImported => 'Lauf importiert.';
+  @override
+  String get engineLabImportRenamed => 'Er wurde unter einer neuen Kennung gespeichert, damit der vorhandene Lauf erhalten bleibt.';}

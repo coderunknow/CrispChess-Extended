@@ -180,6 +180,12 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
             _currentMoveCount++;
             _status = 'Game $_currentGame: move $_currentMoveCount ($move)';
           });
+        case TournamentEnginesUnavailable(:final reasons):
+          setState(() {
+            _status = reasons.isEmpty
+                ? 'Some engines could not be started'
+                : 'Engines unavailable: ${reasons.join('; ')}';
+          });
         case MatchGameFinished(:final result):
           setState(() {
             _results.add(result);
@@ -275,6 +281,12 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
           setState(() {
             _currentFen = fen;
             _currentMoveCount++;
+          });
+        case TournamentEnginesUnavailable(:final reasons):
+          setState(() {
+            _status = reasons.isEmpty
+                ? 'Some engines could not be started'
+                : 'Engines unavailable: ${reasons.join('; ')}';
           });
         case MatchGameFinished(:final result):
           setState(() => _results.add(result));

@@ -259,13 +259,6 @@ CalibrationOutcome calibrateElo({
         '${anchor.missingFields.join(', ')}).');
   }
 
-  final cohorts = <String>{for (final identity in identities) identity.cohortKey};
-  if (cohorts.length > 1) {
-    return CalibrationOutcome.unavailable(
-        'The run mixes ${cohorts.length} cohorts (${cohorts.join(', ')}); a '
-        'published rating cannot be transferred across platforms or backends.');
-  }
-
   final anchorRating = _findAnchorRating(fit, anchor);
   if (anchorRating == null) {
     return CalibrationOutcome.unavailable(
@@ -277,6 +270,17 @@ CalibrationOutcome calibrateElo({
         'The anchor engine\'s own rating in this run is too uncertain '
         '(±${(kZ95 * anchorRating.stdErr).toStringAsFixed(0)} Elo) to carry a '
         'published number across.');
+  }
+
+  // Refuse a mixed-platform run only once the anchor is known to be here and
+  // comparable: "the anchor did not take part" is the actionable answer when
+  // that is the problem, and a cohort warning would bury it. A run that mixes
+  // platforms still never produces a published number.
+  final cohorts = <String>{for (final identity in identities) identity.cohortKey};
+  if (cohorts.length > 1) {
+    return CalibrationOutcome.unavailable(
+        'The run mixes ${cohorts.length} cohorts (${cohorts.join(', ')}); a '
+        'published rating cannot be transferred across platforms or backends.');
   }
 
   final warnings = <String>[];

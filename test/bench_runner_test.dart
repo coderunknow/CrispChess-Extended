@@ -14,7 +14,6 @@ import 'dart:async';
 import 'package:crispchess/bench/benchmark_config.dart';
 import 'package:crispchess/bench/benchmark_environment.dart';
 import 'package:crispchess/bench/benchmark_plan.dart';
-import 'package:crispchess/bench/benchmark_run.dart';
 import 'package:crispchess/bench/benchmark_runner.dart';
 import 'package:crispchess/bench/game_record.dart';
 import 'package:crispchess/engines/chess_engine.dart';

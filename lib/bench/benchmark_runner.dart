@@ -26,11 +26,9 @@ import 'benchmark_environment.dart';
 import 'benchmark_plan.dart';
 import 'benchmark_run.dart';
 import 'calibration.dart';
-import 'elo.dart';
 import 'engine_identity.dart';
 import 'game_player.dart';
 import 'game_record.dart';
-import 'opening_suite.dart';
 
 /// An engine the runner may build, with the identity it starts from.
 class BenchEngineSlot {
