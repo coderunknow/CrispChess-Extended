@@ -97,6 +97,9 @@ mixin UciSearchCoordinator {
   /// both stall every later search and swallow the first real answer, leaving
   /// the game with no move at all. Dropping it re-exposes the older race on that
   /// connection only, which is the lesser failure.
+  /// Serialises `startSearch` registration; see the comment there.
+  Future<void> _registration = Future<void>.value();
+
   Future<void> _awaitOwedBestMoves(Duration timeout) async {
     if (_owedBestMoves == 0) return;
     _owed ??= Completer<void>();
@@ -117,16 +120,30 @@ mixin UciSearchCoordinator {
     required bool awaitMove,
     bool? whiteToMove,
   }) async {
-    await quiesceSearch();
-    // Set only after the previous search has drained: the `info` lines it emits
-    // on its way out belong to its position and must keep its colour.
-    if (whiteToMove != null) _searchWhiteToMove = whiteToMove;
-    _running = Completer<void>();
-    final waiter = awaitMove ? Completer<String?>() : null;
-    _awaited = waiter;
-    sendUci(positionCommand);
-    sendUci(goCommand);
-    return waiter?.future;
+    // Two requests in the same tick both reach `quiesceSearch` while `_running`
+    // is still null, because the first has not passed its own await yet. The
+    // second then drains nothing, registers over the first, and overwrites
+    // `_searchWhiteToMove` before the first search's `info` lines arrive — which
+    // flips their sign, e.g. a +1.00 for White reported as -1.00. Registration
+    // is serialised so each request sees the previous one already running.
+    final previous = _registration;
+    final gate = Completer<void>();
+    _registration = gate.future;
+    await previous;
+    try {
+      await quiesceSearch();
+      // Set only after the previous search has drained: the `info` lines it
+      // emits on its way out belong to its position and must keep its colour.
+      if (whiteToMove != null) _searchWhiteToMove = whiteToMove;
+      _running = Completer<void>();
+      final waiter = awaitMove ? Completer<String?>() : null;
+      _awaited = waiter;
+      sendUci(positionCommand);
+      sendUci(goCommand);
+      return waiter?.future;
+    } finally {
+      gate.complete();
+    }
   }
 
   /// Feed every `bestmove` line here, with the move or null when the engine
