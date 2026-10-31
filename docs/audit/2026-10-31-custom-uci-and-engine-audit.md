@@ -834,7 +834,30 @@ PR and neither can be exercised here:
 All twelve workflow files still parse as YAML (PyYAML): `ci.yml` 14 jobs,
 `release.yml` 9, `ios-release.yml` 2, and one each in the other nine.
 
-### 10.7 What the third round did not establish
+### 10.7 Reviewer state, pinned to the head commit
+
+Each row is the check run GitHub attaches to that exact SHA, not a memory of an
+earlier report.
+
+| Head SHA | CodeRabbit check run | Meaning |
+|---|---|---|
+| `33e74d0` | `completed / success` (01:44:22Z), 4 inline findings | reviewed; all four findings valid and fixed |
+| `c18147f` | `completed / skipped` (01:47:33Z, zero duration) | not reviewed |
+| `24a330f` | `completed / skipped` (01:48:02Z) | not reviewed |
+| `4acce67` | `completed / skipped` (01:49:13Z) | not reviewed |
+
+`skipped` is not `success` and was not treated as one. The cause was requested
+rather than inferred: `@coderabbitai review` on the PR drew an explicit
+`⚠️ Action not completed — Review rate limited.` reply from CodeRabbit
+(01:49:53Z), with the note that it "is an incremental review system and does not
+re-review already reviewed commits". So the four findings raised against
+`33e74d0` were fixed, but **the commits that fix them carry no independent
+review**. The other agents remain unavailable or exhausted (Kilo
+`action_required`, Qodo paused, Copilot out of quota), and GitHub Actions still
+produces no runs for this repository (0 check runs on any commit that is not a
+third-party app's).
+
+### 10.8 What the third round did not establish
 
 - No Dart or Flutter process was executed: no `pub get`, no `analyze`, no test
   run, no build, no app launch.
