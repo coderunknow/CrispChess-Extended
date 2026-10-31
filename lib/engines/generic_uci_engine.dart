@@ -16,13 +16,14 @@ import 'uci_option.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_position.dart';
 import 'uci_search_coordinator.dart';
+import 'engine_fingerprint.dart';
 
 export 'generic_uci_engine_stub.dart' show EngineProfile;
 export 'chess_engine.dart' show EngineProcessDiedException;
 
 class GenericUciEngine
     with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine {
+    implements ChessEngine, SearchDrainableEngine {
   final EngineProfile profile;
 
   Process? _process;
@@ -229,6 +230,15 @@ class GenericUciEngine
       // caller told it started. That is the "a failing engine is saved as a
       // working one" defect this class exists to prevent.
       if (processGone) throw await processDeathReport();
+      try {
+        await refreshEngineFingerprint(profile);
+      } catch (error) {
+        // Fingerprinting is supplementary metadata; a valid engine must remain
+        // usable even if its executable cannot be read back after launch.
+        debugPrint('[UCI] Could not fingerprint $name: $error');
+      }
+      if (_isDisposed) throw StateError('Engine disposed during fingerprinting');
+      if (processGone) throw await processDeathReport();
       _stateNotifier.value = EngineState.ready;
       debugPrint('[UCI] $name ready (${options.length} options)');
     } catch (e) {
@@ -339,6 +349,10 @@ class GenericUciEngine
   }
 
   @override
+  Future<void> drainSearch({Duration timeout = const Duration(seconds: 5)}) =>
+      quiesceSearch(timeout: timeout);
+
+  @override
   Future<String> bestMove(
     String positionCommand, {
     int? depth,
@@ -348,8 +362,13 @@ class GenericUciEngine
     if (_process == null) throw StateError('Not initialized');
     if (processGone) throw await processDeathReport();
     _stateNotifier.value = EngineState.thinking;
-    if (skillLevel != null) {
-      _send('setoption name Skill Level value $skillLevel');
+    // A custom profile's explicit UCI Skill Level is a user-owned option. Keep
+    // it authoritative, but continue to honor the app-wide strength slider when
+    // the profile has no explicit override.
+    final hasSkillLevelOverride = profile.optionOverrides.keys
+        .any((key) => key.trim().toLowerCase() == 'skill level');
+    if (skillLevel != null && !hasSkillLevelOverride) {
+      setOption('Skill Level', '$skillLevel');
     }
 
     // Drive play by time rather than a fixed depth: the cost of a given depth
@@ -429,12 +448,9 @@ class GenericUciEngine
     // Ask the engine to stop, but leave the search registered: its `bestmove`
     // is still coming and must be consumed here, not by the next request.
     if (isSearching) _send('stop');
-    // Only a running search can be stopped. Reporting `ready` unconditionally
-    // turned a disposed engine back into a live one, and told the UI an engine
-    // that had just failed to start was usable.
-    if (_stateNotifier.value == EngineState.thinking) {
-      _stateNotifier.value = EngineState.ready;
-    }
+    // Do not report `ready` here: UCI is not idle until the corresponding
+    // `bestmove` arrives. `_handleLine` performs that transition after the
+    // protocol response, so callers never reuse this connection early.
   }
 
   /// Stops the process and forgets it, reporting nothing about the exit.

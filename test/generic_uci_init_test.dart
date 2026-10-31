@@ -38,7 +38,10 @@ late Directory _dir;
 }
 
 /// A well-behaved engine that also reports an `info` line before its move.
-({String path, String log}) _workingEngine({String idName = 'TestEngine 1.0'}) =>
+({String path, String log}) _workingEngine({
+  String idName = 'TestEngine 1.0',
+  bool advertisesSkillLevel = false,
+}) =>
     _script('working', '''
     uci)
       echo "id name $idName"
@@ -47,6 +50,7 @@ late Directory _dir;
       echo "option name Threads type spin default 1 min 1 max 8"
       echo "option name Style type combo default Normal var Normal var Aggressive"
       echo "option name Clear Hash type button"
+      ${advertisesSkillLevel ? 'echo "option name Skill Level type spin default 20 min 0 max 20"' : ''}
       echo "uciok"
       ;;
     isready) echo "readyok" ;;
@@ -193,6 +197,35 @@ void main() {
       );
       expect(sent, contains('setoption name Hash value 256'));
       expect(sent, contains('setoption name Threads value 4'));
+    });
+
+    test('the application strength level never overwrites profile Skill Level', () async {
+      final fake = _workingEngine(advertisesSkillLevel: true);
+      final engine = GenericUciEngine(EngineProfile(
+        name: 'Skill test',
+        path: fake.path,
+        optionOverrides: {'Skill Level': '7'},
+      ));
+      await engine.initialize();
+      addTearDown(engine.dispose);
+
+      await engine.bestMove('position startpos', skillLevel: 2);
+      final sent = _logLines(fake.log);
+      expect(sent, contains('setoption name Skill Level value 7'));
+      expect(sent, isNot(contains('setoption name Skill Level value 2')));
+    });
+
+    test('the application strength level is sent when no profile override exists', () async {
+      final fake = _workingEngine(advertisesSkillLevel: true);
+      final engine = GenericUciEngine(EngineProfile(
+        name: 'Skill slider test',
+        path: fake.path,
+      ));
+      await engine.initialize();
+      addTearDown(engine.dispose);
+
+      await engine.bestMove('position startpos', skillLevel: 2);
+      expect(_logLines(fake.log), contains('setoption name Skill Level value 2'));
     });
 
     test('initialising twice does not duplicate the option list', () async {

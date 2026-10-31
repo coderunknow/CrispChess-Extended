@@ -92,6 +92,21 @@ void main() {
     expect(profile.optionCount, 12);
   });
 
+  test('binary fingerprints survive profile serialization', () {
+    final profile = EngineProfile(
+      id: 'fingerprinted',
+      name: 'Engine',
+      path: '/tmp/engine',
+      binaryFingerprint: 'sha256:abc123',
+      binaryFingerprintMetadata: '1024:12345',
+    );
+    final restored = EngineProfile.fromJson(profile.toJson());
+    expect(restored.binaryFingerprint, 'sha256:abc123');
+    expect(restored.binaryFingerprintMetadata, '1024:12345');
+    expect(restored.copyWith(path: '/tmp/other-engine').binaryFingerprint, isNull);
+    expect(restored.copyWith(path: '/tmp/other-engine').binaryFingerprintMetadata, isNull);
+  });
+
   test('profiles saved without an id are migrated and rewritten', () async {
     // Exactly what the previous version wrote.
     SharedPreferences.setMockInitialValues({

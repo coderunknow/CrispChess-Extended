@@ -520,3 +520,24 @@ _Items that don't fit current strategy or have low ROI._
 - [ ] Video lessons (content creation bottleneck, not code)
 - [ ] Decorative background watermark (cosmetic, low priority)
 - [ ] Staggered entry animations on game summary (cosmetic, low priority)
+
+---
+
+## Phase 29: Engine Lab foundation (v2.3.2-dev2)
+
+_Development scope; this is not a release announcement._
+
+- [x] Add a local Engine Lab dashboard and repeatable Quick/Standard/Accurate/Custom round-robin setup.
+- [x] Record stable engine IDs, platform/backend labels, outcome classification and per-move response latencies.
+- [x] Preserve reports locally with schema versioning, atomic native snapshots, backup recovery, validated additive JSON import, CSV export and PGN copying.
+- [x] Keep relative Elo separate from calibrated Elo; label calibrated Elo unavailable until a matching, published reference cohort can be justified.
+- [x] Stop treating disconnected comparison groups as one jointly comparable field; independently anchor components and expose uncertainty.
+- [x] Make automatic Quick benchmarking after custom engine addition opt-in and avoid overwriting a profile's `Skill Level` through the global strength parameter.
+- [x] Correct the release Web fallback to verify valid WASM outputs without requiring the JavaScript entrypoint.
+- [x] Cache custom UCI SHA-256 fingerprints by file size/mtime and offer opt-in Quick rebenchmark when Engine Lab detects a changed custom binary.
+- [ ] Automatically detect built-in engine version changes and trigger version-specific retests.
+- [ ] Add opening suites, gauntlet scheduling, configuration A/B sweeps, adaptive stopping and richer UCI diagnostics.
+- [ ] Add fully localized Engine Lab copy and charted, cohort-filtered rating progression.
+- [ ] Verify Dart tests, app analysis, real native engine runs and six platform builds on enabled CI runners.
+
+Storage note: native reports are full snapshots in application support with a recovery copy. Web uses `shared_preferences`/browser storage and is limited by browser quota. This is the dev2 foundation, not the SQLite-backed large-scale game database planned in Phase 27.
