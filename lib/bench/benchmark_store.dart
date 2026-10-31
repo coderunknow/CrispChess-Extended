@@ -90,8 +90,9 @@ class ImportResult {
 class _FingerprintEntry {
   final ExecutableStat stat;
   final String? sha256;
+  final String? path;
 
-  const _FingerprintEntry(this.stat, this.sha256);
+  const _FingerprintEntry(this.stat, this.sha256, this.path);
 }
 
 /// Reads and writes the benchmark history.
@@ -129,14 +130,16 @@ class BenchmarkStore {
   // ---------------------------------------------------------------- run index
 
   /// Every stored run, newest first.
-  Future<List<BenchmarkRunSummary>> summaries() async {
+  Future<List<BenchmarkRunSummary>> summaries() => _serialised(_summaries);
+
+  Future<List<BenchmarkRunSummary>> _summaries() async {
     await init();
     final raw = await storage.read(kBenchmarkIndexKey);
     if (raw == null || raw.isEmpty) return _rebuildIndex();
     List<BenchmarkRunSummary> summaries;
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return _rebuildIndex();
+      if (decoded is! List) return await _rebuildIndex();
       summaries = [
         for (final entry in decoded)
           if (entry is Map)
@@ -179,7 +182,7 @@ class BenchmarkStore {
           '$kBenchmarkRunPrefix${run.id}',
           encodeRunDocument(run),
         );
-        final summaries = await this.summaries();
+        final summaries = await _summaries();
         final summary = run.summary();
         final merged = [
           summary,
@@ -242,7 +245,9 @@ class BenchmarkStore {
   // ------------------------------------------------------------------ loading
 
   /// Loads a run, or null when it does not exist or had to be quarantined.
-  Future<BenchmarkRun?> loadRun(String id) async {
+  Future<BenchmarkRun?> loadRun(String id) => _serialised(() => _loadRun(id));
+
+  Future<BenchmarkRun?> _loadRun(String id) async {
     await init();
     return _readRunKey('$kBenchmarkRunPrefix$id');
   }
@@ -437,7 +442,7 @@ class BenchmarkStore {
   Future<bool> deleteRun(String id) => _serialised(() async {
         await init();
         final raw = await storage.read('$kBenchmarkRunPrefix$id');
-        final summaries = await this.summaries();
+        final summaries = await _summaries();
         final listed = summaries.any((summary) => summary.id == id);
         if (raw == null && !listed) return false;
         await storage.delete('$kBenchmarkRunPrefix$id');
@@ -620,12 +625,12 @@ class BenchmarkStore {
     if (stat == null) return (sha256: null, stat: null);
     final cache = await _fingerprintCache();
     final entry = cache[profileId];
-    if (entry != null && entry.stat == stat && entry.sha256 != null) {
+    if (entry != null && entry.path == path && entry.stat == stat && entry.sha256 != null) {
       return (sha256: entry.sha256, stat: stat);
     }
     final digest = await sha256OfFile(path);
     if (digest != null) {
-      cache[profileId] = _FingerprintEntry(stat, digest);
+      cache[profileId] = _FingerprintEntry(stat, digest, path);
       await _writeFingerprintCache(cache);
     }
     return (sha256: digest, stat: stat);
@@ -645,6 +650,7 @@ class BenchmarkStore {
           result['$key'] = _FingerprintEntry(
             stat is Map ? ExecutableStat.fromJson(Map<String, dynamic>.from(stat)) : const ExecutableStat(sizeBytes: 0, modifiedMillis: 0),
             map['sha256'] is String ? map['sha256'] as String : null,
+            map['path'] is String ? map['path'] as String : null,
           );
         }
       });
@@ -663,6 +669,7 @@ class BenchmarkStore {
         for (final entry in cache.entries)
           entry.key: {
             'stat': entry.value.stat.toJson(),
+            'path': entry.value.path,
             if (entry.value.sha256 != null) 'sha256': entry.value.sha256,
           }
       }),

@@ -35,6 +35,13 @@ BenchGame _game(
     );
 
 void main() {
+  test('missing saved uncertainty cannot become exact certainty', () {
+    final rating = EloRating.fromJson({'engineId': 'legacy'});
+    expect(rating.stdErr, double.infinity);
+    expect(rating.ciLow, double.negativeInfinity);
+    expect(rating.ciHigh, double.infinity);
+  });
+
   group('quality grades', () {
     test('too few games is never a rating worth quoting', () {
       expect(gradeRating(19, 40), RatingQuality.insufficient);
