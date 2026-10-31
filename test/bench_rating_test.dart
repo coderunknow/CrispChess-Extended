@@ -236,6 +236,21 @@ void main() {
     });
   });
 
+  test('joint two-player comparison accounts for anti-correlation', () {
+    final fit = fitElo(games: [
+      for (var i = 0; i < 60; i++) (white: 'a', black: 'b', score: 1.0),
+      for (var i = 0; i < 40; i++) (white: 'a', black: 'b', score: 0.0),
+    ]);
+    expect(fit.compare('a', 'b')!.stdErr,
+        closeTo(2 * fit.ratingFor('a')!.stdErr, 0.001));
+    final disconnected = fitElo(games: [
+      (white: 'a', black: 'b', score: 1.0),
+      (white: 'c', black: 'd', score: 0.0),
+    ]);
+    expect(disconnected.compare('a', 'c')!.stdErr.isInfinite, isTrue);
+    expect(disconnected.compare('a', 'c')!.verdict, contains('not comparable'));
+  });
+
   group('calibration', () {
     final identities = [
       EngineIdentity.forBuiltIn(
