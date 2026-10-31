@@ -277,8 +277,17 @@ class Maia3DartEngine implements ChessEngine {
         result.logitsValue[2].toDouble(),
       ]);
       final winProb = winProbabilityFromWdl(wdl);
-      // Convert to centipawn-like score
-      final score = (winProb - 0.5) * 10.0;
+      // The board is fed to the model mirrored when Black is to move, so it
+      // always sees the position from the mover's side (`_legalLogits` mirrors
+      // the move back for the same reason). Its value head is therefore the
+      // *mover's* WDL, while `EvalInfo.score` is White's, in pawns.
+      final fen = history.last;
+      final blackToMove =
+          fen.split(' ').length > 1 && fen.split(' ')[1] == 'b';
+      // `win + 0.5*draw` for the mover is exactly `loss + 0.5*draw` for the
+      // other side, so 1 - p is White's win probability when Black is to move.
+      final whiteWinProb = blackToMove ? 1 - winProb : winProb;
+      final score = (whiteWinProb - 0.5) * 10.0;
 
       yield EvalInfo(score: score, depth: 1, bestMove: null);
     } catch (e) {

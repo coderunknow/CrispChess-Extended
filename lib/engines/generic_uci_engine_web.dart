@@ -12,14 +12,19 @@ class GenericUciEngine implements ChessEngine {
   final EngineProfile profile;
   final List<UciOption> options = [];
 
+  /// Stable, not rebuilt per access: a fresh notifier on every `stateNotifier`
+  /// read means listeners are attached to an object nobody ever updates, so a
+  /// state change is never observed.
+  final _stateNotifier = ValueNotifier<EngineState>(EngineState.error);
+
   GenericUciEngine(this.profile);
 
-  @override String get name => profile.name;
+  @override String get name => profile.displayName;
   @override String get version => '';
   @override String get license => 'Unknown';
   @override int get estimatedElo => 0;
-  @override EngineState get state => EngineState.error;
-  @override ValueNotifier<EngineState> get stateNotifier => ValueNotifier(EngineState.error);
+  @override EngineState get state => _stateNotifier.value;
+  @override ValueNotifier<EngineState> get stateNotifier => _stateNotifier;
   @override Future<void> initialize() async =>
       throw UnsupportedError('Custom UCI engines not available on web');
   @override Future<String> bestMove(String p, {int? depth, Duration? moveTime, int? skillLevel}) async =>

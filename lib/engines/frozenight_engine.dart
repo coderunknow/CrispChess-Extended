@@ -5,6 +5,7 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
 import 'search_pacing.dart';
+import 'uci_position.dart';
 
 // Native function types
 typedef _InitC = Int32 Function(Uint32 hashMb);
@@ -243,6 +244,13 @@ class FrozenightEngine implements ChessEngine {
     _stateNotifier.value = EngineState.thinking;
     _stopped = false;
     _applyPosition(positionCommand);
+    // frozenight's own search is negamax, so `SearchInfo.eval` — the value
+    // `frozenight_get_score` returns — is positive when the *side to move* is
+    // better (see `search_moves`, which maximises over negated child scores,
+    // and the mated-position arm returning `-MATE`). EvalInfo is from White's.
+    // A local, not a field: `analyze` is a generator, so this value belongs
+    // to this stream and no other search can change it underneath it.
+    final whiteToMove = positionCommandIsWhiteToMove(positionCommand);
 
     // Bounded for the same reason as [bestMove]: a deep iteration is one
     // blocking call that `stop` cannot interrupt.
@@ -256,8 +264,9 @@ class FrozenightEngine implements ChessEngine {
       if (_search!(d) != 0) break;
 
       final ptr = _getBestMove!();
+      final sideToMove = _getScore!() / 100.0;
       yield EvalInfo(
-        score: _getScore!() / 100.0,
+        score: whiteToMove ? sideToMove : -sideToMove,
         depth: _getDepth!(),
         bestMove: ptr.address != 0 ? ptr.toDartString() : null,
       );

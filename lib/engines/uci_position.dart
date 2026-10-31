@@ -25,6 +25,25 @@ const Set<String> _promotionChars = {'q', 'r', 'b', 'n'};
 String fenFromPositionCommand(String command) =>
     fenHistoryFromPositionCommand(command, limit: 1).last;
 
+/// Whether the position described by a UCI `position` command has White to
+/// move.
+///
+/// UCI reports `score cp` and `score mate` from the point of view of the side
+/// to move, but [EvalInfo] is defined — and every consumer of it drawn — from
+/// White's. Without knowing whose turn it is there is no way to reconcile the
+/// two, and the evaluation of every Black-to-move position came out inverted.
+bool positionCommandIsWhiteToMove(String command) {
+  final (:baseFen, :moves) = parsePositionCommand(command);
+  final fields = baseFen.split(' ');
+  final baseIsWhite = fields.length < 2 || fields[1] != 'b';
+  // Every legal move passes the turn, so whose turn it is at the end depends
+  // only on the parity of the move list. Deriving it from a replayed FEN meant
+  // one move the FEN parser could not reproduce — a variant castling, a
+  // promotion written differently — silently reported the previous side to
+  // move, which is exactly the inversion this helper exists to prevent.
+  return moves.length.isEven ? baseIsWhite : !baseIsWhite;
+}
+
 /// Splits a UCI `position` command into its base FEN and the list of UCI moves
 /// played from it. Lets an engine replay the game to recover the full position
 /// history (e.g. for repetition detection) rather than only the final FEN.

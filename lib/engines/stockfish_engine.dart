@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'chess_engine.dart';
 import 'stockfish_downloadable_engine.dart';
+import 'uci_position.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_search_coordinator.dart';
 
@@ -30,6 +31,7 @@ class StockfishEngine
   final _evalController = StreamController<EvalInfo>.broadcast();
 
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
+  static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
   static final _pvRegex = RegExp(r' pv (.+)');
   static final _multipvRegex = RegExp(r'multipv (\d+)');
@@ -69,7 +71,7 @@ class StockfishEngine
   @override
   void onProcessLost() {
     if (!disposingProcess) _stateNotifier.value = EngineState.error;
-    if (isSearching) finishSearch(null);
+    resetSearches();
   }
 
   @override
@@ -117,13 +119,25 @@ class StockfishEngine
 
     if (t.startsWith('info') && t.contains('depth')) {
       final cp = _cpRegex.firstMatch(t);
+      final mate = _mateRegex.firstMatch(t);
       final d = _depthRegex.firstMatch(t);
       final pvMatch = _pvRegex.firstMatch(t);
       final mpv = _multipvRegex.firstMatch(t);
-      if (cp != null && d != null) {
+      if (d != null && (cp != null || mate != null)) {
+        final double score;
+        if (cp != null) {
+          score = int.parse(cp.group(1)!) / 100.0;
+        } else {
+          // A forced mate has no `cp` score at all. Skipping these lines, as
+          // this did, left the eval bar frozen and blank on exactly the
+          // positions where the evaluation matters most.
+          final mateIn = int.parse(mate!.group(1)!);
+          score = mateIn > 0 ? 999.0 : -999.0;
+        }
         final pv = pvMatch?.group(1);
         _evalController.add(EvalInfo(
-          score: int.parse(cp.group(1)!) / 100.0,
+          // UCI reports from the side to move; the app consumes White's.
+          score: searchWhiteToMove ? score : -score,
           depth: int.parse(d.group(1)!),
           bestMove: pv?.split(' ').first,
           pv: pv,
@@ -161,7 +175,13 @@ class StockfishEngine
 
     if (processGone) throw await processDeathReport();
 
-    final move = await startSearch(positionCommand, go, awaitMove: true)
+    final move = await startSearch(
+            positionCommand,
+            go,
+            awaitMove: true,
+            // Belongs to the search, not the engine: `info` lines from the
+            // search being stopped are still arriving when this one starts.
+            whiteToMove: positionCommandIsWhiteToMove(positionCommand))
         .timeout(cap, onTimeout: () {
       abandonSearch();
       return null;
@@ -201,7 +221,8 @@ class StockfishEngine
         infinite
             ? 'go infinite'
             : 'go depth ${depth ?? 20} movetime ${kFixedDepthTimeCap.inMilliseconds}',
-        awaitMove: false);
+        awaitMove: false,
+        whiteToMove: positionCommandIsWhiteToMove(positionCommand));
     return _evalController.stream;
   }
 
@@ -224,7 +245,7 @@ class StockfishEngine
   void dispose() {
     if (_delegate != null) return _delegate.dispose();
     beginProcessDispose();
-    finishSearch(null);
+    resetSearches();
     _process?.stdin.writeln('quit');
     _stdoutSub?.cancel();
     stopWatchingProcess();

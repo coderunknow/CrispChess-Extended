@@ -1,5 +1,79 @@
 # Changelog
 
+## Unreleased — custom UCI engines, finished
+
+### Engines
+
+- **Custom UCI engines work end to end.** An engine added in the Engine Manager
+  now appears in the engine selector, the hint-engine list, multi-engine
+  analysis and engine-vs-engine matches, and actually plays the game. Engine
+  selection is stored by a stable profile id instead of by display name, so two
+  engines with the same name — or a renamed profile — stay distinct.
+- **A failing engine is no longer saved as a working one.** `initialize()`
+  reported success even when the binary was missing, was not executable, never
+  answered `uci`, or died during the handshake. The Engine Manager's error path
+  could therefore never run. All four cases now fail with a specific error,
+  set the state to `error`, and leave nothing stored.
+- **UCI options are discovered and applied reliably**: the option list is
+  rebuilt on each handshake (it used to accumulate duplicates), option values
+  that the engine no longer advertises no longer break the dropdown, and the
+  text fields keep the caret where you put it instead of resetting on every
+  rebuild.
+- **Evaluation is no longer inverted on Black-to-move positions.** UCI reports
+  `score cp`/`score mate` from the side to move; the app draws it from White's.
+  Every engine that reports an evaluation now converts: the built-in engine,
+  custom UCI, Stockfish (all three builds — process, downloaded/iOS and
+  browser), Lynx (native and WASM), Lc0 native, and Frozenight (native FFI and
+  WASM). Stockfish and Lynx also report forced mates, which the browser builds
+  used to drop entirely.
+- **Engine switching** stops the previous engine before disposing it, resets
+  the crash-restart budget, and rebuilds the *new* engine after a crash (the
+  rebuild closure used to keep pointing at the engine selected at start-up).
+- **Matches and tournaments dispose their engines.** Nothing did before, so
+  every match left its engine processes running.
+- **Multi-engine analysis isolates failures**: one engine that cannot start no
+  longer discards the results of the others.
+- The hint-engine setting is persisted (it never was) and takes effect
+  immediately when changed (the hint engine was built once and then reused).
+
+### Fixed in the review of this change
+
+- Switching engines did not deliver `Hash`, `Threads` or `UCI_Chess960`: the
+  options were applied before the new engine had finished starting, and so went
+  to the engine that had just been disposed. The switch is now awaited, the new
+  selection is only recorded once it actually started, and an engine that fails
+  to start is replaced by the previous one with a message saying so.
+- An engine id naming an engine that does not exist no longer quietly plays as
+  the built-in engine.
+- The evaluation keeps the colour of the search it came from. A real engine
+  emits a burst of `info` lines while the previous search is being stopped, and
+  the colour was read from a field the caller had already overwritten — so the
+  eval bar briefly flipped sign whenever a search replaced another.
+- Engine profiles saved by an older version (no id) can be removed and edited
+  again. Their id was generated afresh on every read, so the delete or update
+  matched nothing and silently did nothing; the id is now derived from the entry
+  and written back, and every mutation re-reads the store first.
+- The Engine Manager's removal confirmation names an auto-detected engine by the
+  name it reports instead of by its (empty) user-supplied name.
+- The Maia3 (Dart) analysis is no longer shown inverted for Black. Its value
+  head is the *mover's* win probability — the board is mirrored into the model
+  when Black is to move — and it was reported as White's.
+- Two user-added engines with the same name no longer crash the settings screen
+  (the hint-engine list is keyed by id, like the engine selector, and a name
+  saved by an older version is migrated to one).
+- A disposed engine can no longer be brought back to "ready" by a late `stop()`
+  or a handshake finishing after disposal, and two simultaneous start attempts
+  no longer leave a second process running.
+
+### Data
+
+- Engine profiles carry a stable id; profiles saved by earlier versions are
+  migrated on first load. A corrupt or partially corrupt profile store no
+  longer makes the Engine Manager fail to open — unreadable entries are dropped
+  and the rest kept.
+- A profile can no longer be edited or deleted "by position", which could
+  retarget the wrong engine after a delete.
+
 ## 2.3.1
 
 ### What to test

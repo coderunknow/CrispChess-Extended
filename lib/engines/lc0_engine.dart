@@ -241,7 +241,15 @@ class Lc0Engine implements ChessEngine {
       // the search engines.
       final best =
           eval.policy.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
-      yield EvalInfo(score: eval.value * 5.0, depth: 1, bestMove: best);
+      // NnEval.value is documented (lc0_dart/mcts.dart) as the expected
+      // outcome *from the side to move's perspective*, and the web build of
+      // this same engine already flips it for display. Emitting it unchanged
+      // put the eval bar upside down for every Black-to-move position here
+      // while the browser build was right.
+      final whiteValue = board.turn == chess.Color.WHITE
+          ? eval.value
+          : -eval.value;
+      yield EvalInfo(score: whiteValue * 5.0, depth: 1, bestMove: best);
     } catch (e) {
       debugPrint('[Lc0] analyze failed: $e');
     } finally {

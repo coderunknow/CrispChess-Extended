@@ -223,6 +223,12 @@ class DartEngine implements ChessEngine {
     _stateNotifier.value = EngineState.thinking;
     _applyPosition(positionCommand);
     final parsed = parsePositionCommand(positionCommand);
+    // `crisp_chess_engine` searches negamax — `_searchRoot` maximises over
+    // `-_alphaBeta(...)` — so its score is positive when the side to move is
+    // better. EvalInfo is from White's, and this engine is the default one, so
+    // leaving it unconverted put the eval bar upside down for Black-to-move
+    // positions in the most common case of all.
+    final whiteToMove = positionCommandIsWhiteToMove(positionCommand);
     final maxDepth = infinite ? 100 : (depth ?? 20);
     _search = AlphaBetaSearch(_game);
 
@@ -240,8 +246,9 @@ class DartEngine implements ChessEngine {
         await for (final result in _worker.search(parsed.baseFen, parsed.moves,
             maxDepth, _analysisBudget(maxDepth, perIteration))) {
           if (_disposed) break;
+          final sideToMove = result.score / 100.0;
           yield EvalInfo(
-            score: result.score / 100.0,
+            score: whiteToMove ? sideToMove : -sideToMove,
             depth: result.depth,
             bestMove: result.bestMove,
           );
@@ -267,8 +274,9 @@ class DartEngine implements ChessEngine {
       game.load(_game.fen);
       result = AlphaBetaSearch(game).search(d, timeBudget: perIteration);
       if (result == null || _disposed) break;
+      final sideToMove = result.score / 100.0;
       yield EvalInfo(
-        score: result.score / 100.0,
+        score: whiteToMove ? sideToMove : -sideToMove,
         depth: result.depth,
         bestMove: result.bestMove,
       );

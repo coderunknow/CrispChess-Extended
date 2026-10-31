@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'uci_position.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_search_coordinator.dart';
 
@@ -58,6 +59,7 @@ class LynxEngine
 
   Process? _process;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
+
   StreamSubscription? _stdoutSub;
   final _evalController = StreamController<EvalInfo>.broadcast();
   String _detectedVersion = _lynxVersion;
@@ -99,7 +101,7 @@ class LynxEngine
   @override
   void onProcessLost() {
     if (!disposingProcess) _stateNotifier.value = EngineState.error;
-    if (isSearching) finishSearch(null);
+    resetSearches();
   }
 
   @override
@@ -181,7 +183,8 @@ class LynxEngine
         }
         final pv = pvMatch?.group(1);
         _evalController.add(EvalInfo(
-          score: score,
+          // UCI reports from the side to move; the app consumes White's.
+          score: searchWhiteToMove ? score : -score,
           depth: int.parse(d.group(1)!),
           bestMove: pv?.split(' ').first,
           pv: pv,
@@ -218,7 +221,13 @@ class LynxEngine
 
     if (processGone) throw await processDeathReport();
 
-    final move = await startSearch(positionCommand, go, awaitMove: true)
+    final move = await startSearch(
+            positionCommand,
+            go,
+            awaitMove: true,
+            // Belongs to the search, not the engine: `info` lines from the
+            // search being stopped are still arriving when this one starts.
+            whiteToMove: positionCommandIsWhiteToMove(positionCommand))
         .timeout(cap, onTimeout: () {
       abandonSearch();
       return null;
@@ -255,7 +264,8 @@ class LynxEngine
         infinite
             ? 'go infinite'
             : 'go depth ${depth ?? 20} movetime ${kFixedDepthTimeCap.inMilliseconds}',
-        awaitMove: false);
+        awaitMove: false,
+        whiteToMove: positionCommandIsWhiteToMove(positionCommand));
     return _evalController.stream;
   }
 
@@ -275,7 +285,7 @@ class LynxEngine
   @override
   void dispose() {
     beginProcessDispose();
-    finishSearch(null);
+    resetSearches();
     _process?.stdin.writeln('quit');
     _stdoutSub?.cancel();
     stopWatchingProcess();

@@ -1,7 +1,10 @@
 import 'dart:async';
 import '../l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
-import '../engines/engine_factory.dart';
+import '../engines/chess_engine.dart';
+import '../engines/engine_registry.dart';
+import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
+import '../services/engine_profile_store.dart';
 import '../engines/chess_lm_engine.dart' show availableChessLmNames;
 import '../engines/searchless_engine.dart' show availableSearchlessSizes;
 import '../services/engine_match_service.dart';
@@ -18,8 +21,8 @@ class EngineMatchScreen extends StatefulWidget {
 }
 
 class _EngineMatchScreenState extends State<EngineMatchScreen> {
-  String _engine1Name = 'Built-in';
-  String _engine2Name = 'Frozenight';
+  String _engine1Name = builtInEngineId('Built-in');
+  String _engine2Name = builtInEngineId('Frozenight');
   int _numGames = 2;
   int _depth = 8;
   bool _running = false;
@@ -28,8 +31,22 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
   TournamentService? _tournament;
   StreamSubscription<MatchEvent>? _sub;
 
-  /// Selected engines for tournament mode.
-  final Set<String> _tournamentEngines = {'Built-in', 'Frozenight', 'Maia3 Dart'};
+  /// Selected engines for tournament mode (ids, see `engine_registry.dart`).
+  final Set<String> _tournamentEngines = {
+    builtInEngineId('Built-in'),
+    builtInEngineId('Frozenight'),
+    builtInEngineId('Maia3 Dart'),
+  };
+
+  final EngineProfileStore _profileStore = EngineProfileStore();
+  List<EngineProfile> _profiles = const [];
+
+  /// Engines this screen created and must therefore dispose.
+  ///
+  /// Neither [EngineMatchService] nor [TournamentService] owns its engines —
+  /// the tournament reuses them across pairings — so nothing disposed them at
+  /// all, and every match left its engine processes running.
+  final List<ChessEngine> _ownedEngines = [];
 
   final List<GameResult> _results = [];
   String _currentFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -37,7 +54,58 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
   int _currentGame = 0;
   int _currentMoveCount = 0;
 
-  static final _engineNames = ['Built-in', 'Frozenight', 'Stockfish', 'Maia3 Dart', 'ChessMamba', 'Lc0', for (final s in availableSearchlessSizes) s.engineName, ...availableChessLmNames];
+  /// Built-in engines offered by the match screen.
+  static final _builtInNames = [
+    'Built-in',
+    'Frozenight',
+    'Stockfish',
+    'Maia3 Dart',
+    'ChessMamba',
+    'Lc0',
+    for (final s in availableSearchlessSizes) s.engineName,
+    ...availableChessLmNames,
+  ];
+
+  /// Everything selectable here: the built-ins above plus user-added engines.
+  List<({String id, String label})> get _engineChoices =>
+      matchEngineChoices(_builtInNames, _profiles);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfiles();
+  }
+
+  Future<void> _loadProfiles() async {
+    List<EngineProfile> profiles;
+    try {
+      profiles = await _profileStore.load();
+    } catch (e) {
+      debugPrint('[EngineMatch] could not load engine profiles: $e');
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _profiles = profiles);
+  }
+
+  /// Builds an engine by id, reporting a removed/incompatible one as an error
+  /// instead of silently substituting the built-in engine.
+  ChessEngine? _buildEngine(String id) {
+    try {
+      return createEngineForId(id, profiles: _profiles);
+    } on EngineUnavailableException catch (e) {
+      debugPrint('[EngineMatch] $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${engineLabelForId(id, _profiles)}: ${e.reason}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return null;
+    }
+  }
 
   @override
   void dispose() {
@@ -46,7 +114,19 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
     _match?.dispose();
     _tournament?.stop();
     _tournament?.dispose();
+    _disposeOwnedEngines();
     super.dispose();
+  }
+
+  void _disposeOwnedEngines() {
+    for (final engine in _ownedEngines) {
+      try {
+        engine.dispose();
+      } catch (e) {
+        debugPrint('[EngineMatch] dispose failed: $e');
+      }
+    }
+    _ownedEngines.clear();
   }
 
   Future<void> _startMatch() async {
@@ -64,8 +144,26 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
       _status = 'Initializing engines...';
     });
 
-    final e1 = createEngine(_engine1Name);
-    final e2 = createEngine(_engine2Name);
+    // A previous match's engines are done with; leaving them alive would keep
+    // their processes (and, for custom engines, their binaries) running.
+    _match?.stop();
+    _match?.dispose();
+    _match = null;
+    _sub?.cancel();
+    _disposeOwnedEngines();
+
+    final e1 = _buildEngine(_engine1Name);
+    final e2 = _buildEngine(_engine2Name);
+    if (e1 == null || e2 == null) {
+      if (e1 != null) e1.dispose();
+      if (e2 != null) e2.dispose();
+      setState(() {
+        _running = false;
+        _status = 'Engine unavailable';
+      });
+      return;
+    }
+    _ownedEngines.addAll([e1, e2]);
 
     _match = EngineMatchService(
       engine1: e1,
@@ -105,7 +203,17 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
       }
     });
 
-    await _match!.run();
+    try {
+      await _match!.run();
+    } catch (e) {
+      debugPrint('[EngineMatch] match failed: $e');
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = 'Match failed: $e';
+        });
+      }
+    }
   }
 
   Future<void> _startTournament() async {
@@ -123,7 +231,28 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
       _status = 'Initializing tournament...';
     });
 
-    final engines = _tournamentEngines.map((n) => createEngine(n)).toList();
+    _tournament?.stop();
+    _tournament?.dispose();
+    _tournament = null;
+    _sub?.cancel();
+    _disposeOwnedEngines();
+
+    final engines = <ChessEngine>[];
+    for (final id in _tournamentEngines) {
+      final engine = _buildEngine(id);
+      if (engine != null) engines.add(engine);
+    }
+    _ownedEngines.addAll(engines);
+    if (engines.length < 3) {
+      for (final engine in engines) {
+        engine.dispose();
+      }
+      setState(() {
+        _running = false;
+        _status = 'Not enough engines could be started';
+      });
+      return;
+    }
     _tournament = TournamentService(
         engines: engines, depthPerMove: _depth, gamesPerPairing: _numGames);
 
@@ -155,7 +284,17 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
       }
     });
 
-    await _tournament!.run();
+    try {
+      await _tournament!.run();
+    } catch (e) {
+      debugPrint('[EngineMatch] tournament failed: $e');
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = 'Tournament failed: $e';
+        });
+      }
+    }
   }
 
   void _stopMatch() {
@@ -268,12 +407,16 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
                       style: const TextStyle(fontSize: 12)),
                     Wrap(
                       spacing: 6,
-                      children: _engineNames.map((name) => FilterChip(
-                        label: Text(name, style: const TextStyle(fontSize: 12)),
-                        selected: _tournamentEngines.contains(name),
+                      children: _engineChoices.map((choice) => FilterChip(
+                        label: Text(choice.label,
+                            style: const TextStyle(fontSize: 12)),
+                        selected: _tournamentEngines.contains(choice.id),
                         onSelected: (v) => setState(() {
-                          if (v) _tournamentEngines.add(name);
-                          else _tournamentEngines.remove(name);
+                          if (v) {
+                            _tournamentEngines.add(choice.id);
+                          } else {
+                            _tournamentEngines.remove(choice.id);
+                          }
                         }),
                       )).toList(),
                     ),
@@ -365,17 +508,26 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
     );
   }
 
-  Widget _engineDropdown(String label, String value, ValueChanged<String> onChanged) {
+  Widget _engineDropdown(
+      String label, String value, ValueChanged<String> onChanged) {
+    final choices = _engineChoices;
+    // A selected engine whose profile was deleted while this screen was open
+    // is no longer one of the items, and DropdownButton asserts on that.
+    final safeValue =
+        choices.any((c) => c.id == value) ? value : choices.first.id;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
         DropdownButton<String>(
-          value: value,
+          value: safeValue,
           isExpanded: true,
           underline: const SizedBox.shrink(),
-          items: _engineNames.map((n) =>
-            DropdownMenuItem(value: n, child: Text(n, style: const TextStyle(fontSize: 13)))).toList(),
+          items: _engineChoices.map((choice) =>
+            DropdownMenuItem(
+                value: choice.id,
+                child: Text(choice.label,
+                    style: const TextStyle(fontSize: 13)))).toList(),
           onChanged: (v) => onChanged(v!),
         ),
       ],

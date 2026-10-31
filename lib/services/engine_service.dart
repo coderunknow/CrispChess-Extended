@@ -93,7 +93,12 @@ class EngineService {
   ///
   /// Optional: without it a death is reported and play stops until the user
   /// picks another engine, which is what used to happen to every crash.
-  final ChessEngine Function()? rebuildEngine;
+  ///
+  /// Reassigned by [switchEngine]: a closure captured at construction keeps
+  /// building the engine that was selected back then, so after switching, a
+  /// crash would have restored the previous engine — the opposite of what the
+  /// user chose — while the UI still showed the new one.
+  ChessEngine Function()? rebuildEngine;
 
   /// Restarts already spent. A process that dies once may have hit something
   /// transient; one that dies repeatedly is broken, and restarting it on every
@@ -107,8 +112,52 @@ class EngineService {
 
   EngineService(this._engine, {this.rebuildEngine});
 
+  /// Set by [dispose]. A start or switch that was already queued checks it
+  /// instead of touching a closed event stream.
+  bool _disposed = false;
+
+  int _switchSeq = 0;
+
+  /// How many switches have been requested, counting the queued ones.
+  ///
+  /// Incremented synchronously by [switchEngine]. A caller keeps the number its
+  /// own call received and compares it with this getter when the call returns:
+  /// switches run in request order, so if the count moved on, a newer switch
+  /// owns the outcome and the older one must not write the selection or start a
+  /// rollback behind it.
+  int get switchRequestCount => _switchSeq;
+
+  /// Starts and switches run one at a time, in the order they were asked for.
+  Future<void> _queue = Future<void>.value();
+
+  /// Runs an action after everything queued before it.
+  ///
+  /// Two switches issued in quick succession used to interleave: the second
+  /// one stopped and disposed the engine the first was still initialising, so
+  /// whether the app ended up on the engine the user picked last came down to
+  /// which handshake finished first. Note that the restarted-start case matters
+  /// too — a switch that failed and is being rolled back must finish before the
+  /// next selection is applied, or the rollback wins.
+  Future<T> _serialised<T>(Future<T> Function() action) {
+    final result = _queue.then((_) => action());
+    // The queue has to survive a failed action, otherwise one thrown handshake
+    // blocks every later switch. The caller still sees the error on `result`.
+    _queue = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
+
   /// Initialize the engine and start listening for state changes.
-  Future<void> initialize() async {
+  ///
+  /// Returns whether the engine actually started. The failure is still reported
+  /// as an [EngineErrorEvent] so the UI can show it, but the result lets a
+  /// caller that has just switched engines say the new one did not come up
+  /// instead of assuming it did.
+  Future<bool> initialize() => _serialised(_initializeNow);
+
+  Future<bool> _initializeNow() async {
+    // The screen can be popped while a handshake is in flight; a queued start
+    // would otherwise add events to a closed stream.
+    if (_disposed) return false;
     _stateListener = () {
       _eventController.add(StateChangeEvent(_engine.state));
     };
@@ -116,22 +165,62 @@ class EngineService {
 
     try {
       await _engine.initialize();
+      // Not throwing is not the same as working: an initializer can catch its
+      // own failure and settle in `error` instead of rethrowing, and reporting
+      // that as a successful switch is how a dead engine looked ready.
+      return !_disposed && _engine.state != EngineState.error;
     } catch (e) {
-      _eventController.add(EngineErrorEvent('Init failed: $e', kind: EngineFailure.startup));
+      if (!_disposed) {
+        _eventController.add(
+            EngineErrorEvent('Init failed: $e', kind: EngineFailure.startup));
+      }
+      return false;
     }
   }
 
   /// Switch to a different engine. Disposes the current one.
-  Future<void> switchEngine(ChessEngine newEngine) async {
-    _analysisSubscription?.cancel();
+  ///
+  /// [rebuilder] replaces [rebuildEngine] for the new engine; omit it only when
+  /// the new engine is never to be rebuilt automatically.
+  Future<bool> switchEngine(
+    ChessEngine newEngine, {
+    ChessEngine Function()? rebuilder,
+  }) {
+    _switchSeq++;
+    return _serialised(() => _switchNow(newEngine, rebuilder: rebuilder));
+  }
+
+  /// The body of [switchEngine], already inside the queue — so it starts the
+  /// new engine with [_initializeNow] rather than re-entering the queue.
+  Future<bool> _switchNow(
+    ChessEngine newEngine, {
+    ChessEngine Function()? rebuilder,
+  }) async {
+    if (_disposed) return false;
+    await _analysisSubscription?.cancel();
+    _analysisSubscription = null;
     if (_stateListener != null) {
       _engine.stateNotifier.removeListener(_stateListener!);
     }
+    // Stop before disposing: a search still running when the connection goes
+    // away leaves the engine process waiting on a `bestmove` nobody will read,
+    // and (for a process engine) keeps it alive until it is killed.
+    try {
+      _engine.stop();
+    } catch (e) {
+      debugPrint('[EngineService] stop before switch failed: $e');
+    }
     _engine.dispose();
 
+    // A new engine gets a fresh restart budget; the old one's crashes say
+    // nothing about this one.
+    _restarts = 0;
+    _lastAnalysisError = null;
+
     _engine = newEngine;
+    rebuildEngine = rebuilder;
     _eventController.add(StateChangeEvent(EngineState.initializing));
-    await initialize();
+    return _initializeNow();
   }
 
   /// Request the best move for a position.
@@ -274,6 +363,7 @@ class EngineService {
 
   /// Dispose all resources.
   void dispose() {
+    _disposed = true;
     _analysisSubscription?.cancel();
     if (_stateListener != null) {
       _engine.stateNotifier.removeListener(_stateListener!);

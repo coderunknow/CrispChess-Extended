@@ -10,6 +10,9 @@ import '../engines/chess_engine.dart' show thinkTimeForLevel;
 import '../engines/chess_lm_engine.dart';
 import '../engines/ghost_engine.dart' show ghostEngineName;
 import '../engines/searchless_engine.dart';
+import '../engines/engine_registry.dart';
+import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
+import '../services/engine_profile_store.dart';
 import '../widgets/ghost_profile_card.dart';
 import 'engine_manager_screen.dart';
 
@@ -17,6 +20,12 @@ class SettingsScreen extends StatefulWidget {
   final int strengthLevel;
   final int hintDepth;
   final String currentEngine;
+
+  /// The selected engine's stable id (see `engine_registry.dart`).
+  ///
+  /// [currentEngine] remains for backward compatibility and for display; when
+  /// this is null the id is derived from [currentEngine].
+  final String? currentEngineId;
   final bool playAsBlack;
   final String maia3Variant;
   final int animationSpeed;
@@ -31,6 +40,7 @@ class SettingsScreen extends StatefulWidget {
     required this.strengthLevel,
     required this.hintDepth,
     this.currentEngine = 'Built-in',
+    this.currentEngineId,
     this.playAsBlack = false,
     this.maia3Variant = '5m',
     this.animationSpeed = 2,
@@ -48,7 +58,12 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late int _strengthLevel;
   late int _hintDepth;
-  late String _selectedEngine;
+  /// Id of the selected engine (built-in or user-added). Display names are not
+  /// unique and not stable, so the selection is held by id.
+  late String _selectedEngineId;
+  final _profileStore = EngineProfileStore();
+  List<EngineProfile> _customProfiles = const [];
+  bool _resolvedInitialSelection = false;
   late String _maia3Variant;
   bool _showValidMoves = true;
   bool _allowUndo = true;
@@ -92,7 +107,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _strengthLevel = widget.strengthLevel;
     _hintDepth = widget.hintDepth;
-    _selectedEngine = widget.currentEngine;
+    _selectedEngineId = widget.currentEngineId ??
+        builtInEngineId(widget.currentEngine);
     _playAsBlack = widget.playAsBlack;
     _maia3Variant = widget.maia3Variant;
     _animationSpeed = widget.animationSpeed;
@@ -102,6 +118,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _chessVariant = widget.chessVariant;
     _lc0Backend = widget.lc0Backend;
     _loadSavedPrefs();
+    _loadProfiles();
+  }
+
+  /// Loads user-added engines so they appear in the selector.
+  ///
+  /// The selector used to be a hand-written list that knew nothing about the
+  /// Engine Manager, so an engine could be added successfully and still be
+  /// impossible to select. Called again after returning from the Engine
+  /// Manager, so a newly added engine shows up without restarting the app.
+  Future<void> _loadProfiles() async {
+    List<EngineProfile> profiles;
+    try {
+      profiles = await _profileStore.load();
+    } catch (e) {
+      // Storage being unavailable must not take the whole settings screen
+      // down; the built-in engines still work without it.
+      debugPrint('[Settings] could not load engine profiles: $e');
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _customProfiles = profiles;
+      if (!_resolvedInitialSelection) {
+        _resolvedInitialSelection = true;
+        if (widget.currentEngineId == null) {
+          _selectedEngineId = resolveSelectedEngineId(
+            savedName: widget.currentEngine,
+            profiles: profiles,
+          );
+        } else {
+          _selectedEngineId = resolveSelectedEngineId(
+            savedId: widget.currentEngineId,
+            savedName: widget.currentEngine,
+            profiles: profiles,
+          );
+        }
+      } else {
+        // The selected engine may have just been deleted in the manager.
+        _selectedEngineId = resolveSelectedEngineId(
+          savedId: _selectedEngineId,
+          profiles: profiles,
+        );
+      }
+    });
   }
 
   Future<void> _loadSavedPrefs() async {
@@ -206,14 +266,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  bool get _isMaiaEngine => _selectedEngine == 'Maia3 Dart';
-  bool get _isStockfish => _selectedEngine == 'Stockfish';
-  bool get _isLc0 => _selectedEngine == 'Lc0';
-  bool get _isLynx => _selectedEngine == 'Lynx';
+  /// Engines available as the hint engine: 'same' plus every engine the
+  /// main selector offers, custom ones included.
+  ///
+  /// The values are engine ids, not display names. Names are neither unique nor
+  /// stable — the list used to be keyed by them, so two user-added engines
+  /// sharing a name produced two identical `DropdownButton` values, which
+  /// asserts, and a custom engine called "Stockfish" collided with the real one.
+  List<(String, String)> get _hintEngineChoices {
+    final engines = _availableEngines;
+    final labels = disambiguateLabels([for (final engine in engines) engine.name]);
+    return [
+      ('same', AppLocalizations.of(context)?.sameAsOpponent ?? 'Same as opponent'),
+      for (var i = 0; i < engines.length; i++) (engines[i].id, labels[i]),
+    ];
+  }
+
+  /// The hint engine as an id, migrating a display name saved by an older
+  /// build. Null-unsafe values ('same', a removed engine) fall back to the
+  /// opponent's engine, which is what the dropdown shows.
+  String get _effectiveHintEngine {
+    final saved = _hintEngine;
+    if (saved == 'same') return 'same';
+    final resolved = looksLikeEngineId(saved)
+        ? saved
+        : resolveSelectedEngineId(savedName: saved, profiles: _customProfiles);
+    return _hintEngineChoices.any((choice) => choice.$1 == resolved)
+        ? resolved
+        : 'same';
+  }
+
+  /// Label for [id] in the hint-engine row.
+  String _hintEngineLabel(String id) {
+    for (final (value, label) in _hintEngineChoices) {
+      if (value == id) return label;
+    }
+    return id;
+  }
+
+  /// Canonical built-in name behind the selection, or null for a custom engine.
+  String? get _selectedBuiltInName => builtInNameFromId(_selectedEngineId);
+
+  bool get _isMaiaEngine => _selectedBuiltInName == 'Maia3 Dart';
+  bool get _isStockfish => _selectedBuiltInName == 'Stockfish';
+  bool get _isLc0 => _selectedBuiltInName == 'Lc0';
+  bool get _isLynx => _selectedBuiltInName == 'Lynx';
 
   List<_EngineOption> get _availableEngines {
     final engines = <_EngineOption>[
       _EngineOption(
+        id: builtInEngineId('Built-in'),
         name: 'Built-in',
         description: 'Alpha-beta + TT, pure Dart',
         elo: '~1800',
@@ -224,6 +326,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     // Your Ghost — your openings, then Maia at your measured rating
     engines.add(_EngineOption(
+      id: builtInEngineId(ghostEngineName),
       name: ghostEngineName,
       description: AppLocalizations.of(context)?.ghostDescription ??
           'Plays your openings, then like a player of your rating',
@@ -234,6 +337,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     // Maia3 Dart — pure Dart port, works everywhere
     engines.add(_EngineOption(
+      id: builtInEngineId('Maia3 Dart'),
       name: 'Maia3 Dart',
       description: 'Neural net — human-like play (pure Dart + ONNX)',
       elo: '~1500–2500',
@@ -244,6 +348,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     // ChessMamba — MIT state-space net that reads the game as a move sequence
     engines.add(_EngineOption(
+      id: builtInEngineId('ChessMamba'),
       name: 'ChessMamba',
       description: 'Mamba state-space net + its own search (downloads 67 MB)',
       elo: '~800',
@@ -254,6 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // DeepMind's searchless transformers: one look per legal move, no search.
     for (final s in availableSearchlessSizes) {
       engines.add(_EngineOption(
+        id: builtInEngineId(s.engineName),
         name: s.engineName,
         description: 'DeepMind transformer, no search (downloads ${s.downloadMb} MB)',
         elo: switch (s) {
@@ -268,6 +374,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // The language-model bot zoo — tiny chess LMs from the Hub.
     for (final lm in chessLmZoo.where(chessLmAvailable)) {
       engines.add(_EngineOption(
+        id: builtInEngineId(lm.name),
         name: lm.name,
         description: '${lm.description} (by ${lm.author}, ${lm.downloadMb} MB)',
         elo: '~400',
@@ -278,6 +385,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     // Frozenight — MIT, available on all platforms
     engines.add(_EngineOption(
+      id: builtInEngineId('Frozenight'),
       name: 'Frozenight',
       description: kIsWeb
           ? 'NNUE engine (Rust→WASM)'
@@ -289,6 +397,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     // Lynx — MIT, native binary or WASM on web
     engines.add(_EngineOption(
+      id: builtInEngineId('Lynx'),
       name: 'Lynx',
       description: kIsWeb ? 'Classical HCE (WASM)' : 'Classical HCE, downloaded from GitHub',
       elo: '~3350',
@@ -299,6 +408,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Stockfish — downloaded at runtime, never linked into app
     if (kIsWeb) {
       engines.add(_EngineOption(
+        id: builtInEngineId('Stockfish'),
         name: 'Stockfish',
         description: 'Optional download (Web Worker)',
         elo: '~3200',
@@ -312,6 +422,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // (App Store-sanctioned; no GPL code in the app binary). Desktop/Android
       // use a native binary. See NOTICE.md and StockfishJSBridge.swift.
       engines.add(_EngineOption(
+        id: builtInEngineId('Stockfish'),
         name: 'Stockfish',
         description: isIOS
             ? 'Optional download (runs in WebKit)'
@@ -325,6 +436,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     // Lc0 — downloaded at runtime, GPL-3.0
     engines.add(_EngineOption(
+      id: builtInEngineId('Lc0'),
       name: 'Lc0',
       description: kIsWeb
           ? 'MCTS + Maia neural net (ONNX Runtime Web)'
@@ -334,6 +446,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       available: true, // Web ONNX + native
       gplNotice: true,
     ));
+
+    // Engines the user added through the Engine Manager. Appended here so the
+    // selector and the factory cannot disagree about what exists.
+    if (customEnginesSupported) {
+      for (final profile in _customProfiles) {
+        final author = profile.detectedAuthor;
+        engines.add(_EngineOption(
+          id: customEngineId(profile),
+          name: profile.displayName,
+          description: author == null || author.isEmpty
+              ? 'Custom UCI engine · ${profile.path}'
+              : 'Custom UCI engine by $author · ${profile.path}',
+          elo: 'custom',
+          license: 'as installed',
+          available: true,
+          isCustom: true,
+        ));
+      }
+    }
 
     return engines;
   }
@@ -348,7 +479,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String _getStrengthInfo(int level) {
-    switch (_selectedEngine) {
+    final selected = _selectedBuiltInName;
+    if (selected == null) {
+      // A user-added engine brings its own strength controls (Hash, Threads,
+      // Skill Level, ...) in the Engine Manager; the app's level slider does
+      // not drive it.
+      return 'Custom UCI engine · strength and search are controlled by its '
+          'own options (Engine Manager)';
+    }
+    switch (selected) {
       case 'Built-in':
         return 'ELO ~${800 + level * 80}  ·  Depth ${3 + level}';
       case 'Maia3 Dart':
@@ -409,12 +548,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Card(
             child: Column(
               children: _availableEngines.map((engine) {
-                final selected = _selectedEngine == engine.name;
+                final selected = _selectedEngineId == engine.id;
                 return RadioListTile<String>(
-                  value: engine.name,
-                  groupValue: _selectedEngine,
+                  key: ValueKey(engine.id),
+                  value: engine.id,
+                  groupValue: _selectedEngineId,
                   onChanged: engine.available
-                      ? (value) => setState(() => _selectedEngine = value!)
+                      ? (value) =>
+                          setState(() => _selectedEngineId = value!)
                       : null,
                   title: Row(
                     children: [
@@ -466,14 +607,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.memory, size: 18),
                 label: Text(l?.engineManagerSubtitle ?? 'Engine Manager — Add Custom UCI Engines'),
-                onPressed: () {
-                  Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const EngineManagerScreen()));
+                onPressed: () async {
+                  await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const EngineManagerScreen()));
+                  // A newly added engine must appear in the selector; one
+                  // deleted here must not stay selected.
+                  await _loadProfiles();
                 },
               ),
             ),
 
-          if (_selectedEngine == ghostEngineName) ...[
+          if (_selectedBuiltInName == ghostEngineName) ...[
             const SizedBox(height: 16),
             const GhostProfileCard(),
           ],
@@ -703,24 +849,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Divider(),
                   ListTile(
                     title: Text(l?.hintEngine ?? 'Hint Engine'),
-                    subtitle: Text(_hintEngine == 'same'
-                        ? (l?.sameAsOpponent ?? 'Same as opponent')
-                        : _hintEngine,
+                    subtitle: Text(
+                        _hintEngineLabel(_effectiveHintEngine),
                         style: const TextStyle(fontSize: 12)),
                     contentPadding: EdgeInsets.zero,
                     trailing: DropdownButton<String>(
-                      value: _hintEngine,
+                      // A saved hint engine that no longer exists (a removed
+                      // custom engine, or a renamed one) is not among the
+                      // items, and DropdownButton asserts on a value it cannot
+                      // find. Show "same as opponent" instead.
+                      value: _effectiveHintEngine,
                       underline: const SizedBox.shrink(),
                       onChanged: (v) => setState(() => _hintEngine = v!),
                       items: [
-                        DropdownMenuItem(value: 'same', child: Text(l?.sameAsOpponent ?? 'Same as opponent', style: const TextStyle(fontSize: 13))),
-                        DropdownMenuItem(value: 'Built-in', child: Text('Built-in', style: TextStyle(fontSize: 13))),
-                        DropdownMenuItem(value: 'Maia3 Dart', child: Text('Maia3 Dart', style: TextStyle(fontSize: 13))),
-                        DropdownMenuItem(value: 'ChessMamba', child: Text('ChessMamba', style: TextStyle(fontSize: 13))),
-                        DropdownMenuItem(value: 'Lc0', child: Text('Lc0', style: TextStyle(fontSize: 13))),
-                        DropdownMenuItem(value: 'Frozenight', child: Text('Frozenight', style: TextStyle(fontSize: 13))),
-                        DropdownMenuItem(value: 'Lynx', child: Text('Lynx', style: TextStyle(fontSize: 13))),
-                        DropdownMenuItem(value: 'Stockfish', child: Text('Stockfish', style: TextStyle(fontSize: 13))),
+                        for (final (value, label) in _hintEngineChoices)
+                          DropdownMenuItem(
+                              value: value,
+                              child: Text(label,
+                                  style: const TextStyle(fontSize: 13))),
                       ],
                     ),
                   ),
@@ -1048,7 +1194,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() {
                   _strengthLevel = 10;
                   _hintDepth = 15;
-                  _selectedEngine = 'Built-in';
+                  _selectedEngineId = fallbackEngineId;
                   _maia3Variant = '5m';
                   _animationSpeed = 2;
                   _timeControl = TimeControl.unlimited;
@@ -1075,10 +1221,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'showValidMoves': _showValidMoves,
             'allowUndo': _allowUndo,
             'animationSpeed': _animationSpeed,
-            'hintEngine': _hintEngine,
+            // Migrated to an id even if the user did not touch the row.
+            'hintEngine': _effectiveHintEngine,
             'playAsBlack': _playAsBlack,
             'pieceTheme': _pieceTheme,
-            'engine': _selectedEngine,
+            'engineId': _selectedEngineId,
+            'engine': engineLabelForId(_selectedEngineId, _customProfiles),
             'maia3Variant': _maia3Variant,
             'lc0Backend': _lc0Backend,
             'timeControl': _timeControl,
@@ -1103,6 +1251,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 class _EngineOption {
+  /// Stable id (see `engine_registry.dart`). This, not [name], is what the
+  /// selection stores and what `createEngineForId` resolves.
+  final String id;
   final String name;
   final String description;
   final String elo;
@@ -1110,8 +1261,10 @@ class _EngineOption {
   final bool available;
   final bool gplNotice;
   final bool hasVariants;
+  final bool isCustom;
 
   _EngineOption({
+    required this.id,
     required this.name,
     required this.description,
     required this.elo,
@@ -1119,5 +1272,6 @@ class _EngineOption {
     required this.available,
     this.gplNotice = false,
     this.hasVariants = false,
+    this.isCustom = false,
   });
 }

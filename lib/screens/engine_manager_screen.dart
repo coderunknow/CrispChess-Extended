@@ -28,9 +28,26 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
   }
 
   Future<void> _loadProfiles() async {
-    await _store.init();
+    // `load()`, not the raw `profiles` getter: an entry saved by an older
+    // version has no id, and the getter mints a *new* random one on every read.
+    // Only `load()` writes the migrated list back, so reading the getter here
+    // meant the ids on screen were not the ids the next read would produce —
+    // and `remove(id)` / `update(profile)` then matched nothing and silently
+    // did nothing. Reading is asynchronous (shared_preferences), so the screen
+    // can also be gone by the time it answers, which threw
+    // "setState() called after dispose".
+    List<EngineProfile> profiles;
+    try {
+      profiles = await _store.load();
+    } catch (e) {
+      debugPrint('[EngineManager] could not load engine profiles: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+      return;
+    }
+    if (!mounted) return;
     setState(() {
-      _profiles = _store.profiles;
+      _profiles = profiles;
       _loading = false;
     });
   }
@@ -97,37 +114,44 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
     }
 
     final engine = GenericUciEngine(result);
+    var disposed = false;
     try {
+      // initialize() throws when the binary cannot be started or does not
+      // answer `uci`. It used to swallow that and return normally, so a broken
+      // path was still saved as an engine and only surfaced on the first move.
       await engine.initialize();
-      // Use detected name if user didn't provide one
-      if (result.name.isEmpty) {
-        result.name = engine.name;
-      }
       engine.dispose();
+      disposed = true;
 
       await _store.add(result);
       await _loadProfiles();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l?.engineAdded(result.name) ?? 'Added: ${result.name}')),
-        );
-      }
-    } catch (e) {
-      engine.dispose();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(l?.engineInitFailed('$e') ?? 'Engine failed to initialize: $e'),
-            backgroundColor: Colors.red,
+            content: Text(l?.engineAdded(result.displayName) ??
+                'Added: ${result.displayName}'
+                    ' (${result.optionCount} UCI options)'),
           ),
         );
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l?.engineInitFailed('$e') ??
+                'Engine failed to initialize: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+    } finally {
+      if (!disposed) engine.dispose();
     }
   }
 
-  Future<void> _configureEngine(int index) async {
-    final profile = _profiles[index];
+  Future<void> _configureEngine(EngineProfile profile) async {
     final engine = GenericUciEngine(profile);
 
     // Show loading
@@ -149,9 +173,13 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
             engine: engine,
             profile: profile,
             onSave: (overrides) async {
-              profile.optionOverrides.clear();
-              profile.optionOverrides.addAll(overrides);
-              await _store.update(index, profile);
+              profile.optionOverrides
+                ..clear()
+                ..addAll(overrides);
+              // By id, not by position: the list can be reordered by a delete
+              // while this screen is open, and the old index would then have
+              // written the options over a different engine.
+              await _store.update(profile);
               await _loadProfiles();
             },
           ),
@@ -172,14 +200,17 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
     }
   }
 
-  Future<void> _removeEngine(int index) async {
+  Future<void> _removeEngine(EngineProfile profile) async {
     final l = AppLocalizations.of(context);
-    final profile = _profiles[index];
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l?.removeEngine ?? 'Remove Engine?'),
-        content: Text(l?.removeEngineConfirm(profile.name) ?? 'Remove "${profile.name}" from your engine list?'),
+        // `displayName`, like the list tile and the confirmation snackbar: the
+        // name field is empty when the user let the engine's own `id name`
+        // stand in for it.
+        content: Text(l?.removeEngineConfirm(profile.displayName) ??
+            'Remove "${profile.displayName}" from your engine list?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l?.cancel ?? 'Cancel')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l?.remove ?? 'Remove')),
@@ -188,7 +219,7 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
     );
 
     if (confirmed == true) {
-      await _store.remove(index);
+      await _store.remove(profile.id);
       await _loadProfiles();
     }
   }
@@ -225,9 +256,12 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
                     return Card(
                       child: ListTile(
                         leading: const Icon(Icons.memory),
-                        title: Text(profile.name),
+                        title: Text(profile.displayName),
                         subtitle: Text(
-                          profile.path,
+                          profile.detectedName != null &&
+                                  profile.detectedName != profile.displayName
+                              ? '${profile.detectedName} · ${profile.path}'
+                              : profile.path,
                           style: const TextStyle(fontSize: 11),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -237,12 +271,12 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
                             IconButton(
                               icon: const Icon(Icons.settings, size: 20),
                               tooltip: l?.configure ?? 'Configure',
-                              onPressed: () => _configureEngine(index),
+                              onPressed: () => _configureEngine(profile),
                             ),
                             IconButton(
                               icon: Icon(Icons.delete, size: 20, color: Colors.red.shade300),
                               tooltip: l?.remove ?? 'Remove',
-                              onPressed: () => _removeEngine(index),
+                              onPressed: () => _removeEngine(profile),
                             ),
                           ],
                         ),
@@ -278,11 +312,31 @@ class _UciOptionsScreen extends StatefulWidget {
 class _UciOptionsScreenState extends State<_UciOptionsScreen> {
   late Map<String, String> _overrides;
 
+  /// One controller per option, created once.
+  ///
+  /// These used to be built inside `build`, so every `setState` — that is,
+  /// every keystroke that mattered and every slider tick — replaced the
+  /// controller under the field, resetting the caret to the start and
+  /// dropping whatever the user was in the middle of typing.
+  final Map<String, TextEditingController> _controllers = {};
+
   @override
   void initState() {
     super.initState();
     _overrides = Map.of(widget.profile.optionOverrides);
   }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _controllerFor(String name, String initial) =>
+      _controllers.putIfAbsent(
+          name, () => TextEditingController(text: initial));
 
   @override
   Widget build(BuildContext context) {
@@ -368,7 +422,7 @@ class _UciOptionsScreenState extends State<_UciOptionsScreen> {
           trailing: SizedBox(
             width: 80,
             child: TextField(
-              controller: TextEditingController(text: intVal.toString()),
+              controller: _controllerFor(opt.name, intVal.toString()),
               keyboardType: TextInputType.number,
               textAlign: TextAlign.center,
               decoration: const InputDecoration(
@@ -386,10 +440,18 @@ class _UciOptionsScreenState extends State<_UciOptionsScreen> {
         );
 
       case UciOptionType.combo:
+        // A saved override that the engine no longer advertises (it was
+        // reconfigured, or the value came from a different build) is not one of
+        // the dropdown's items, and DropdownButton asserts on that in debug and
+        // renders nothing in release. Fall back to no selection instead.
+        final comboValue = (opt.comboValues ?? const <String>[])
+                .contains(currentValue)
+            ? currentValue
+            : null;
         return ListTile(
           title: Text(opt.name),
           trailing: DropdownButton<String>(
-            value: currentValue.isEmpty ? null : currentValue,
+            value: comboValue,
             underline: const SizedBox.shrink(),
             onChanged: (val) {
               if (val != null) setState(() => _overrides[opt.name] = val);
@@ -406,7 +468,7 @@ class _UciOptionsScreenState extends State<_UciOptionsScreen> {
           trailing: SizedBox(
             width: 200,
             child: TextField(
-              controller: TextEditingController(text: currentValue),
+              controller: _controllerFor(opt.name, currentValue),
               decoration: const InputDecoration(
                 isDense: true,
                 border: OutlineInputBorder(),

@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'chess_engine.dart';
+import 'uci_position.dart';
 import 'uci_search_coordinator.dart';
 
 /// Download URL for stockfish.js WASM build (GPL-3.0, downloaded separately)
@@ -51,6 +52,7 @@ class StockfishDownloadableEngine
   bool _initialized = false;
 
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
+  static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
   static final _pvRegex = RegExp(r'pv (\S+)');
 
@@ -192,11 +194,20 @@ class StockfishDownloadableEngine
 
     if (t.startsWith('info') && t.contains('depth')) {
       final cp = _cpRegex.firstMatch(t);
+      final mate = _mateRegex.firstMatch(t);
       final d = _depthRegex.firstMatch(t);
       final pv = _pvRegex.firstMatch(t);
-      if (cp != null && d != null) {
+      if (d != null && (cp != null || mate != null)) {
+        final double sideToMoveScore;
+        if (cp != null) {
+          sideToMoveScore = int.parse(cp.group(1)!) / 100.0;
+        } else {
+          final mateIn = int.parse(mate!.group(1)!);
+          sideToMoveScore = mateIn > 0 ? 999.0 : -999.0;
+        }
         _evalController.add(EvalInfo(
-          score: int.parse(cp.group(1)!) / 100.0,
+          // UCI reports from the side to move; the app consumes White's.
+          score: searchWhiteToMove ? sideToMoveScore : -sideToMoveScore,
           depth: int.parse(d.group(1)!),
           bestMove: pv?.group(1),
         ));
@@ -226,7 +237,13 @@ class StockfishDownloadableEngine
     final cap = uciSearchTimeout(
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
-    final move = await startSearch(positionCommand, go, awaitMove: true)
+    final move = await startSearch(
+            positionCommand,
+            go,
+            awaitMove: true,
+            // Belongs to the search, not the engine: `info` lines from the
+            // search being stopped are still arriving when this one starts.
+            whiteToMove: positionCommandIsWhiteToMove(positionCommand))
         .timeout(cap, onTimeout: () {
       abandonSearch();
       return null;
@@ -241,7 +258,8 @@ class StockfishDownloadableEngine
     _stateNotifier.value = EngineState.thinking;
     startSearch(positionCommand,
         infinite ? 'go infinite' : 'go depth ${depth ?? 20}',
-        awaitMove: false);
+        awaitMove: false,
+        whiteToMove: positionCommandIsWhiteToMove(positionCommand));
     return _evalController.stream;
   }
 
@@ -258,7 +276,7 @@ class StockfishDownloadableEngine
 
   @override
   void dispose() {
-    finishSearch(null);
+    resetSearches();
     _send('quit');
     _channel.invokeMethod('dispose');
     _evalController.close();

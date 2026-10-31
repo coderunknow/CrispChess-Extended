@@ -16,7 +16,9 @@ import '../chess/move_analyzer.dart';
 import '../engines/chess_engine.dart';
 import '../engines/engine_slot.dart';
 import '../engines/dart_engine.dart';
-import '../engines/engine_factory.dart';
+import '../engines/engine_registry.dart';
+import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
+import '../services/engine_profile_store.dart';
 import '../services/engine_service.dart';
 import '../services/multi_engine_service.dart';
 import '../services/onboarding_service.dart';
@@ -127,6 +129,124 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
   MultiEngineService? _multiEngine;
   StreamSubscription<MultiEngineEvent>? _multiEngineSub;
 
+  /// Stable id of the engine currently in play (see `engine_registry.dart`).
+  /// Held by id rather than display name so a user-added engine is the engine
+  /// that actually gets built, and so switching compares identities rather
+  /// than labels that two engines can share.
+  String _engineId = fallbackEngineId;
+
+  /// User-added engine profiles, loaded at start-up and refreshed whenever the
+  /// user returns from Settings (where they may have added or removed one).
+  List<EngineProfile> _engineProfiles = const [];
+  final EngineProfileStore _profileStore = EngineProfileStore();
+
+  /// Set when the saved engine could not be built at start-up, so the reason
+  /// can be shown once the screen is ready instead of only reaching the log.
+  String? _startupEngineNotice;
+
+  /// Switches the engine in play to [id], or says why it could not.
+  ///
+  /// Awaited on purpose. `EngineService.switchEngine` disposes the old engine
+  /// and only then initializes the new one, so applying options before that
+  /// finished went to the engine that was already gone: Hash, Threads and
+  /// UCI_Chess960 were never delivered after a switch, which for a Chess960
+  /// game means the engine reads the castling rights wrong.
+  ///
+  /// The switch is only recorded once the new engine actually started. When it
+  /// does not, the previous one is rebuilt and put back, so the id on screen is
+  /// still the engine making the moves and the next launch does not retry a
+  /// broken choice silently.
+  Future<void> _switchEngineTo(
+    String id, {
+    String? maia3Variant,
+    String? lc0Backend,
+  }) async {
+    final previousId = _engineId;
+    ChessEngine newEngine;
+    try {
+      newEngine = createEngineForId(
+        id,
+        profiles: _engineProfiles,
+        playerElo: 800 + (_state.strengthLevel * 60),
+        maia3Variant: maia3Variant ?? _maia3Variant,
+        lc0Backend: lc0Backend ?? _prefs.lc0Backend,
+      );
+    } on EngineUnavailableException catch (e) {
+      // Nothing was disposed yet: the engine in play is untouched.
+      _showEngineSwitchProblem(
+          'Could not switch engine: ${e.reason}. '
+          'Still playing with ${engineLabelForId(previousId, _engineProfiles)}.');
+      return;
+    }
+
+    // Take the number of *this* call. `switchEngine` bumps it synchronously, and
+    // the service runs switches in request order — so when this call returns, a
+    // higher number means a newer selection exists and this one is obsolete. It
+    // must then neither record anything nor roll back: the rollback would be
+    // queued behind the newer switch and would win, leaving the screen and the
+    // saved preference naming an engine that is not the one running.
+    final pending = _engineService.switchEngine(
+      newEngine,
+      rebuilder: _rebuilderFor(id),
+    );
+    final ticket = _engineService.switchRequestCount;
+    final started = await pending;
+    if (_engineService.switchRequestCount != ticket) return;
+    if (started) {
+      _engineId = id;
+      _prefs.engineId = id;
+      _prefs.engine = engineLabelForId(id, _engineProfiles);
+      _applyEngineOptions();
+      return;
+    }
+
+    // The new engine replaced the old one and failed to start. Put the old one
+    // back rather than leaving the app with an engine that cannot move.
+    if (_engineService.switchRequestCount != ticket) return;
+    final previousLabel = engineLabelForId(previousId, _engineProfiles);
+    var restored = false;
+    try {
+      final previousEngine = _rebuilderFor(previousId)();
+      restored = await _engineService.switchEngine(
+        previousEngine,
+        rebuilder: _rebuilderFor(previousId),
+      );
+      if (restored) _applyEngineOptions();
+    } on EngineUnavailableException {
+      restored = false;
+    }
+    if (_engineService.switchRequestCount != ticket) return;
+    _showEngineSwitchProblem(
+      '${engineLabelForId(id, _engineProfiles)} failed to start. '
+      '${restored ? 'Still playing with $previousLabel.' : 'No engine is available — pick one in Settings.'}',
+    );
+  }
+
+  void _showEngineSwitchProblem(String message) {
+    debugPrint('[CrispChess] $message');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 6),
+      ),
+    );
+  }
+
+  /// Builds [id], now or whenever a dead engine has to be replaced.
+  ///
+  /// Reads the current fields rather than capturing them, so a replacement is
+  /// built for the engine that is selected at that moment, with the strength,
+  /// variant and backend that are current at that moment.
+  ChessEngine Function() _rebuilderFor(String id) => () => createEngineForId(
+        id,
+        profiles: _engineProfiles,
+        playerElo: 800 + (_state.strengthLevel * 60),
+        maia3Variant: _maia3Variant,
+        lc0Backend: _prefs.lc0Backend,
+      );
+
   @override
   void initState() {
     super.initState();
@@ -146,6 +266,7 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
       _state = _state.copyWith(
         strengthLevel: _prefs.strengthLevel,
         hintDepth: _prefs.hintDepth,
+        hintEngine: _prefs.hintEngine,
         animationSpeed: _prefs.animationSpeed,
         playAsBlack: _prefs.playAsBlack,
         pieceTheme: _prefs.pieceTheme,
@@ -154,26 +275,57 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
       );
     });
 
-    // Initialize with saved engine
-    final savedEngine = _prefs.engine;
-    if (savedEngine != 'Built-in') {
-      final elo = 800 + (_prefs.strengthLevel * 60);
-      // The same arguments twice: once to build it, and again to build its
-      // replacement if the process dies mid-game. Without the second one a
-      // crash ends play until the user notices and switches engines by hand.
-      ChessEngine build() => createEngine(
-            savedEngine,
-            playerElo: elo,
-            maia3Variant: _maia3Variant,
-            lc0Backend: _prefs.lc0Backend,
-          );
-      _engineService = EngineService(build(), rebuildEngine: build);
+    // Initialize with the saved engine. The saved id is authoritative; older
+    // builds stored only a display name, which is migrated here — including
+    // the case where that name belonged to a user-added engine, which used to
+    // be dropped back to the built-in engine.
+    try {
+      _engineProfiles = await _profileStore.load();
+    } catch (e) {
+      // A broken profile store costs the user their added engines, not the
+      // game: the built-in engines do not need it.
+      debugPrint('[CrispChess] could not load engine profiles: $e');
+      _engineProfiles = const [];
+    }
+    final savedId = _prefs.engineId;
+    _engineId = resolveSelectedEngineId(
+      savedId: savedId,
+      savedName: _prefs.engine,
+      profiles: _engineProfiles,
+    );
+
+    if (_engineId != fallbackEngineId) {
+      // Built once for now, and again if the process dies mid-game: without the
+      // second one a crash ends play until the user switches engines by hand.
+      final build = _rebuilderFor(_engineId);
+      try {
+        _engineService = EngineService(build(), rebuildEngine: build);
+      } on EngineUnavailableException catch (e) {
+        // Never silently keep showing an engine that cannot be built.
+        debugPrint('[CrispChess] Selected engine unavailable: $e');
+        _engineId = fallbackEngineId;
+        _prefs.engineId = _engineId;
+        _prefs.engine = kFallbackEngineName;
+        _startupEngineNotice =
+            '${e.reason} — switched to $kFallbackEngineName.';
+      }
     }
     _initializeEngine();
     _puzzleDb.load();
     // Show onboarding, check daily login, then check saved game
     Future.delayed(const Duration(milliseconds: 500), () async {
       await OnboardingService.showIfFirstLaunch(context);
+      final notice = _startupEngineNotice;
+      if (notice != null && mounted) {
+        _startupEngineNotice = null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(notice),
+            duration: const Duration(seconds: 6),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
       // Daily login streak
       final streakXp = _prefs.checkDailyLogin();
       if (streakXp > 0 && mounted) {
@@ -386,11 +538,10 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
                 action: SnackBarAction(
                   label: 'Switch to Built-in',
                   textColor: Colors.white,
-                  onPressed: () {
-                    final fallback = createEngine('Built-in');
-                    _engineService.switchEngine(fallback);
-                    _prefs.engine = 'Built-in'; // Persist so it doesn't retry on reload
-                  },
+                  // Same path as any other switch: it persists the id and name
+                  // of whatever engine is actually in play, so a reload does
+                  // not retry the engine that just failed.
+                  onPressed: () => _switchEngineTo(fallbackEngineId),
                 ),
               ),
             );
@@ -846,6 +997,11 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
   }
 
   /// The hint engine, rebuilt if the one held becomes unusable.
+  ///
+  /// Dropped whenever the settings screen returns, because the slot is built
+  /// from whatever the hint engine resolved to at the time — including the
+  /// opponent's engine under 'same as opponent', which changes with the
+  /// engine selection and would otherwise keep answering from the old one.
   EngineSlot? _hintSlot;
 
   void _getHint() {
@@ -1148,6 +1304,7 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
           strengthLevel: _state.strengthLevel,
           hintDepth: _state.hintDepth,
           currentEngine: _engineService.engineName,
+          currentEngineId: _engineId,
           playAsBlack: _state.playAsBlack,
           maia3Variant: _maia3Variant,
           animationSpeed: _state.animationSpeed,
@@ -1160,6 +1317,18 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
       ),
     );
     if (result != null) {
+      // Whatever the slot holds was built from the settings that just changed —
+      // possibly the hint engine, possibly the engine it inherits through
+      // 'same as opponent' — so drop it and let the next hint build afresh.
+      _hintSlot?.dispose();
+      _hintSlot = null;
+      // Settings has an Engine Manager in it: profiles may have been added,
+      // edited or deleted while the user was there.
+      try {
+        _engineProfiles = await _profileStore.load();
+      } catch (e) {
+        debugPrint('[CrispChess] could not reload engine profiles: $e');
+      }
       final newPlayAsBlack = result['playAsBlack'] as bool? ?? false;
       final colorChanged = newPlayAsBlack != _state.playAsBlack;
       final newVariant = result['maia3Variant'] as String? ?? '5m';
@@ -1189,24 +1358,27 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
       }
 
       // Switch engine if changed (or variant changed for Maia)
-      final selectedEngine = result['engine'] as String?;
+      final selectedEngineId = result['engineId'] as String?;
       final variantChanged = newVariant != _maia3Variant;
       _maia3Variant = newVariant;
 
-      if (selectedEngine != null &&
-          (selectedEngine != _engineService.engineName ||
+      // Compared by id: two engines can share a display name, and a custom
+      // engine's name is the user's own label.
+      final engineChanged =
+          selectedEngineId != null && selectedEngineId != _engineId;
+
+      if (selectedEngineId != null &&
+          (engineChanged ||
               variantChanged ||
-              (selectedEngine == 'Lc0' && lc0BackendChanged))) {
-        debugPrint('[CrispChess] Switching engine to $selectedEngine (variant: $_maia3Variant)');
-        final elo = 800 + (_state.strengthLevel * 60);
-        final newEngine = createEngine(
-          selectedEngine,
-          playerElo: elo,
+              (selectedEngineId == builtInEngineId('Lc0') && lc0BackendChanged))) {
+        debugPrint('[CrispChess] Switching engine to '
+            '${engineLabelForId(selectedEngineId, _engineProfiles)} '
+            '(variant: $_maia3Variant)');
+        await _switchEngineTo(
+          selectedEngineId,
           maia3Variant: _maia3Variant,
           lc0Backend: newLc0Backend,
         );
-        _engineService.switchEngine(newEngine);
-        _applyEngineOptions();
       }
 
       // Apply theme immediately
@@ -1240,8 +1412,17 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
         });
       }
 
-      // Persist all preferences
-      _prefs.engine = selectedEngine ?? _engineService.engineName;
+      // Persist all preferences. Both keys describe the engine actually in
+      // play: if the switch above failed, that is still the previous one, and
+      // saving the name of the engine that was refused would make the next
+      // launch try it again.
+      _prefs.engineId = _engineId;
+      _prefs.engine = engineLabelForId(_engineId, _engineProfiles);
+
+      // Stored as an engine id; the hint slot itself was already dropped at the
+      // top of this handler, since it is built from whatever the setting
+      // resolved to at the time.
+      _prefs.hintEngine = _state.hintEngine;
       _prefs.variant = _maia3Variant;
       _prefs.lc0Backend = newLc0Backend;
       _prefs.strengthLevel = _state.strengthLevel;
@@ -1269,8 +1450,14 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
       // Persist engine resource settings
       final hashMb = result['engineHashMb'] as int?;
       final threads = result['engineThreads'] as int?;
-      if (hashMb != null) _prefs.engineHashMb = hashMb;
-      if (threads != null) _prefs.engineThreads = threads;
+      if (hashMb != null || threads != null) {
+        if (hashMb != null) _prefs.engineHashMb = hashMb;
+        if (threads != null) _prefs.engineThreads = threads;
+        // The switch above ran before these values were known, so the engine it
+        // started received the previous ones. Apply them now, to whichever
+        // engine is actually in play.
+        _applyEngineOptions();
+      }
     }
   }
 
@@ -1692,9 +1879,16 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
   }
 
   Future<void> _startMultiEngineAnalysis() async {
-    // Create a second engine for comparison
-    final engines = ['Built-in', 'Frozenight', 'Stockfish', 'Maia3 Dart', 'ChessMamba', 'Lc0'];
-    final currentEngine = _engineService.engineName;
+    // Every engine that can run here: the built-ins, plus anything the user
+    // added in the Engine Manager (which this panel never offered before).
+    final choices = matchEngineChoices(const [
+      'Built-in',
+      'Frozenight',
+      'Stockfish',
+      'Maia3 Dart',
+      'ChessMamba',
+      'Lc0',
+    ], _engineProfiles);
 
     final selected = await showDialog<List<String>>(
       context: context,
@@ -1708,17 +1902,23 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
               children: [
                 Text(AppLocalizations.of(context)?.selectEnginesToCompare ?? 'Select engines to compare:', style: const TextStyle(fontSize: 13)),
                 const SizedBox(height: 8),
-                for (final name in engines)
+                for (final choice in choices)
                   CheckboxListTile(
-                    title: Text(name, style: const TextStyle(fontSize: 13)),
-                    subtitle: name == currentEngine
-                        ? const Text('(current opponent)', style: TextStyle(fontSize: 11))
+                    title: Text(choice.label,
+                        style: const TextStyle(fontSize: 13)),
+                    subtitle: choice.id == _engineId
+                        ? const Text('(current opponent)',
+                            style: TextStyle(fontSize: 11))
                         : null,
-                    value: chosen.contains(name),
+                    value: chosen.contains(choice.id),
                     dense: true,
                     onChanged: (v) {
                       setDialogState(() {
-                        if (v == true) chosen.add(name); else chosen.remove(name);
+                        if (v == true) {
+                          chosen.add(choice.id);
+                        } else {
+                          chosen.remove(choice.id);
+                        }
                       });
                     },
                   ),
@@ -1744,26 +1944,46 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
     _multiEngine = null;
 
     final multi = MultiEngineService();
-    try {
-      for (final name in selected) {
-        final engine = createEngine(name);
-        await multi.addEngine(engine);
-      }
+    final failed = <String>[];
 
-      _multiEngine = multi;
-      _multiEngineSub = multi.events.listen((event) {
-        if (mounted) setState(() {});
-      });
-
-      multi.analyzeAll(_game.positionCommand, depth: _state.hintDepth);
-      setState(() {});
-    } catch (e) {
-      multi.dispose();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Multi-engine failed: $e'), backgroundColor: Colors.red),
+    // One engine that cannot start costs its own row, not the panel: the
+    // others keep analyzing. The whole set used to be disposed on the first
+    // failure, so one unavailable custom engine removed every result.
+    for (final id in selected) {
+      try {
+        final engine = createEngineForId(
+          id,
+          profiles: _engineProfiles,
+          maia3Variant: _maia3Variant,
+          lc0Backend: _prefs.lc0Backend,
         );
+        await multi.addEngine(engine);
+        if (engine.state == EngineState.error) {
+          failed.add(engineLabelForId(id, _engineProfiles));
+        }
+      } catch (e) {
+        debugPrint('[CrispChess] Multi-engine: ${engineLabelForId(id, _engineProfiles)} '
+            'could not start: $e');
+        failed.add(engineLabelForId(id, _engineProfiles));
       }
+    }
+
+    _multiEngine = multi;
+    _multiEngineSub = multi.events.listen((event) {
+      if (mounted) setState(() {});
+    });
+
+    multi.analyzeAll(_game.positionCommand, depth: _state.hintDepth);
+    setState(() {});
+
+    if (failed.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not start: ${failed.join(', ')}'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
   }
 
@@ -1997,8 +2217,24 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
       // it has can no longer be asked anything — a dead process leaves it in
       // EngineState.error, which is neither idle nor disposed — and builds a
       // replacement. Kept in a field, one crash meant every later hint failed.
-      _hintSlot ??= EngineSlot(
-          () => createEngine(_state.hintEngine, maia3Variant: _maia3Variant));
+      // The setting is an engine id (or a display name saved before ids
+      // existed), resolved here so a user-added engine can be the hint engine
+      // too. It used to be resolved by name, and a custom engine's name was not
+      // known to `createEngine`, so the hint quietly came from the built-in
+      // engine instead.
+      final hintSetting = _state.hintEngine;
+      final hintId = hintSetting == 'same'
+          ? _engineId
+          : looksLikeEngineId(hintSetting)
+              ? resolveSelectedEngineId(
+                  savedId: hintSetting, profiles: _engineProfiles)
+              : resolveSelectedEngineId(
+                  savedName: hintSetting, profiles: _engineProfiles);
+      _hintSlot ??= EngineSlot(() => createEngineForId(
+            hintId,
+            profiles: _engineProfiles,
+            maia3Variant: _maia3Variant,
+          ));
       final hintEngine = await _hintSlot!.get();
 
       final move = await hintEngine.bestMove(

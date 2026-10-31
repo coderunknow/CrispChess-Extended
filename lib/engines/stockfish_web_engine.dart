@@ -3,6 +3,7 @@ import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 import 'package:web/web.dart' as web;
 import 'chess_engine.dart';
+import 'uci_position.dart';
 import 'uci_search_coordinator.dart';
 
 @JS('cachedFetch')
@@ -34,6 +35,7 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
 
   // Pre-compiled regex for parsing UCI output
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
+  static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
   static final _pvRegex = RegExp(r' pv (.+)');
   static final _multipvRegex = RegExp(r'multipv (\d+)');
@@ -141,14 +143,25 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
     // Parse evaluation info
     if (trimmed.startsWith('info') && trimmed.contains('depth')) {
       final cpMatch = _cpRegex.firstMatch(trimmed);
+      final mateMatch = _mateRegex.firstMatch(trimmed);
       final depthMatch = _depthRegex.firstMatch(trimmed);
       final pvMatch = _pvRegex.firstMatch(trimmed);
       final mpvMatch = _multipvRegex.firstMatch(trimmed);
 
-      if (cpMatch != null && depthMatch != null) {
+      if (depthMatch != null && (cpMatch != null || mateMatch != null)) {
+        final double sideToMoveScore;
+        if (cpMatch != null) {
+          sideToMoveScore = int.parse(cpMatch.group(1)!) / 100.0;
+        } else {
+          // A forced mate carries no `cp` score and used to be dropped, so the
+          // bar froze on mating positions.
+          final mateIn = int.parse(mateMatch!.group(1)!);
+          sideToMoveScore = mateIn > 0 ? 999.0 : -999.0;
+        }
         final pv = pvMatch?.group(1);
         _evalController.add(EvalInfo(
-          score: int.parse(cpMatch.group(1)!) / 100.0,
+          // UCI reports from the side to move; the app consumes White's.
+          score: searchWhiteToMove ? sideToMoveScore : -sideToMoveScore,
           depth: int.parse(depthMatch.group(1)!),
           bestMove: pv?.split(' ').first,
           pv: pv,
@@ -191,7 +204,13 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
     final cap = uciSearchTimeout(
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
-    final move = await startSearch(positionCommand, go, awaitMove: true)
+    final move = await startSearch(
+            positionCommand,
+            go,
+            awaitMove: true,
+            // Belongs to the search, not the engine: `info` lines from the
+            // search being stopped are still arriving when this one starts.
+            whiteToMove: positionCommandIsWhiteToMove(positionCommand))
         .timeout(cap, onTimeout: () {
       abandonSearch();
       return null;
@@ -209,7 +228,8 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
     _send('setoption name MultiPV value $multiPv');
     startSearch(positionCommand,
         infinite ? 'go infinite' : 'go depth ${depth ?? 20}',
-        awaitMove: false);
+        awaitMove: false,
+        whiteToMove: positionCommandIsWhiteToMove(positionCommand));
 
     return _evalController.stream;
   }
@@ -227,7 +247,7 @@ class StockfishEngine with UciSearchCoordinator implements ChessEngine {
 
   @override
   void dispose() {
-    finishSearch(null);
+    resetSearches();
     _worker?.terminate();
     _worker = null;
     _evalController.close();

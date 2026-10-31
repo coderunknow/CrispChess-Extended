@@ -241,7 +241,12 @@ jobs:
         continue-on-error: true
       - name: Fallback JS
         run: |
-          if [ ! -d "build/web" ]; then flutter build web --release; fi
+          # A failed WASM build can leave `build/web` half-written, so check for
+          # the compiler's output rather than the directory — otherwise the
+          # release would tar up an incomplete build and ship it.
+          if [ ! -f "build/web/main.dart.js" -a ! -f "build/web/main.dart.wasm" ]; then
+            flutter build web --release
+          fi
       - run: |
           cd build/web
           tar czf $GITHUB_WORKSPACE/CrispChess-web.tar.gz .

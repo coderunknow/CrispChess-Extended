@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'uci_position.dart';
 import 'search_pacing.dart';
 import 'lynx_build.dart';
 
@@ -232,13 +233,18 @@ class LynxEngine implements ChessEngine {
     final goCmd = 'go movetime ${kFixedDepthTimeCap.inMilliseconds}';
     await _serialized(() async {
       try {
+        // A local for this search: `_parseInfoLine` converts the engine's
+        // side-to-move scores, and the value has to be the one this search was
+        // started for. This block already runs inside `_serialized`, so no
+        // other search can be interleaved with it either.
+        final whiteToMove = positionCommandIsWhiteToMove(positionCommand);
         await _lynxSendUci(positionCommand.toJS).toDart;
         final result = (await _lynxSearch(goCmd.toJS).toDart).toDart;
 
         // Parse all info lines from the result
         for (final line in result.split('\n')) {
           if (_stopping) break;
-          _parseInfoLine(line.trim());
+          _parseInfoLine(line.trim(), whiteToMove: whiteToMove);
         }
       } catch (e) {
         // This runs detached from the stream the caller holds, so the failure
@@ -254,7 +260,7 @@ class LynxEngine implements ChessEngine {
     });
   }
 
-  void _parseInfoLine(String line) {
+  void _parseInfoLine(String line, {required bool whiteToMove}) {
     if (!line.startsWith('info') || !line.contains('depth')) return;
 
     final depthMatch = _depthRegex.firstMatch(line);
@@ -271,12 +277,15 @@ class LynxEngine implements ChessEngine {
     }
     if (score == null) return;
 
+    // UCI reports from the side to move; the app consumes White's.
+    final whiteScore = whiteToMove ? score : -score;
+
     final pvMatch = _pvRegex.firstMatch(line);
     final mpvMatch = _multipvRegex.firstMatch(line);
     final pv = pvMatch?.group(1);
 
     _evalController.add(EvalInfo(
-      score: score,
+      score: whiteScore,
       depth: int.parse(depthMatch.group(1)!),
       bestMove: pv?.split(' ').first,
       pv: pv,

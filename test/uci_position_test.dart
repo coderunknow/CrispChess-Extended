@@ -37,6 +37,52 @@ void main() {
     });
   });
 
+  group('positionCommandIsWhiteToMove', () {
+    // UCI scores are from the side to move's point of view and the app draws
+    // them from White's, so this bit decides the sign of every evaluation. It
+    // is derived from the parity of the move list, which is what makes the
+    // answer independent of whether the moves can be replayed.
+    test('startpos is White to move', () {
+      expect(positionCommandIsWhiteToMove('position startpos'), isTrue);
+    });
+
+    test('one move leaves Black to move, two leave White', () {
+      expect(positionCommandIsWhiteToMove('position startpos moves d2d4'),
+          isFalse);
+      expect(
+          positionCommandIsWhiteToMove('position startpos moves d2d4 d7d5'),
+          isTrue);
+    });
+
+    test('reads the side to move out of an explicit FEN', () {
+      const blackToMove =
+          'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+      expect(
+          positionCommandIsWhiteToMove('position fen $blackToMove'), isFalse);
+      expect(
+          positionCommandIsWhiteToMove('position fen $blackToMove moves e7e5'),
+          isTrue);
+    });
+
+    test('agrees with the FEN the command describes', () {
+      // Cross-check against the replay, which is the independent oracle: if the
+      // two ever disagree one of them is wrong, and the eval bar flips.
+      const commands = [
+        'position startpos',
+        'position startpos moves e2e4',
+        'position startpos moves e2e4 e7e5',
+        'position startpos moves e2e4 e7e5 g1f3',
+        'position startpos moves e2e4 e7e5 g1f3 b8c6 f1b5 a7a6',
+        'position fen 8/P7/8/8/8/8/8/k6K w - - 0 1 moves a7a8q',
+      ];
+      for (final command in commands) {
+        final fenTurn = fenFromPositionCommand(command).split(' ')[1];
+        expect(positionCommandIsWhiteToMove(command), fenTurn == 'w',
+            reason: command);
+      }
+    });
+  });
+
   group('fenHistoryFromPositionCommand', () {
     // Maia3 conditions on the real game history. It used to be accumulated
     // engine-side across bestMove calls, which only fire on the engine's own

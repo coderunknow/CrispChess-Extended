@@ -12,6 +12,12 @@ concurrency:
   group: ci-v2-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege. Everything here reads the repository and builds; uploads use
+# the artifacts API, which needs nothing from this token. Without a `permissions`
+# block the workflow inherits the repository default, which may be read-write.
+permissions:
+  contents: read
+
 jobs:
   analyze:
     name: Analyze & Test
