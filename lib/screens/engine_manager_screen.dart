@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../bench/benchmark_service.dart';
+import '../engines/engine_registry.dart';
 import '../engines/generic_uci_engine.dart'
     if (dart.library.js_interop) '../engines/generic_uci_engine_web.dart';
 import '../engines/uci_option.dart';
 import '../services/engine_profile_store.dart';
+import 'engine_lab_screen.dart';
 
 /// Screen for managing user-added UCI engine profiles.
 ///
@@ -126,6 +131,11 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
       await _store.add(result);
       await _loadProfiles();
 
+      // Trigger B: a newly added engine can be benchmarked automatically. The
+      // decision — and the reason when the answer is no — comes from the
+      // service, so "automatic" never means "silently refused".
+      unawaited(_maybeAutoBenchmark(result));
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -148,6 +158,59 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
       }
     } finally {
       if (!disposed) engine.dispose();
+    }
+  }
+
+  /// Runs the automatic benchmark for a freshly added engine, if the user's
+  /// settings allow it.
+  ///
+  /// Deliberately not awaited by the caller: the add flow must not block on a
+  /// benchmark, and the run belongs to [BenchmarkService] so it survives this
+  /// screen being closed. Every outcome is reported.
+  Future<void> _maybeAutoBenchmark(EngineProfile profile) async {
+    final service = BenchmarkService.shared;
+    AutoBenchmarkDecision decision;
+    try {
+      decision = await service.decideAfterAdd(profile);
+    } catch (error) {
+      debugPrint('[EngineManager] automatic benchmark check failed: $error');
+      return;
+    }
+    if (!decision.shouldRun) {
+      debugPrint('[EngineManager] automatic benchmark skipped: '
+          '${decision.reason}');
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${profile.displayName}: ${decision.reason}'),
+      duration: const Duration(seconds: 3),
+    ));
+    try {
+      final run = await service.runAutomatic(decision);
+      if (!mounted || run == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${profile.displayName}: ${run.gamesCompleted} '
+            'rated game(s), '
+            '${run.ratings.ratingFor(customEngineId(profile))?.label ?? ''} '
+            'rated '
+            '${run.ratings.ratingFor(customEngineId(profile))?.rating.toStringAsFixed(0) ?? '—'}'),
+        action: SnackBarAction(
+          label: AppLocalizations.of(context)?.engineLabOpenReport ?? 'Report',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) => const EngineLabScreen(initialTab: 2)),
+          ),
+        ),
+      ));
+    } catch (error) {
+      debugPrint('[EngineManager] automatic benchmark failed: $error');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Automatic benchmark failed: $error'),
+        backgroundColor: Colors.red,
+      ));
     }
   }
 

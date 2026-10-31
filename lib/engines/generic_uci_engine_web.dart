@@ -4,11 +4,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
 import 'generic_uci_engine_stub.dart';
+import 'uci_capabilities.dart';
 import 'uci_option.dart';
 
 export 'generic_uci_engine_stub.dart' show EngineProfile;
 
-class GenericUciEngine implements ChessEngine {
+class GenericUciEngine implements ChessEngine, UciOptionAware {
   final EngineProfile profile;
   final List<UciOption> options = [];
 
@@ -36,4 +37,16 @@ class GenericUciEngine implements ChessEngine {
   @override void setOption(String name, String value) {}
   @override void dispose() {}
   void pressButton(String name) {}
+
+  /// A browser cannot run a user-supplied engine at all, so there is nothing to
+  /// advertise and nothing to apply. Implemented so the benchmark can ask
+  /// uniformly and record "unsupported" rather than assume.
+  @override
+  List<String> get advertisedOptionNames => const [];
+
+  @override
+  bool advertisesOption(String name) => false;
+
+  @override
+  void applyOption(String name, String value) {}
 }

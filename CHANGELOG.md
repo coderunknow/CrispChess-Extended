@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.3.2-dev2 — Engine Lab
+
+### What to test
+
+- **Engine Lab** — Settings → Engine Lab, or the in-game Learn menu. Pick two
+  or more engines, choose a preset (Quick / Standard / Accurate / Custom), and
+  run a round robin or a gauntlet. The run has a live board, per-game progress,
+  pause/resume/cancel, and a report afterwards with ratings, intervals, ratings
+  quality, performance percentiles, a PGN of every game and CSV/JSON exports.
+- **Ratings you can argue with.** Ratings are fitted to all games at once
+  (Bradley–Terry, not move-by-move Elo), centred on 1500 across the engines in
+  the run, and always shown with a 95% interval and a quality grade. A rating
+  from eight games is labelled as such instead of being printed next to a
+  rating from a thousand.
+- **No invented absolute Elo.** Calibrated Elo only appears when you have
+  declared a published rating for an engine in the run (with its source, date,
+  hardware and time control) *and* the run's move budget matches it within 20%.
+  Otherwise the report says why it is unavailable.
+- **Games that were not chess are not rated.** A forfeit (engine crashed,
+  timed out, illegal move), an aborted game, or a game stopped at the ply cap
+  is counted, given a reason and kept out of the fit — it used to be recorded
+  as a draw.
+- **Stability check** — start an engine repeatedly and search repeatedly, and
+  see whether it leaks, hangs or reports nonsense. This is the check that
+  would have caught the engines that were not spending the time they were
+  given.
+- **Benchmarks run themselves, within a budget**: after adding an engine, and
+  after an engine's binary changes. Quick preset, at most 24 games and ten
+  minutes, and every decision — including a refusal — carries a reason.
+
+### Engines
+
+- Engine results, standings and ratings are keyed by a stable engine id, not by
+  the display name. Two profiles called "Stockfish" no longer share a score,
+  and a renamed profile keeps its history.
+- Each benchmark records the engine's fingerprint (SHA-256 of the binary, or
+  size+mtime when hashing is unavailable, marked as the weaker signal), the
+  options it advertised, the options actually applied, and the platform and
+  backend the engine ran on. Two numbers from different cohorts are never put
+  in one rating pool.
+- Matches and tournaments now use the same game loop as the Lab: legal-move
+  checking, forfeit classification and ply-cap adjudication exist once, and a
+  game that ended without a result is reported as such rather than as a draw.
+
+
 ## Unreleased — custom UCI engines, finished
 
 ### Engines
