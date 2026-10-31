@@ -804,7 +804,37 @@ cannot be run here (weights are multi-hundred-megabyte downloads from a host
 this sandbox cannot reach). The conversion is therefore reasoned, not measured —
 unlike the UCI engines, whose convention was measured against a real binary.
 
-### 10.6 What the third round did not establish
+### 10.6 Correction to §9: the `deploy-web.yml` permissions finding is withdrawn
+
+Re-read against the file, the claim in §9 is wrong on both counts:
+
+- `deploy-web.yml` **does** have a `permissions` block — `contents: write`, at
+  job level, present at the base commit `0d01798` and unchanged by this branch.
+- It does not use `actions/deploy-pages` at all. The Pages step force-pushes a
+  built tree to the `gh-pages` branch, which needs `contents: write` and nothing
+  else. `pages: write` / `id-token: write` would only be required by the
+  artifact-based deploy this workflow does not use, so **adding them would have
+  been wrong**, not merely unverifiable. No change made; the earlier note is
+  superseded by this one rather than edited away.
+
+Two CI observations are recorded and **not** changed, because both pre-date this
+PR and neither can be exercised here:
+
+- The Pages step is guarded by `if: ${{ !cancelled() }}`, which is true for a
+  failed job as well as a successful one. If the Flutter build fails after
+  creating `build/web`, the step still publishes that incomplete tree to the
+  live `gh-pages` site. `if: success()` would be the correct guard; changing it
+  is a behaviour change to a deployment path that cannot be run from here.
+- `flutter build web --release --wasm` is attempted first and falls back to the
+  JS build, but the fallback is a separate command in an `if … else` block; both
+  leave output in `build/web`, so the "Log build type" step infers the variant
+  from which file exists afterwards. That is sound, but it means a WASM build
+  that *succeeds* while emitting `main.dart.js` only would be misreported.
+
+All twelve workflow files still parse as YAML (PyYAML): `ci.yml` 14 jobs,
+`release.yml` 9, `ios-release.yml` 2, and one each in the other nine.
+
+### 10.7 What the third round did not establish
 
 - No Dart or Flutter process was executed: no `pub get`, no `analyze`, no test
   run, no build, no app launch.
