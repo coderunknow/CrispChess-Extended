@@ -25,6 +25,19 @@ const Set<String> _promotionChars = {'q', 'r', 'b', 'n'};
 String fenFromPositionCommand(String command) =>
     fenHistoryFromPositionCommand(command, limit: 1).last;
 
+/// Whether the position described by a UCI `position` command has White to
+/// move.
+///
+/// UCI reports `score cp` and `score mate` from the point of view of the side
+/// to move, but [EvalInfo] is defined — and every consumer of it drawn — from
+/// White's. Without knowing whose turn it is there is no way to reconcile the
+/// two, and the evaluation of every Black-to-move position came out inverted.
+bool positionCommandIsWhiteToMove(String command) {
+  final fen = fenFromPositionCommand(command);
+  final parts = fen.split(' ');
+  return !(parts.length > 1 && parts[1] == 'b');
+}
+
 /// Splits a UCI `position` command into its base FEN and the list of UCI moves
 /// played from it. Lets an engine replay the game to recover the full position
 /// history (e.g. for repetition detection) rather than only the final FEN.

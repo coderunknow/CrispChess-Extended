@@ -35,7 +35,49 @@ CrispChess uses a plugin architecture that lets you swap between chess engines a
 - **LM bot zoo** — eight small chess *language models* from the Hugging Face Hub (see NOTICE.md for authors), each exported with a KV cache and tokenized in Dart exactly as upstream. A bot writes the game as PGN text and picks among the legal moves by how likely it finds each one's text, so it can never play an illegal move. Given the real game, the best of them (Chess Llama 68M) plays the move a human played in 41% of positions from real Lichess games, against 1-9% for the blind prompt the Chess LLM Arena uses. In play they are weak: about 400 against Maia anchored at 1100 (they never won a game there). Odd, human-ish opponents, not engines.
 - **Custom UCI** — load any UCI engine via the Engine Manager (desktop/mobile only). Auto-detects engine identity and options.
 
-GPL-3.0 engines are never compiled into the app binary. They run as separate processes or are downloaded at runtime, keeping the app itself MIT-licensed.
+GPL-3.0 engines are never compiled into the app binary.
+
+### Adding your own UCI engine
+
+Settings → **Engine Manager — Add Custom UCI Engines** → **Add Engine**, and
+give the path to the engine binary:
+
+| Platform | Path example | Notes |
+|----------|--------------|-------|
+| Linux | `/usr/bin/stockfish` | Any executable you can run; `chmod +x` as usual |
+| macOS | `/opt/homebrew/bin/stockfish` | Same. App-sandboxed builds (App Store) can only run binaries inside the app container |
+| Windows | `C:\Engines\stockfish.exe` | Full path with `.exe` |
+| Android | `/data/local/tmp/engine` | The app can execute files it can read; Android 10+ forbids executing files from shared storage, so push the binary to app-private storage |
+| iOS | — | iOS only executes code that is signed with the app, so a downloaded desktop binary cannot be started. The Engine Manager reports the failure instead of pretending to have added it |
+| Web | — | No processes in a browser. The Engine Manager is not offered |
+
+What happens when you add one:
+
+1. The app starts the binary and performs a real UCI handshake (`uci` … `uciok`),
+   waiting up to 10 s.
+2. It reads `id name`, `id author` and every `option` line, so your display name
+   is optional — leave it blank and the engine's own name is used.
+3. Only after a successful handshake is the profile saved. A wrong path, a
+   binary that is not a chess engine, or one that never answers is reported as
+   a failure and nothing is stored.
+4. The engine appears in the engine selector (Settings), the hint-engine list,
+   multi-engine analysis and engine-vs-engine matches, and can be played
+   against like any built-in engine.
+
+Configure its UCI options with the gear icon: spin options get a slider (or a
+number field for wide ranges), check boxes, combos and strings are generated
+from what the engine advertises. Options you change are stored per profile and
+re-sent on every start. Two profiles may point at the same binary with
+different option sets; they are distinguished by a stable profile id, not by
+name.
+
+Failure handling: if the selected engine cannot be started, the game screen
+says which engine failed and offers **Switch to Built-in** — the built-in
+engine is never substituted silently while the failing one is still shown as
+selected. If a custom engine crashes mid-game, it is restarted up to three
+times; after that the failure is reported and you can pick another engine.
+Profiles whose binary has been moved or deleted are reported in the selector
+and skipped by matches instead of breaking them. They run as separate processes or are downloaded at runtime, keeping the app itself MIT-licensed.
 
 ## Features
 
@@ -260,20 +302,38 @@ All engines implement `ChessEngine`:
 ```dart
 abstract class ChessEngine {
   String get name;
+  String get version;
   String get license;
   int get estimatedElo;
   EngineState get state;
+  ValueNotifier<EngineState> get stateNotifier;
 
+  /// Throws if the engine cannot be started. Callers must handle it: a state
+  /// of `error` alone is not a substitute for reporting the failure.
   Future<void> initialize();
-  Future<String> bestMove(String positionCommand, {int? depth, int? skillLevel});
+  Future<String> bestMove(String positionCommand, {int? depth, Duration? moveTime, int? skillLevel});
   Stream<EvalInfo> analyze(String positionCommand, {int? depth, bool infinite});
+  bool get canPonder;
   void setOption(String name, String value);
   void stop();
   void dispose();
 }
 ```
 
-Engines are hot-swappable at runtime via `EngineService.switchEngine()`.
+[`EvalInfo.score`] is in pawns **from White's perspective**, while UCI reports
+`score cp` from the side to move; every UCI-speaking engine converts before
+emitting.
+
+Engines are hot-swappable at runtime via `EngineService.switchEngine()`, and
+are named by stable id rather than display name — see
+`lib/engines/engine_registry.dart`:
+
+- built-in engines: `builtin:<name>` (the name `createEngine` accepts)
+- user-added engines: `custom:<profile id>`
+
+`createEngineForId()` is the single lookup used by play, hints, matches and
+multi-engine analysis, so an engine added in the Engine Manager is reachable
+everywhere without any list having to be kept in sync by hand.
 
 ## CI/CD
 

@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'chess_engine.dart';
 import 'stockfish_downloadable_engine.dart';
+import 'uci_position.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_search_coordinator.dart';
 
@@ -29,7 +30,12 @@ class StockfishEngine
   StreamSubscription? _stdoutSub;
   final _evalController = StreamController<EvalInfo>.broadcast();
 
+  /// Whether the position on the engine has White to move. UCI scores are from
+  /// the side to move; [EvalInfo] is from White's.
+  bool _whiteToMove = true;
+
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
+  static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
   static final _pvRegex = RegExp(r' pv (.+)');
   static final _multipvRegex = RegExp(r'multipv (\d+)');
@@ -117,13 +123,25 @@ class StockfishEngine
 
     if (t.startsWith('info') && t.contains('depth')) {
       final cp = _cpRegex.firstMatch(t);
+      final mate = _mateRegex.firstMatch(t);
       final d = _depthRegex.firstMatch(t);
       final pvMatch = _pvRegex.firstMatch(t);
       final mpv = _multipvRegex.firstMatch(t);
-      if (cp != null && d != null) {
+      if (d != null && (cp != null || mate != null)) {
+        final double score;
+        if (cp != null) {
+          score = int.parse(cp.group(1)!) / 100.0;
+        } else {
+          // A forced mate has no `cp` score at all. Skipping these lines, as
+          // this did, left the eval bar frozen and blank on exactly the
+          // positions where the evaluation matters most.
+          final mateIn = int.parse(mate!.group(1)!);
+          score = mateIn > 0 ? 999.0 : -999.0;
+        }
         final pv = pvMatch?.group(1);
         _evalController.add(EvalInfo(
-          score: int.parse(cp.group(1)!) / 100.0,
+          // UCI reports from the side to move; the app consumes White's.
+          score: _whiteToMove ? score : -score,
           depth: int.parse(d.group(1)!),
           bestMove: pv?.split(' ').first,
           pv: pv,
@@ -160,6 +178,7 @@ class StockfishEngine
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
     if (processGone) throw await processDeathReport();
+    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
 
     final move = await startSearch(positionCommand, go, awaitMove: true)
         .timeout(cap, onTimeout: () {
@@ -188,6 +207,7 @@ class StockfishEngine
       return const Stream.empty();
     }
     _stateNotifier.value = EngineState.thinking;
+    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
     // Bound the depth search by the clock too. A fixed depth costs whatever
     // that depth costs in the position in front of it — the thing that was
     // taken out of `bestMove` because it turned into seconds per move by the

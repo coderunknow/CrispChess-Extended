@@ -93,7 +93,12 @@ class EngineService {
   ///
   /// Optional: without it a death is reported and play stops until the user
   /// picks another engine, which is what used to happen to every crash.
-  final ChessEngine Function()? rebuildEngine;
+  ///
+  /// Reassigned by [switchEngine]: a closure captured at construction keeps
+  /// building the engine that was selected back then, so after switching, a
+  /// crash would have restored the previous engine — the opposite of what the
+  /// user chose — while the UI still showed the new one.
+  ChessEngine Function()? rebuildEngine;
 
   /// Restarts already spent. A process that dies once may have hit something
   /// transient; one that dies repeatedly is broken, and restarting it on every
@@ -122,14 +127,35 @@ class EngineService {
   }
 
   /// Switch to a different engine. Disposes the current one.
-  Future<void> switchEngine(ChessEngine newEngine) async {
-    _analysisSubscription?.cancel();
+  ///
+  /// [rebuilder] replaces [rebuildEngine] for the new engine; omit it only when
+  /// the new engine is never to be rebuilt automatically.
+  Future<void> switchEngine(
+    ChessEngine newEngine, {
+    ChessEngine Function()? rebuilder,
+  }) async {
+    await _analysisSubscription?.cancel();
+    _analysisSubscription = null;
     if (_stateListener != null) {
       _engine.stateNotifier.removeListener(_stateListener!);
     }
+    // Stop before disposing: a search still running when the connection goes
+    // away leaves the engine process waiting on a `bestmove` nobody will read,
+    // and (for a process engine) keeps it alive until it is killed.
+    try {
+      _engine.stop();
+    } catch (e) {
+      debugPrint('[EngineService] stop before switch failed: $e');
+    }
     _engine.dispose();
 
+    // A new engine gets a fresh restart budget; the old one's crashes say
+    // nothing about this one.
+    _restarts = 0;
+    _lastAnalysisError = null;
+
     _engine = newEngine;
+    rebuildEngine = rebuilder;
     _eventController.add(StateChangeEvent(EngineState.initializing));
     await initialize();
   }

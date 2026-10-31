@@ -7,11 +7,14 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+
 import 'chess_engine.dart';
 import 'generic_uci_engine_stub.dart';
 import 'uci_option.dart';
 import 'uci_process_lifecycle.dart';
+import 'uci_position.dart';
 import 'uci_search_coordinator.dart';
 
 export 'generic_uci_engine_stub.dart' show EngineProfile;
@@ -29,24 +32,51 @@ class GenericUciEngine
   final _evalController = StreamController<EvalInfo>.broadcast();
 
   /// Engine identity parsed from the UCI handshake.
-  String _engineName = 'Unknown';
-  String _engineAuthor = '';
+  String _detectedName = '';
+  String _detectedAuthor = '';
 
   /// Author, as reported by the engine's `id author` line.
-  String get engineAuthor => _engineAuthor;
+  String get engineAuthor => _detectedAuthor;
+
+  /// The name the engine calls itself, which may differ from the name the
+  /// user gave this profile. Kept so two profiles — or two different binaries
+  /// that share a name — can be told apart in logs and in the UI.
+  String get engineIdentifier => _detectedName;
 
   /// UCI options advertised by the engine.
   final List<UciOption> options = [];
+
+  /// Whether the engine answered `uciok` in the last handshake.
+  bool _handshakeComplete = false;
+
+  /// Whether the position currently on the engine has White to move.
+  ///
+  /// UCI reports `score cp` from the side to move's point of view, while
+  /// [EvalInfo] (and every consumer: eval bar, chart, analysis panel) is in
+  /// White's. Without this the evaluation of every Black-to-move position was
+  /// displayed upside down — the eval bar showed the opponent winning exactly
+  /// when the engine thought it was winning.
+  bool _whiteToMove = true;
 
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
   static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
   static final _pvRegex = RegExp(r' pv (.+)');
+  static final _multipvRegex = RegExp(r' multipv (\d+)');
 
-  GenericUciEngine(this.profile);
+  /// How long the engine has to answer `uci`.
+  ///
+  /// Configurable so tests can exercise the timeout without waiting ten
+  /// seconds; the default is what the app uses.
+  final Duration handshakeTimeout;
+
+  GenericUciEngine(
+    this.profile, {
+    this.handshakeTimeout = const Duration(seconds: 10),
+  });
 
   @override
-  String get name => _engineName;
+  String get name => profile.displayName;
   @override
   String get version => '';
   @override
@@ -63,9 +93,20 @@ class GenericUciEngine
   @override
   bool get canPonder => true;
 
+  /// Starts the engine and completes the UCI handshake.
+  ///
+  /// Throws when the engine cannot be started or does not complete the
+  /// handshake. The previous implementation caught the failure, set
+  /// [EngineState.error] and returned normally, so every caller — including the
+  /// Engine Manager — saw a successful `await initialize()` and saved a profile
+  /// for an engine that could never run. The state is still set to error before
+  /// the exception leaves, so state listeners keep working.
   @override
   Future<void> initialize() async {
+    if (_stateNotifier.value == EngineState.ready) return;
     _stateNotifier.value = EngineState.initializing;
+    await _teardownProcess(announce: false);
+
     try {
       final file = File(profile.path);
       if (!await file.exists()) {
@@ -76,14 +117,19 @@ class GenericUciEngine
       watchProcess(_process!);
 
       final ready = Completer<void>();
+      _handshakeComplete = false;
+      options.clear();
+      _detectedName = '';
+      _detectedAuthor = '';
 
       _stdoutSub = _process!.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen((line) {
         _handleLine(line, handshake: !ready.isCompleted);
-        if (line.trim() == 'uciok' && !ready.isCompleted) {
-          ready.complete();
+        if (line.trim() == 'uciok') {
+          _handshakeComplete = true;
+          if (!ready.isCompleted) ready.complete();
         }
       }, onDone: () {
         // stdout closing is the first sign of death, usually ahead of the
@@ -98,9 +144,25 @@ class GenericUciEngine
       // Start UCI handshake
       _send('uci');
 
-      await ready.future.timeout(const Duration(seconds: 10), onTimeout: () {
-        debugPrint('[UCI] Handshake timeout for ${profile.path}');
-      });
+      try {
+        await ready.future.timeout(handshakeTimeout);
+      } on TimeoutException {
+        // Reporting a half-initialised engine as ready is how an engine that
+        // never spoke UCI ended up "added" and then failing on every move.
+        throw TimeoutException(
+          'No UCI handshake response within '
+          '${handshakeTimeout.inMilliseconds}ms',
+          handshakeTimeout,
+        );
+      }
+
+      if (!_handshakeComplete) {
+        // stdout ended before `uciok`: the process died during the handshake.
+        // Report that rather than falling through to a false "ready".
+        final death = await processDeathReport();
+        await _teardownProcess();
+        throw death;
+      }
 
       // Apply saved option overrides
       for (final entry in profile.optionOverrides.entries) {
@@ -111,23 +173,26 @@ class GenericUciEngine
         }
       }
 
-      // Use the profile name if set, otherwise use engine-reported name
-      if (profile.name.isNotEmpty) {
-        _engineName = profile.name;
-      }
+      // Remember what the engine called itself, so the profile keeps a
+      // truthful identity even after the user renames it.
+      profile.detectedName = _detectedName.isEmpty ? null : _detectedName;
+      profile.detectedAuthor =
+          _detectedAuthor.isEmpty ? null : _detectedAuthor;
+      profile.optionCount = options.length;
 
       _send('isready');
       _stateNotifier.value = EngineState.ready;
-      debugPrint('[UCI] $_engineName ready (${options.length} options)');
+      debugPrint('[UCI] $name ready (${options.length} options)');
     } catch (e) {
       debugPrint('[UCI] Init failed: $e');
+      await _teardownProcess();
       _stateNotifier.value = EngineState.error;
+      rethrow;
     }
   }
 
   @override
-  @override
-  String get processLabel => _engineName;
+  String get processLabel => name;
 
   @override
   void onProcessLost() {
@@ -154,9 +219,9 @@ class GenericUciEngine
     // During handshake, parse engine identity and options
     if (handshake) {
       if (t.startsWith('id name ')) {
-        _engineName = t.substring(8);
+        _detectedName = t.substring(8).trim();
       } else if (t.startsWith('id author ')) {
-        _engineAuthor = t.substring(10);
+        _detectedAuthor = t.substring(10).trim();
       } else if (t.startsWith('option name ')) {
         final opt = UciOption.parse(t);
         if (opt != null) options.add(opt);
@@ -180,14 +245,18 @@ class GenericUciEngine
       }
 
       if (score != null) {
+        // UCI scores are from the side to move; the app's are from White's.
+        if (!_whiteToMove) score = -score;
         final pvMatch = _pvRegex.firstMatch(t);
         final pv = pvMatch?.group(1);
         final bestMove = pv?.split(' ').first;
+        final mpvMatch = _multipvRegex.firstMatch(t);
         _evalController.add(EvalInfo(
           score: score,
           depth: int.parse(depthMatch.group(1)!),
           bestMove: bestMove,
           pv: pv,
+          pvIndex: mpvMatch != null ? int.parse(mpvMatch.group(1)!) : 1,
         ));
       }
     }
@@ -200,7 +269,7 @@ class GenericUciEngine
       final parts = t.split(' ');
       final move = parts.length >= 2 && parts[1] != '(none)' ? parts[1] : null;
       finishSearch(move);
-      _stateNotifier.value = EngineState.ready;
+      if (!disposingProcess) _stateNotifier.value = EngineState.ready;
     }
   }
 
@@ -212,7 +281,9 @@ class GenericUciEngine
     int? skillLevel,
   }) async {
     if (_process == null) throw StateError('Not initialized');
+    if (processGone) throw await processDeathReport();
     _stateNotifier.value = EngineState.thinking;
+    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
 
     if (skillLevel != null) {
       _send('setoption name Skill Level value $skillLevel');
@@ -223,9 +294,8 @@ class GenericUciEngine
     // made moves take seconds by the middlegame.
     final go = uciGoCommand(
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
-    final cap = uciSearchTimeout(depth: depth, moveTime: moveTime, skillLevel: skillLevel);
-
-    if (processGone) throw await processDeathReport();
+    final cap = uciSearchTimeout(
+        depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
     final move = await startSearch(positionCommand, go, awaitMove: true)
         .timeout(cap, onTimeout: () {
@@ -243,7 +313,8 @@ class GenericUciEngine
   }
 
   @override
-  Stream<EvalInfo> analyze(String positionCommand, {int? depth, bool infinite = false}) {
+  Stream<EvalInfo> analyze(String positionCommand,
+      {int? depth, bool infinite = false}) {
     if (_process == null || processGone) {
       // Silently returning an empty stream here is how a dead engine looked
       // like a quiet one: the eval bar simply stopped updating.
@@ -251,6 +322,7 @@ class GenericUciEngine
       return const Stream.empty();
     }
     _stateNotifier.value = EngineState.thinking;
+    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
     // Bound the depth search by the clock too. A fixed depth costs whatever
     // that depth costs in the position in front of it — the thing that was
     // taken out of `bestMove` because it turned into seconds per move by the
@@ -290,14 +362,53 @@ class GenericUciEngine
     _stateNotifier.value = EngineState.ready;
   }
 
+  /// Stops the process and forgets it, reporting nothing about the exit.
+  ///
+  /// Used both by [dispose] and by a failed [initialize]: a half-started engine
+  /// must not leave a process behind, and its own death must not be reported as
+  /// a crash of a working engine.
+  Future<void> _teardownProcess({bool announce = true}) async {
+    final process = _process;
+    _process = null;
+
+    await _stdoutSub?.cancel();
+    _stdoutSub = null;
+
+    if (process == null) {
+      stopWatchingProcess();
+      return;
+    }
+
+    beginProcessDispose();
+    if (announce) {
+      try {
+        process.stdin.writeln('quit');
+      } catch (_) {
+        // Already gone; nothing to flush.
+      }
+    }
+    stopWatchingProcess();
+    try {
+      await process.stdin.close();
+    } catch (_) {}
+    try {
+      process.kill();
+    } catch (_) {
+      // Already exited.
+    }
+    finishSearch(null);
+  }
+
   @override
   void dispose() {
+    if (_stateNotifier.value == EngineState.disposed) return;
     beginProcessDispose();
     finishSearch(null);
     _send('quit');
     _stdoutSub?.cancel();
+    _stdoutSub = null;
     stopWatchingProcess();
-    _evalController.close();
+    if (!_evalController.isClosed) _evalController.close();
     _process?.kill();
     _process = null;
     _stateNotifier.value = EngineState.disposed;

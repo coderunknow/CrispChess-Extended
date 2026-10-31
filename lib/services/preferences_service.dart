@@ -7,9 +7,11 @@ import '../chess/game_state.dart' show ChessVariant;
 
 class PreferencesService {
   static const _keyEngine = 'engine';
+  static const _keyEngineId = 'engineId';
   static const _keyVariant = 'variant';
   static const _keyStrength = 'strength';
   static const _keyHintDepth = 'hintDepth';
+  static const _keyHintEngine = 'hintEngine';
   static const _keyAnimSpeed = 'animationSpeed';
   static const _keyPlayAsBlack = 'playAsBlack';
   static const _keyPieceTheme = 'pieceTheme';
@@ -36,6 +38,20 @@ class PreferencesService {
   String get engine => migrateEngineName(_prefs?.getString(_keyEngine)) ?? 'Built-in';
   set engine(String v) => _prefs?.setString(_keyEngine, v);
 
+  /// Stable id of the selected engine (see `engine_registry.dart`).
+  ///
+  /// [engine] is kept for backward compatibility and for the moments the app
+  /// wants a human-readable name; it is not reliable as an identity, because
+  /// two engines can share a display name and a user can rename a custom one.
+  String? get engineId => _prefs?.getString(_keyEngineId);
+  set engineId(String? v) {
+    if (v == null) {
+      _prefs?.remove(_keyEngineId);
+    } else {
+      _prefs?.setString(_keyEngineId, v);
+    }
+  }
+
   /// Maps removed engine names onto their replacements.
   ///
   /// 'Maia3' was a separate JS-bridge engine: web-only, and a stub that threw
@@ -57,6 +73,13 @@ class PreferencesService {
   // Hint depth
   int get hintDepth => _prefs?.getInt(_keyHintDepth) ?? 15;
   set hintDepth(int v) => _prefs?.setInt(_keyHintDepth, v);
+
+  /// Which engine answers hints: 'same' (the opponent) or an engine name.
+  ///
+  /// This setting existed in the UI but was never stored, so it reset to
+  /// 'same' on every launch.
+  String get hintEngine => _prefs?.getString(_keyHintEngine) ?? 'same';
+  set hintEngine(String v) => _prefs?.setString(_keyHintEngine, v);
 
   // Animation speed (0=instant, 1=fast, 2=normal, 3=slow)
   int get animationSpeed => _prefs?.getInt(_keyAnimSpeed) ?? 2;

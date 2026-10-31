@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased — custom UCI engines, finished
+
+### Engines
+
+- **Custom UCI engines work end to end.** An engine added in the Engine Manager
+  now appears in the engine selector, the hint-engine list, multi-engine
+  analysis and engine-vs-engine matches, and actually plays the game. Engine
+  selection is stored by a stable profile id instead of by display name, so two
+  engines with the same name — or a renamed profile — stay distinct.
+- **A failing engine is no longer saved as a working one.** `initialize()`
+  reported success even when the binary was missing, was not executable, never
+  answered `uci`, or died during the handshake. The Engine Manager's error path
+  could therefore never run. All four cases now fail with a specific error,
+  set the state to `error`, and leave nothing stored.
+- **UCI options are discovered and applied reliably**: the option list is
+  rebuilt on each handshake (it used to accumulate duplicates), option values
+  that the engine no longer advertises no longer break the dropdown, and the
+  text fields keep the caret where you put it instead of resetting on every
+  rebuild.
+- **Evaluation is no longer inverted on Black-to-move positions.** UCI reports
+  `score cp`/`score mate` from the side to move; the app draws it from White's.
+  Custom UCI, Stockfish and Lynx now convert. Stockfish also reports forced
+  mates, which it used to drop entirely.
+- **Engine switching** stops the previous engine before disposing it, resets
+  the crash-restart budget, and rebuilds the *new* engine after a crash (the
+  rebuild closure used to keep pointing at the engine selected at start-up).
+- **Matches and tournaments dispose their engines.** Nothing did before, so
+  every match left its engine processes running.
+- **Multi-engine analysis isolates failures**: one engine that cannot start no
+  longer discards the results of the others.
+- The hint-engine setting is persisted (it never was) and takes effect
+  immediately when changed (the hint engine was built once and then reused).
+
+### Data
+
+- Engine profiles carry a stable id; profiles saved by earlier versions are
+  migrated on first load. A corrupt or partially corrupt profile store no
+  longer makes the Engine Manager fail to open — unreadable entries are dropped
+  and the rest kept.
+- A profile can no longer be edited or deleted "by position", which could
+  retarget the wrong engine after a delete.
+
 ## 2.3.1
 
 ### What to test

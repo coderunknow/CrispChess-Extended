@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'uci_position.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_search_coordinator.dart';
 
@@ -58,6 +59,10 @@ class LynxEngine
 
   Process? _process;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
+
+  /// Whether the position on the engine has White to move. UCI scores are from
+  /// the side to move; [EvalInfo] is from White's. See [positionCommandIsWhiteToMove].
+  bool _whiteToMove = true;
   StreamSubscription? _stdoutSub;
   final _evalController = StreamController<EvalInfo>.broadcast();
   String _detectedVersion = _lynxVersion;
@@ -181,7 +186,8 @@ class LynxEngine
         }
         final pv = pvMatch?.group(1);
         _evalController.add(EvalInfo(
-          score: score,
+          // UCI reports from the side to move; the app consumes White's.
+          score: _whiteToMove ? score : -score,
           depth: int.parse(d.group(1)!),
           bestMove: pv?.split(' ').first,
           pv: pv,
@@ -217,6 +223,7 @@ class LynxEngine
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
     if (processGone) throw await processDeathReport();
+    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
 
     final move = await startSearch(positionCommand, go, awaitMove: true)
         .timeout(cap, onTimeout: () {
@@ -242,6 +249,7 @@ class LynxEngine
       return const Stream.empty();
     }
     _stateNotifier.value = EngineState.thinking;
+    _whiteToMove = positionCommandIsWhiteToMove(positionCommand);
     // Bound the depth search by the clock too. A fixed depth costs whatever
     // that depth costs in the position in front of it — the thing that was
     // taken out of `bestMove` because it turned into seconds per move by the
