@@ -17,7 +17,9 @@
 - **No invented absolute Elo.** Calibrated Elo only appears when you have
   declared a published rating for an engine in the run (with its source, date,
   hardware and time control) *and* the run's move budget matches it within 20%.
-  Otherwise the report says why it is unavailable.
+  Declare one under Benchmark → Calibration anchors; the form asks for every
+  field the check needs and refuses an anchor with a gap. Otherwise the report
+  says why there is no absolute number.
 - **Games that were not chess are not rated.** A forfeit (engine crashed,
   timed out, illegal move), an aborted game, or a game stopped at the ply cap
   is counted, given a reason and kept out of the fit — it used to be recorded

@@ -3152,6 +3152,45 @@ abstract class AppLocalizations {
 
   /// `engineLabZeroIsUnlimited`.
   String get engineLabZeroIsUnlimited;
+
+  /// `engineLabAddAnchor`.
+  String get engineLabAddAnchor;
+
+  /// `engineLabRemoveAnchor`.
+  String get engineLabRemoveAnchor;
+
+  /// `engineLabAnchorUsedHint`.
+  String get engineLabAnchorUsedHint;
+
+  /// `engineLabAnchorIntro`.
+  String get engineLabAnchorIntro;
+
+  /// `engineLabAnchorRating`.
+  String get engineLabAnchorRating;
+
+  /// `engineLabAnchorScale`.
+  String get engineLabAnchorScale;
+
+  /// `engineLabAnchorSource`.
+  String get engineLabAnchorSource;
+
+  /// `engineLabAnchorDate`.
+  String get engineLabAnchorDate;
+
+  /// `engineLabAnchorHardware`.
+  String get engineLabAnchorHardware;
+
+  /// `engineLabAnchorTimeControl`.
+  String get engineLabAnchorTimeControl;
+
+  /// `engineLabAnchorBudget`.
+  String get engineLabAnchorBudget;
+
+  /// `engineLabAnchorMissing`.
+  String get engineLabAnchorMissing;
+
+  /// `engineLabAnchorDateHint`.
+  String get engineLabAnchorDateHint;
 }
 
 class _AppLocalizationsDelegate

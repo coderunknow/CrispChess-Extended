@@ -775,6 +775,195 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     );
   }
 
+  /// Adds a calibration anchor.
+  ///
+  /// Every field the calibration needs is asked for by name, because a rating
+  /// without a source, a date, hardware and a time control cannot be checked
+  /// against this run — and the Lab refuses to calibrate from one.
+  Future<void> _addAnchor() async {
+    final l = AppLocalizations.of(context);
+    final engineChoices = [
+      for (final candidate in _candidates)
+        if (candidate.available) candidate
+    ];
+    final controllers = {
+      'rating': TextEditingController(),
+      'scale': TextEditingController(text: 'CCRL 40/2'),
+      'source': TextEditingController(),
+      'date': TextEditingController(),
+      'hardware': TextEditingController(),
+      'timeControl': TextEditingController(),
+      'budget': TextEditingController(),
+      'version': TextEditingController(),
+    };
+    var engineId = _selected.isEmpty
+        ? (engineChoices.isEmpty ? null : engineChoices.first.engineId)
+        : _selected.first;
+    var error = '';
+
+    final created = await showDialog<RatingAnchor>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final budget = int.tryParse(controllers['budget']!.text.trim());
+          RatingAnchor buildAnchor() => RatingAnchor(
+                id: 'anchor-${DateTime.now().millisecondsSinceEpoch}',
+                engineName: engineId == null
+                    ? ''
+                    : engineLabelForId(engineId!, _profiles),
+                engineIdHint: engineId,
+                engineVersion: controllers['version']!.text.trim(),
+                rating: double.tryParse(controllers['rating']!.text.trim()) ?? 0,
+                scale: controllers['scale']!.text.trim(),
+                source: controllers['source']!.text.trim(),
+                publishedDate: controllers['date']!.text.trim(),
+                hardware: controllers['hardware']!.text.trim(),
+                timeControl: controllers['timeControl']!.text.trim(),
+                // Null rather than 0 when the budget is not stated: the
+                // calibration then warns that it cannot check the budget,
+                // instead of dividing by zero.
+                timePerMoveMs: budget != null && budget > 0 ? budget : null,
+              );
+
+          return AlertDialog(
+            title: Text(l?.engineLabAddAnchor ?? 'Add a calibration anchor'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l?.engineLabAnchorIntro ??
+                          'A published rating is only usable if its source, '
+                              'date, hardware and time control are recorded, '
+                              'and the engine takes part in the run.',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButton<String>(
+                      isExpanded: true,
+                      value: engineId,
+                      items: [
+                        for (final candidate in engineChoices)
+                          DropdownMenuItem(
+                            value: candidate.engineId,
+                            child: Text(candidate.label,
+                                overflow: TextOverflow.ellipsis),
+                          ),
+                      ],
+                      onChanged: (value) => setDialogState(() => engineId = value),
+                    ),
+                    _anchorField(controllers['version']!,
+                        l?.engineLabVersion ?? 'Engine version', '17'),
+                    _anchorField(controllers['rating']!,
+                        l?.engineLabAnchorRating ?? 'Published rating', '3600',
+                        number: true),
+                    _anchorField(controllers['scale']!,
+                        l?.engineLabAnchorScale ?? 'Rating list or scale',
+                        'CCRL 40/2'),
+                    _anchorField(controllers['source']!,
+                        l?.engineLabAnchorSource ?? 'Source (URL or publication)',
+                        'https://…'),
+                    _anchorField(controllers['date']!,
+                        l?.engineLabAnchorDate ?? 'Published (YYYY-MM-DD)',
+                        '2026-01-31'),
+                    _anchorField(controllers['hardware']!,
+                        l?.engineLabAnchorHardware ?? 'Hardware',
+                        'Ryzen 9 7950X'),
+                    _anchorField(controllers['timeControl']!,
+                        l?.engineLabAnchorTimeControl ?? 'Time control',
+                        '40 moves / 2 min'),
+                    _anchorField(controllers['budget']!,
+                        l?.engineLabAnchorBudget ?? 'Move budget (ms)',
+                        '3000',
+                        number: true),
+                    if (error.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          error,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.error),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(l?.cancel ?? 'Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final anchor = buildAnchor();
+                  if (!anchor.isComplete) {
+                    setDialogState(() {
+                      error = '${l?.engineLabAnchorMissing ?? 'Missing'}: '
+                          '${anchor.missingFields.join(', ')}';
+                    });
+                    return;
+                  }
+                  if (!RegExp(r'^\d{4}-\d{2}-\d{2}$')
+                      .hasMatch(anchor.publishedDate)) {
+                    setDialogState(() {
+                      error = l?.engineLabAnchorDateHint ??
+                          'Write the publication date as YYYY-MM-DD.';
+                    });
+                    return;
+                  }
+                  Navigator.pop(context, anchor);
+                },
+                child: Text(l?.save ?? 'Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    // The controllers are left to the garbage collector rather than disposed
+    // here: the dialog's exit animation can still be rebuilding its fields
+    // when this future completes, and a disposed controller that a live
+    // TextField touches throws.
+    if (created == null) return;
+    final anchors = [..._anchors, created];
+    await _service.saveAnchors(anchors);
+    if (!mounted) return;
+    setState(() => _anchors = anchors);
+  }
+
+  Widget _anchorField(TextEditingController controller, String label,
+          String hint,
+          {bool number = false}) =>
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: TextField(
+          controller: controller,
+          keyboardType: number ? TextInputType.number : TextInputType.text,
+          decoration: InputDecoration(
+            labelText: label,
+            hintText: hint,
+            isDense: true,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+      );
+
+  Future<void> _removeAnchor(RatingAnchor anchor) async {
+    final anchors = [
+      for (final entry in _anchors)
+        if (entry.id != anchor.id) entry
+    ];
+    await _service.saveAnchors(anchors);
+    if (!mounted) return;
+    setState(() => _anchors = anchors);
+  }
+
   Future<void> _setAuto(AutoBenchmarkSettings settings) async {
     setState(() => _auto = settings);
     await _service.setAutoSettings(settings);
@@ -995,6 +1184,13 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           subtitle: l?.engineLabCalibrationHint ??
               'A published rating for an engine that takes part in the run is '
                   'the only way the relative scale becomes an absolute one.',
+          actions: [
+            TextButton.icon(
+              onPressed: _running ? null : _addAnchor,
+              icon: const Icon(Icons.add, size: 18),
+              label: Text(l?.engineLabAddAnchor ?? 'Add anchor'),
+            ),
+          ],
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1003,11 +1199,34 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                     'No anchor declared; ratings stay relative.')
               else
                 for (final anchor in _anchors)
-                  LabInfoRow(
-                    label: anchor.engineName,
-                    value: '${anchor.rating.round()} ${anchor.scale} · '
-                        '${anchor.publishedDate}',
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LabInfoRow(
+                          label: '${anchor.engineName}'
+                              '${anchor.engineVersion.isEmpty ? '' : ' ${anchor.engineVersion}'}',
+                          value: '${anchor.rating.round()} ${anchor.scale} · '
+                              '${anchor.publishedDate} · ${anchor.source}',
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: l?.engineLabRemoveAnchor ?? 'Remove anchor',
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        onPressed: _running ? null : () => _removeAnchor(anchor),
+                      ),
+                    ],
                   ),
+              if (_anchors.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    l?.engineLabAnchorUsedHint ??
+                        'The first anchor that matches an engine in the run is '
+                            'used; an anchor for an engine that is not in the '
+                            'run cannot calibrate anything.',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
             ],
           ),
         ),

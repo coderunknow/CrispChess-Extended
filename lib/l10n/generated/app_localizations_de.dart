@@ -1733,4 +1733,43 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get engineLabZeroIsUnlimited => '0 = kein Limit';
+
+  @override
+  String get engineLabAddAnchor => 'Referenz hinzufügen';
+
+  @override
+  String get engineLabRemoveAnchor => 'Referenz entfernen';
+
+  @override
+  String get engineLabAnchorUsedHint => 'Es wird die erste Referenz verwendet, die zu einer Engine im Lauf passt; eine Referenz für eine nicht beteiligte Engine kann nichts kalibrieren.';
+
+  @override
+  String get engineLabAnchorIntro => 'Eine veröffentlichte Wertzahl ist nur brauchbar, wenn Quelle, Datum, Hardware und Zeitkontrolle erfasst sind und die Engine am Lauf teilnimmt.';
+
+  @override
+  String get engineLabAnchorRating => 'Veröffentlichte Wertzahl';
+
+  @override
+  String get engineLabAnchorScale => 'Rangliste oder Skala';
+
+  @override
+  String get engineLabAnchorSource => 'Quelle (URL oder Veröffentlichung)';
+
+  @override
+  String get engineLabAnchorDate => 'Veröffentlicht (JJJJ-MM-TT)';
+
+  @override
+  String get engineLabAnchorHardware => 'Hardware';
+
+  @override
+  String get engineLabAnchorTimeControl => 'Zeitkontrolle';
+
+  @override
+  String get engineLabAnchorBudget => 'Zeitbudget pro Zug (ms)';
+
+  @override
+  String get engineLabAnchorMissing => 'Fehlt';
+
+  @override
+  String get engineLabAnchorDateHint => 'Schreibe das Veröffentlichungsdatum als JJJJ-MM-TT.';
 }

@@ -1726,4 +1726,43 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get engineLabZeroIsUnlimited => '0 = no limit';
+
+  @override
+  String get engineLabAddAnchor => 'Add anchor';
+
+  @override
+  String get engineLabRemoveAnchor => 'Remove anchor';
+
+  @override
+  String get engineLabAnchorUsedHint => 'The first anchor that matches an engine in the run is used; an anchor for an engine that is not in the run cannot calibrate anything.';
+
+  @override
+  String get engineLabAnchorIntro => 'A published rating is only usable if its source, date, hardware and time control are recorded, and the engine takes part in the run.';
+
+  @override
+  String get engineLabAnchorRating => 'Published rating';
+
+  @override
+  String get engineLabAnchorScale => 'Rating list or scale';
+
+  @override
+  String get engineLabAnchorSource => 'Source (URL or publication)';
+
+  @override
+  String get engineLabAnchorDate => 'Published (YYYY-MM-DD)';
+
+  @override
+  String get engineLabAnchorHardware => 'Hardware';
+
+  @override
+  String get engineLabAnchorTimeControl => 'Time control';
+
+  @override
+  String get engineLabAnchorBudget => 'Move budget (ms)';
+
+  @override
+  String get engineLabAnchorMissing => 'Missing';
+
+  @override
+  String get engineLabAnchorDateHint => 'Write the publication date as YYYY-MM-DD.';
 }

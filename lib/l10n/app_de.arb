@@ -541,5 +541,18 @@
   "engineLabZeroIsEngineDefault": "0 = Vorgabe der Engine",
   "engineLabZeroIsNever": "0 = ganzen Plan spielen",
   "engineLabZeroIsTime": "0 = Uhrzeit verwenden",
-  "engineLabZeroIsUnlimited": "0 = kein Limit"
+  "engineLabZeroIsUnlimited": "0 = kein Limit",
+  "engineLabAddAnchor": "Referenz hinzufügen",
+  "engineLabRemoveAnchor": "Referenz entfernen",
+  "engineLabAnchorUsedHint": "Es wird die erste Referenz verwendet, die zu einer Engine im Lauf passt; eine Referenz für eine nicht beteiligte Engine kann nichts kalibrieren.",
+  "engineLabAnchorIntro": "Eine veröffentlichte Wertzahl ist nur brauchbar, wenn Quelle, Datum, Hardware und Zeitkontrolle erfasst sind und die Engine am Lauf teilnimmt.",
+  "engineLabAnchorRating": "Veröffentlichte Wertzahl",
+  "engineLabAnchorScale": "Rangliste oder Skala",
+  "engineLabAnchorSource": "Quelle (URL oder Veröffentlichung)",
+  "engineLabAnchorDate": "Veröffentlicht (JJJJ-MM-TT)",
+  "engineLabAnchorHardware": "Hardware",
+  "engineLabAnchorTimeControl": "Zeitkontrolle",
+  "engineLabAnchorBudget": "Zeitbudget pro Zug (ms)",
+  "engineLabAnchorMissing": "Fehlt",
+  "engineLabAnchorDateHint": "Schreibe das Veröffentlichungsdatum als JJJJ-MM-TT."
 }
