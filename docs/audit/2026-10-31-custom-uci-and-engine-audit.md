@@ -640,3 +640,24 @@ The release is withheld for the reason the directive itself gives: a release
 must not point at a commit whose tests and builds have never been run. The work
 is complete and pushed; what is missing is a machine that can run `flutter test`
 and `flutter build`.
+
+---
+
+## 9. CI/CD findings from the second round
+
+- **`ci.yml` inherited the repository's default token permissions.** Every job
+  reads the repository and builds; artifact uploads use the artifacts API and
+  need nothing from `GITHUB_TOKEN`. Added `permissions: contents: read` at the
+  workflow level. The workflow still parses (checked with PyYAML: 14 jobs).
+- **`release.yml`'s web fallback tested for a directory, not a build.** The WASM
+  step is `continue-on-error` with a JS fallback guarded by
+  `[ ! -d "build/web" ]`. A WASM build that fails *after* creating the directory
+  leaves it half-written, so the guard would pass, the fallback would be
+  skipped, and the release would tar an incomplete build. It now checks for
+  `main.dart.js`/`main.dart.wasm`, the same test `ci.yml` already used.
+- **Not changed, recorded instead:** `deploy-web.yml` has no `permissions` block
+  (a Pages deploy wants `pages: write` / `id-token: write`). Adding it could
+  break a deploy that cannot be exercised here, so it is left as a finding.
+- The `continue-on-error` uses that remain in `ci.yml` are on optional native
+  cross-builds and the WASM attempt, each followed by a step that fails if no
+  artifact was produced; none of them sits on the analyze/test gate.
