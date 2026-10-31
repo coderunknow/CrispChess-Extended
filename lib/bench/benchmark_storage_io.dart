@@ -15,9 +15,18 @@ import 'benchmark_storage_base.dart';
 class FileBenchmarkStorage implements BenchmarkStorage {
   /// Subdirectory under application support.
   final String directoryName;
+
+  /// Directory to use instead of application support.
+  ///
+  /// The atomic-write, `.bak` and key-sanitising rules are the part of this
+  /// class that can lose a history, and none of them needs a Flutter plugin to
+  /// exercise: a test gives the class a temporary directory and drives it like
+  /// a real device would.
+  final Directory? rootOverride;
+
   Directory? _root;
 
-  FileBenchmarkStorage({this.directoryName = 'benchmark'});
+  FileBenchmarkStorage({this.directoryName = 'benchmark', this.rootOverride});
 
   @override
   Future<void> init() async {
@@ -27,6 +36,14 @@ class FileBenchmarkStorage implements BenchmarkStorage {
   Future<Directory> _directory() async {
     final existing = _root;
     if (existing != null) return existing;
+    final override = rootOverride;
+    if (override != null) {
+      if (!await override.exists()) {
+        await override.create(recursive: true);
+      }
+      _root = override;
+      return override;
+    }
     final support = await getApplicationSupportDirectory();
     final directory = Directory('${support.path}/$directoryName');
     if (!await directory.exists()) {
