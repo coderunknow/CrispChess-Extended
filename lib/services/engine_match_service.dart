@@ -409,6 +409,7 @@ class TournamentService {
     _stopped = false;
     results.clear();
     for (final e in engines) {
+      if (_stopped) break;
       if (e.state == EngineState.idle) {
         try {
           await e.initialize();

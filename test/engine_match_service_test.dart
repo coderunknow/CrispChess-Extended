@@ -13,13 +13,18 @@ class _FakeEngine implements ChessEngine, SearchDrainableEngine {
   final Completer<String>? pending;
   final Completer<void>? drainGate;
   final Completer<void>? drainStarted;
+  final Completer<void>? initializeGate;
+  final Completer<void>? initializeStarted;
   final bool leaveThinkingAfterMove;
+  int initializeCalls = 0;
   int drainCalls = 0;
   _FakeEngine(this.name, this.move, {
     this.searching,
     this.pending,
     this.drainGate,
     this.drainStarted,
+    this.initializeGate,
+    this.initializeStarted,
     this.leaveThinkingAfterMove = false,
   });
 
@@ -43,6 +48,11 @@ class _FakeEngine implements ChessEngine, SearchDrainableEngine {
   }
   @override
   Future<void> initialize() async {
+    initializeCalls++;
+    if (initializeStarted != null && !initializeStarted!.isCompleted) {
+      initializeStarted!.complete();
+    }
+    if (initializeGate != null) await initializeGate!.future;
     _state = EngineState.ready;
     _notifier.value = _state;
   }
@@ -162,6 +172,33 @@ void main() {
     tournament.dispose();
     white.dispose();
     black.dispose();
+  });
+
+  test('tournament cancellation stops initializing remaining engines', () async {
+    final initializeStarted = Completer<void>();
+    final initializeGate = Completer<void>();
+    final first = _FakeEngine(
+      'first',
+      'e2e4',
+      initializeGate: initializeGate,
+      initializeStarted: initializeStarted,
+    );
+    final second = _FakeEngine('second', 'e7e5');
+    final tournament = TournamentService(
+      engines: [first, second],
+      engineIds: const ['first-id', 'second-id'],
+    );
+    final future = tournament.run();
+    await initializeStarted.future.timeout(const Duration(seconds: 1));
+    tournament.stop();
+    initializeGate.complete();
+
+    expect(await future, isEmpty);
+    expect(first.initializeCalls, 1);
+    expect(second.initializeCalls, 0);
+    tournament.dispose();
+    first.dispose();
+    second.dispose();
   });
 
   test('tournament drains a stopped UCI search before reusing the engine', () async {

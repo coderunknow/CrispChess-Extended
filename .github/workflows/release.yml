@@ -239,9 +239,10 @@ jobs:
       - name: Build Web (WASM, with a real JS fallback)
         shell: bash
         run: |
-          # A WASM release is valid with main.dart.wasm and does not require
-          # main.dart.js. Trust both the compiler exit status and its expected
-          # WASM bootstrap artifacts: a failed build can leave partial files.
+          # web/index.html launches through Flutter's generated bootstrap.
+          # A WASM release must provide the WASM entrypoint and bootstrap; the
+          # JavaScript fallback must provide main.dart.js and the bootstrap.
+          # A failed compiler can leave partial files, so validate each output.
           if flutter build web --release --wasm \
               && test -s build/web/main.dart.wasm \
               && test -s build/web/flutter_bootstrap.js; then
