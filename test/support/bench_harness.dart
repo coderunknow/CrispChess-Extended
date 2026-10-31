@@ -159,6 +159,9 @@ class ScriptedEngine extends ChessEngine
   @override
   void resetSearchStatistics() => stats = SearchStatistics.none;
 
+  @override
+  Future<void> synchronizeOptions() async {}
+
   // UciOptionAware
   @override
   List<String> get advertisedOptionNames => const ['Threads', 'Hash'];

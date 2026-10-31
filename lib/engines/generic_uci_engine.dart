@@ -24,7 +24,7 @@ export 'chess_engine.dart' show EngineProcessDiedException;
 
 class GenericUciEngine
     with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine, SearchTelemetry, UciOptionAware, SearchDrainableEngine {
+    implements ChessEngine, SearchTelemetry, UciOptionAware, SearchDrainableEngine, NodeLimitedEngine {
   final EngineProfile profile;
 
   Process? _process;
@@ -247,16 +247,7 @@ class GenericUciEngine
       // command was written let the first `position`/`go` overtake an engine
       // still working through them.
       //
-      // Bounded and not fatal: an engine that answers `uciok` but never
-      // `readyok` is unusual, and one that is merely slow should still be
-      // usable.
-      final readyAck = Completer<void>();
-      _readyOk = readyAck;
-      _send('isready');
-      await readyAck.future.timeout(const Duration(seconds: 2), onTimeout: () {
-        debugPrint('[$processLabel] no readyok within 2s; continuing');
-      });
-      _readyOk = null;
+      await synchronizeOptions();
       if (_isDisposed) {
         // Disposed while the handshake was running: the caller is gone and the
         // process has to go with it.
@@ -302,6 +293,37 @@ class GenericUciEngine
   }
 
   void _send(String command) => sendUci(command);
+
+  @override
+  Future<void> synchronizeOptions() async {
+    if (_isDisposed || _process == null || processGone) {
+      throw StateError('Engine unavailable during readiness synchronization');
+    }
+    if (_readyOk != null) {
+      throw StateError('Concurrent readiness synchronization');
+    }
+    final ack = Completer<void>();
+    _readyOk = ack;
+    try {
+      _send('isready');
+      await ack.future.timeout(const Duration(seconds: 2));
+      if (_isDisposed || processGone) {
+        throw StateError('Engine lost during readiness synchronization');
+      }
+    } catch (_) {
+      // A late response must never acknowledge a subsequent operation.
+      dispose();
+      rethrow;
+    } finally {
+      if (identical(_readyOk, ack)) _readyOk = null;
+    }
+  }
+
+  @override
+  Future<String> bestMoveWithNodes(String positionCommand, int nodes) {
+    if (nodes < 1) throw ArgumentError.value(nodes, 'nodes');
+    return _bestMove(positionCommand, nodes: nodes);
+  }
 
   /// Completed by the engine's `readyok`.
   Completer<void>? _readyOk;
@@ -415,7 +437,13 @@ class GenericUciEngine
     int? depth,
     Duration? moveTime,
     int? skillLevel,
+  }) => _bestMove(positionCommand,
+      depth: depth, moveTime: moveTime, skillLevel: skillLevel);
+
+  Future<String> _bestMove(String positionCommand, {
+    int? depth, Duration? moveTime, int? skillLevel, int? nodes,
   }) async {
+    if (_isDisposed) throw StateError('Engine disposed');
     if (_process == null) throw StateError('Not initialized');
     if (processGone) throw await processDeathReport();
     // Counters belong to one search; a merge across two would report the
@@ -435,8 +463,9 @@ class GenericUciEngine
     // Drive play by time rather than a fixed depth: the cost of a given depth
     // grows by an order of magnitude once the position opens up, which is what
     // made moves take seconds by the middlegame.
-    final go = uciGoCommand(
-        depth: depth, moveTime: moveTime, skillLevel: skillLevel);
+    final go = nodes == null
+        ? uciGoCommand(depth: depth, moveTime: moveTime, skillLevel: skillLevel)
+        : 'go nodes $nodes';
     final cap = uciSearchTimeout(
         depth: depth, moveTime: moveTime, skillLevel: skillLevel);
 
@@ -563,6 +592,9 @@ class GenericUciEngine
   void dispose() {
     if (_stateNotifier.value == EngineState.disposed) return;
     beginProcessDispose();
+    final ready = _readyOk;
+    _readyOk = null;
+    if (ready != null && !ready.isCompleted) ready.complete();
     resetSearches();
     _send('quit');
     _stdoutSub?.cancel();

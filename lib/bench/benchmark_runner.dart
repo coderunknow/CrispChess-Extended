@@ -264,7 +264,10 @@ class BenchmarkRunner {
         await live.engine.initialize();
         init.stop();
         live.initMillis = init.elapsedMilliseconds;
-        _applyConfiguration(live, config);
+        if (config.nodeLimit != null && live.engine is! NodeLimitedEngine) {
+          throw UnsupportedError('Engine does not support node-limited search');
+        }
+        await _applyConfiguration(live, config);
         _refineIdentity(live);
       } catch (error) {
         init.stop();
@@ -485,7 +488,9 @@ class BenchmarkRunner {
         engine is SearchTelemetry ? engine as SearchTelemetry : null;
     final config = plan.config;
     return measuredRequester(
-      (position) => engine.bestMove(
+      (position) => config.nodeLimit != null
+          ? (engine as NodeLimitedEngine).bestMoveWithNodes(position, config.nodeLimit!)
+          : engine.bestMove(
         position,
         depth: config.searchDepth,
         moveTime: config.isTimeBased ? config.timePerMove : null,
@@ -494,10 +499,11 @@ class BenchmarkRunner {
     );
   }
 
-  void _applyConfiguration(_LiveEngine live, BenchmarkConfig config) {
+  Future<void> _applyConfiguration(_LiveEngine live, BenchmarkConfig config) async {
     final engine = live.engine;
     final aware = engine is UciOptionAware ? engine as UciOptionAware : null;
     final requested = config.requestedOptions();
+    final pending = <String, String>{};
     for (final entry in requested.entries) {
       if (aware == null) {
         live.warnings.add('${live.label} has no UCI option interface; '
@@ -511,7 +517,7 @@ class BenchmarkRunner {
       }
       try {
         aware.applyOption(entry.key, entry.value);
-        live.appliedOptions[entry.key] = entry.value;
+        pending[entry.key] = entry.value;
       } catch (error) {
         live.warnings.add('${live.label}: applying "${entry.key}" failed: '
             '$error');
@@ -520,6 +526,8 @@ class BenchmarkRunner {
     if (aware == null) {
       return;
     }
+    if (pending.isNotEmpty) await aware.synchronizeOptions();
+    live.appliedOptions.addAll(pending);
     live.identity = live.identity.withConfiguration({
       ...live.identity.configuration,
       ...live.appliedOptions,

@@ -245,7 +245,7 @@ class BenchmarkConfig {
   ];
 
   /// Whether the search is bounded by time rather than a fixed depth.
-  bool get isTimeBased => searchDepth == null;
+  bool get isTimeBased => searchDepth == null && nodeLimit == null;
 
   /// The seed one repetition uses.
   ///
@@ -257,7 +257,9 @@ class BenchmarkConfig {
       seed + (repetition < 1 ? 0 : repetition * 7919);
 
   /// The single-line description of the strength test, for a report header.
-  String get budgetLabel => searchDepth != null
+  String get budgetLabel => nodeLimit != null
+      ? 'nodes $nodeLimit'
+      : searchDepth != null
       ? 'depth $searchDepth'
       : '${timePerMove.inMilliseconds} ms/move';
 
@@ -487,6 +489,9 @@ BenchmarkValidation validateConfig(
         'A fixed depth is measured on this machine only: two engines at the '
         'same depth spend very different amounts of time. Time per move is '
         'the comparable budget for a rating.');
+  }
+  if (config.nodeLimit != null && config.searchDepth != null) {
+    errors.add('Choose either a node limit or a depth limit, not both.');
   }
   if (config.nodeLimit != null && config.nodeLimit! < 1000) {
     errors.add('Node limit must be at least 1,000.');
