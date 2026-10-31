@@ -54,12 +54,24 @@ class FileBenchmarkStorage implements BenchmarkStorage {
     final file = _fileFor(root, key);
     try {
       if (await file.exists()) return await file.readAsString();
-      final backup = File('${file.path}.bak');
-      if (await backup.exists()) return await backup.readAsString();
-      return null;
+      // A missing primary is the documented result of a crash between the two
+      // renames in [write]: the recovery copy is then the newest data there is.
+      return await readBackup(key);
     } catch (error) {
       // Unreadable is not fatal: the caller reports the run as corrupt and the
       // rest of the history still loads.
+      return null;
+    }
+  }
+
+  @override
+  Future<String?> readBackup(String key) async {
+    final root = await _directory();
+    final backup = File('${_fileFor(root, key).path}.bak');
+    try {
+      if (!await backup.exists()) return null;
+      return await backup.readAsString();
+    } catch (_) {
       return null;
     }
   }
@@ -69,6 +81,8 @@ class FileBenchmarkStorage implements BenchmarkStorage {
     final root = await _directory();
     final file = _fileFor(root, key);
     final temporary = File('${file.path}.tmp');
+    // Flush the complete new document before anything replaces the old one: a
+    // crash can then cost the newest save, never the previous good one.
     await temporary.writeAsString(value, flush: true);
     if (await file.exists()) {
       final backup = File('${file.path}.bak');

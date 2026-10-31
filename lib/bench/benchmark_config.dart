@@ -91,7 +91,13 @@ class BenchmarkConfig {
   /// validation when [balanceColors] is on.
   final int gamesPerPairing;
 
-  /// Hard cap on games played.
+  /// Hard cap on games played, *including* warm-up games.
+  ///
+  /// The cap is the one number a user sets to bound a run, so it bounds the
+  /// whole run: a configuration with `warmUpGames: 20` and `maxGames: 2` plays
+  /// two games, not twenty-two. [effectiveWarmUpGames] is what resolves the
+  /// two, and the planner, the estimate and the UI all use it, so they cannot
+  /// disagree about what "max games" means.
   final int? maxGames;
 
   /// Hard cap on wall-clock duration.
@@ -123,7 +129,9 @@ class BenchmarkConfig {
   /// Extra `setoption` values applied to every engine that advertises them.
   final Map<String, String> optionOverrides;
 
-  /// Whole-benchmark repetitions (a repeated run uses a different seed).
+  /// Whole-benchmark repetitions. The schedule is played [repetitions] times,
+  /// each repetition with its own seed so the openings differ; the games of
+  /// every repetition are fitted together.
   final int repetitions;
 
   /// Stop early once every rating's standard error is at or below this.
@@ -238,6 +246,15 @@ class BenchmarkConfig {
 
   /// Whether the search is bounded by time rather than a fixed depth.
   bool get isTimeBased => searchDepth == null;
+
+  /// The seed one repetition uses.
+  ///
+  /// Every repetition is a different sample: the same schedule with the same
+  /// seed would replay the same openings and add no information. The stride is
+  /// prime so consecutive seeds do not land on neighbouring openings in the
+  /// suite's mixing function.
+  int seedForRepetition(int repetition) =>
+      seed + (repetition < 1 ? 0 : repetition * 7919);
 
   /// The single-line description of the strength test, for a report header.
   String get budgetLabel => searchDepth != null
@@ -391,7 +408,8 @@ class BenchmarkConfig {
       'openings: $openingSuiteId',
       if (threads > 0) 'threads $threads',
       if (hashMb > 0) 'hash $hashMb MB',
-      if (maxGames != null) 'max $maxGames games',
+      if (maxGames != null) 'max $maxGames games (warm-ups included)',
+      if (repetitions > 1) '$repetitions repetitions',
       if (adaptiveStopping && targetStdErr != null)
         'adaptive to SE ${targetStdErr!.toStringAsFixed(0)}',
     ];
@@ -533,11 +551,18 @@ BenchmarkValidation validateConfig(
   }
   if (config.maxGames != null && engineCount >= 2) {
     final mandatory = mandatoryGames(engineCount, config);
-    if (mandatory > config.maxGames!) {
+    final warmUps = effectiveWarmUpGames(config);
+    if (warmUps < config.warmUpGames) {
       warnings.add(
-          'The game cap ($mandatory needed for one game per pairing) is '
-          'smaller than one round of the selected format; the run stops after '
-          'the cap and leaves pairings unplayed.');
+          'The game cap of ${config.maxGames} covers warm-up games too, so '
+          'only $warmUps of the ${config.warmUpGames} requested warm-ups are '
+          'played and the rest of the cap funds games that count.');
+    }
+    if (mandatory > effectiveRecordedGameCap(config)!) {
+      warnings.add(
+          'The game cap ($mandatory needed for one full round, repetitions '
+          'included) is smaller than one round of the selected format; the run '
+          'stops after the cap and leaves pairings unplayed.');
     }
   }
   if (config.optionOverrides.isNotEmpty) {
@@ -550,10 +575,48 @@ BenchmarkValidation validateConfig(
   return BenchmarkValidation(errors: errors, warnings: warnings);
 }
 
-/// Games needed for each pairing to play its first game.
-int mandatoryGames(int engineCount, BenchmarkConfig config) =>
-    (engineCount * (engineCount - 1) ~/ 2) *
-    math.max(1, config.gamesPerPairing);
+/// Games needed for each pairing to play its first game, over every
+/// repetition.
+int mandatoryGames(
+  int engineCount,
+  BenchmarkConfig config, {
+  int? pairings,
+}) =>
+    (pairings ?? (engineCount * (engineCount - 1) ~/ 2)) *
+    effectiveGamesPerPairing(config) *
+    math.max(1, config.repetitions);
+
+/// Games per pairing after colour balancing has been applied.
+///
+/// The planner and the estimate both need this: an odd number of games cannot
+/// split evenly between the two colours, so the plan plays one more.
+int effectiveGamesPerPairing(BenchmarkConfig config) {
+  final requested = math.max(1, config.gamesPerPairing);
+  return config.balanceColors && requested.isOdd ? requested + 1 : requested;
+}
+
+/// Warm-up games a run really plays.
+///
+/// [BenchmarkConfig.maxGames] bounds the whole run, warm-ups included, so the
+/// warm-ups are trimmed when the cap leaves no room for them. Two games are
+/// kept in reserve: a cap that spends every game on warm-ups would produce a
+/// run with no evidence in it.
+int effectiveWarmUpGames(BenchmarkConfig config) {
+  final requested = math.max(0, config.warmUpGames);
+  final cap = config.maxGames;
+  if (cap == null) return requested;
+  final available = cap - 2;
+  if (available <= 0) return 0;
+  return math.min(requested, available);
+}
+
+/// Recorded games a run may still play under the cap; null means no cap.
+int? effectiveRecordedGameCap(BenchmarkConfig config) {
+  final cap = config.maxGames;
+  if (cap == null) return null;
+  final warmUps = effectiveWarmUpGames(config);
+  return math.max(0, cap - warmUps);
+}
 
 /// Per-engine warnings: settings this particular engine cannot honour.
 List<String> configWarningsForEngine(
@@ -583,6 +646,10 @@ class WorkloadEstimate {
   /// Games that will actually be scored, allowing for the game cap.
   final int scoredGames;
 
+  /// Warm-up games the run will play; they count against the cap but are not
+  /// rated.
+  final int warmUpGames;
+
   /// Expected wall-clock duration.
   final Duration estimated;
 
@@ -598,24 +665,32 @@ class WorkloadEstimate {
     required this.estimated,
     required this.worstCase,
     required this.estimatedPliesPerGame,
+    this.warmUpGames = 0,
     this.notes = const [],
   });
+
+  /// Every game the run will start, warm-ups included.
+  int get totalGames => scoredGames + warmUpGames;
 }
 
 /// Estimates the size of a run from [pairings] (each pairing plays
 /// [BenchmarkConfig.gamesPerPairing] games) and [engineCount].
+///
+/// Every number here comes from the same helpers the planner uses
+/// ([effectiveGamesPerPairing], [effectiveWarmUpGames],
+/// [effectiveRecordedGameCap]) so the dialog that asks "start this run?" cannot
+/// promise a different run from the one that then happens.
 WorkloadEstimate estimateWorkload(
   BenchmarkConfig config, {
   required int engineCount,
   required int pairings,
 }) {
-  final perPairing = config.balanceColors && config.gamesPerPairing.isOdd
-      ? config.gamesPerPairing + 1
-      : config.gamesPerPairing;
-  final planned = pairings * perPairing;
-  final capped = config.maxGames == null
-      ? planned
-      : math.min(planned, config.maxGames!);
+  final perPairing = effectiveGamesPerPairing(config);
+  final repetitions = math.max(1, config.repetitions);
+  final planned = pairings * perPairing * repetitions;
+  final warmUps = effectiveWarmUpGames(config);
+  final recordedCap = effectiveRecordedGameCap(config);
+  final scored = recordedCap == null ? planned : math.min(planned, recordedCap);
 
   // A game of engine chess at a fixed budget ends around 70-100 plies; the
   // cap is the upper bound, not the expectation.
@@ -623,38 +698,42 @@ WorkloadEstimate estimateWorkload(
   final moveMs = config.searchDepth != null
       // At a fixed depth, a rough expectation: depth d costs roughly
       // 2^(d/2) * 30 ms for a strong engine, clipped to something sane.
-      ? math.min(
-          60000,
-          math.pow(2, (config.searchDepth! / 2)) * 30 ~/ 1)
-          .toInt()
+      ? math.min(60000, math.pow(2, config.searchDepth! / 2) * 30 ~/ 1).toInt()
       : config.timePerMove.inMilliseconds;
-  final overheadPerMoveMs = 8;
+  const overheadPerMoveMs = 8;
   final perGameMs = expectedPlies * (moveMs + overheadPerMoveMs);
-  final warmUpMs = config.warmUpGames * perGameMs;
+  final warmUpMs = warmUps * perGameMs;
   final initMs = engineCount * 1500;
-  final accounting = capped == 0 ? 0 : capped - (capped ~/ 10);
 
   final notes = <String>[
     'assumes ${expectedPlies.clamp(0, config.plyCap)} plies per game',
     if (config.searchDepth != null)
       'depth-based budgets are an estimate, not a guarantee',
+    if (warmUps < config.warmUpGames)
+      'the game cap leaves room for $warmUps warm-up game(s), not '
+          '${config.warmUpGames}',
   ];
-  if (config.maxGames != null && planned > config.maxGames!) {
-    notes.add('the game cap stops the run after ${config.maxGames} games, so '
-        'some pairings will not complete');
+  if (recordedCap != null && planned > recordedCap) {
+    notes.add('the game cap stops the run after $scored scored game(s) '
+        '(warm-ups included in the cap), so some pairings will not complete');
   }
   if (config.adaptiveStopping) {
     notes.add('adaptive stopping may end the run sooner');
   }
+  if (config.maxDuration != null) {
+    notes.add('the wall-clock cap ends the run after ${config.maxDuration!.inMinutes} '
+        'minute(s), even mid-game');
+  }
 
   return WorkloadEstimate(
     plannedGames: planned,
-    scoredGames: accounting,
+    scoredGames: scored,
+    warmUpGames: warmUps,
     estimated: Duration(
-        milliseconds: initMs + warmUpMs + (accounting * perGameMs).round()),
+        milliseconds: initMs + warmUpMs + (scored * perGameMs).round()),
     worstCase: Duration(
         milliseconds:
-            initMs + warmUpMs + (capped * config.plyCap * (moveMs + overheadPerMoveMs))),
+            initMs + warmUpMs + (scored * config.plyCap * (moveMs + overheadPerMoveMs))),
     estimatedPliesPerGame: expectedPlies,
     notes: notes,
   );

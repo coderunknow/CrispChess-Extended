@@ -24,7 +24,7 @@ export 'chess_engine.dart' show EngineProcessDiedException;
 
 class GenericUciEngine
     with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine, SearchTelemetry, UciOptionAware {
+    implements ChessEngine, SearchTelemetry, UciOptionAware, SearchDrainableEngine {
   final EngineProfile profile;
 
   Process? _process;
@@ -422,8 +422,14 @@ class GenericUciEngine
     // larger of two depths and the sum-shaped nonsense in between.
     resetSearchStatistics();
     _stateNotifier.value = EngineState.thinking;
-    if (skillLevel != null) {
-      _send('setoption name Skill Level value $skillLevel');
+    // A custom profile's explicit UCI Skill Level is a user-owned option, so
+    // keep it authoritative. The app-wide strength slider still has to work for
+    // every profile that does *not* override it — dropping it there would leave
+    // the slider silently doing nothing for UCI engines.
+    final hasSkillLevelOverride = profile.optionOverrides.keys
+        .any((key) => key.trim().toLowerCase() == 'skill level');
+    if (skillLevel != null && !hasSkillLevelOverride) {
+      setOption('Skill Level', '$skillLevel');
     }
 
     // Drive play by time rather than a fixed depth: the cost of a given depth
@@ -499,17 +505,21 @@ class GenericUciEngine
     _send('setoption name $name');
   }
 
+  /// Waits for a stopped search's `bestmove` before this connection is reused.
+  @override
+  Future<void> drainSearch({Duration timeout = const Duration(seconds: 5)}) =>
+      quiesceSearch(timeout: timeout);
+
   @override
   void stop() {
     // Ask the engine to stop, but leave the search registered: its `bestmove`
     // is still coming and must be consumed here, not by the next request.
     if (isSearching) _send('stop');
-    // Only a running search can be stopped. Reporting `ready` unconditionally
-    // turned a disposed engine back into a live one, and told the UI an engine
-    // that had just failed to start was usable.
-    if (_stateNotifier.value == EngineState.thinking) {
-      _stateNotifier.value = EngineState.ready;
-    }
+    // Do not report `ready` here: UCI is not idle until the matching `bestmove`
+    // arrives. `_handleLine` performs that transition after the protocol
+    // response, so a caller cannot start the next search on a connection that
+    // is still finishing the previous one. Reporting `ready` unconditionally
+    // also turned a disposed engine back into a live one.
   }
 
   /// Stops the process and forgets it, reporting nothing about the exit.

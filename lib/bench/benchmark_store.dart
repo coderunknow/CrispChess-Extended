@@ -19,6 +19,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'benchmark_environment.dart';
 import 'benchmark_fingerprint.dart' show ExecutableStat, sha256OfFile, statExecutable;
@@ -43,6 +44,18 @@ const String kBenchmarkRunPrefix = 'run__';
 
 /// Prefix for quarantined documents.
 const String kBenchmarkCorruptPrefix = 'corrupt__';
+
+/// One stored run document, decoded or explained.
+class _DecodedDocument {
+  final BenchmarkRun? run;
+  final String? reason;
+
+  /// True when the document is intact but was written by a newer schema, which
+  /// is a refusal rather than corruption.
+  final bool futureSchema;
+
+  const _DecodedDocument({this.run, this.reason, this.futureSchema = false});
+}
 
 /// A run document that could not be read.
 class CorruptRun {
@@ -232,20 +245,69 @@ class BenchmarkStore {
     return _readRunKey('$kBenchmarkRunPrefix$id');
   }
 
+  /// Reads one run document, recovering a corrupt primary from the `.bak` copy.
+  ///
+  /// The order matters and used to be wrong: the primary was decoded, and on
+  /// failure the store quarantined it — which deletes the key *and* its backup —
+  /// so a corrupt update threw away the last valid copy that was sitting right
+  /// next to it. Now a failed primary is archived, the recovery copy is tried,
+  /// and only a run with no readable copy at all is dropped from the index.
   Future<BenchmarkRun?> _readRunKey(String key) async {
     final raw = await storage.read(key);
-    if (raw == null || raw.isEmpty) return null;
+    String? failure;
+    if (raw != null && raw.isNotEmpty) {
+      final decoded = _decodeRunDocument(raw);
+      if (decoded.run != null) return decoded.run;
+      if (decoded.futureSchema) {
+        // A newer build wrote this. Keep it exactly as it is: replacing it with
+        // an older backup would downgrade the user's history.
+        debugPrint('[BenchmarkStore] refusing $key: ${decoded.reason}');
+        return null;
+      }
+      failure = decoded.reason;
+      // Keep the bytes before anything overwrites them.
+      await _archiveCorrupt(key, raw, decoded.reason ?? 'unreadable');
+    }
+
+    final backupRaw = await storage.readBackup(key);
+    if (backupRaw != null && backupRaw.isNotEmpty) {
+      final recovered = _decodeRunDocument(backupRaw);
+      if (recovered.run != null) {
+        // Put the good copy back where the next read expects it, so recovery
+        // happens once instead of on every load.
+        try {
+          await storage.write(key, backupRaw);
+        } catch (error) {
+          debugPrint('[BenchmarkStore] could not restore $key from backup: $error');
+        }
+        return recovered.run;
+      }
+      failure ??= 'primary missing, recovery copy unreadable: ${recovered.reason}';
+    }
+
+    if (raw == null || raw.isEmpty) {
+      // Nothing was stored and nothing could be recovered: an absent run, not a
+      // corrupt one.
+      return null;
+    }
+    await _dropFromIndex(_idFromKey(key));
+    await storage.delete(key);
+    debugPrint('[BenchmarkStore] dropped $key: $failure');
+    return null;
+  }
+
+  /// Decodes a stored document without touching storage, so a failure can be
+  /// handled by the caller (recover from the backup, then quarantine).
+  _DecodedDocument _decodeRunDocument(String raw) {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) {
-        await _quarantine(key, raw, 'the document is not an object');
-        return null;
+        return const _DecodedDocument(reason: 'the document is not an object');
       }
       final document = Map<String, dynamic>.from(decoded);
       final payloadValue = document['payload'];
       if (payloadValue is! Map) {
-        await _quarantine(key, raw, 'the document has no payload');
-        return null;
+        return const _DecodedDocument(reason: 'the document has no payload');
       }
       final payload = Map<String, dynamic>.from(payloadValue);
 
@@ -253,24 +315,26 @@ class BenchmarkStore {
       final schemaVersion = schema is num ? schema.toInt() : 0;
       if (schemaVersion > kBenchmarkStoreSchema) {
         // Refuse rather than guess: reading a newer document with this build
-        // could drop fields the newer build relies on.
-        return null;
+        // could drop fields the newer build relies on. It is not corruption, so
+        // it must not be archived *or* replaced by an older recovery copy.
+        return _DecodedDocument(
+          reason: 'written by a newer version of the app (schema $schemaVersion)',
+          futureSchema: true,
+        );
       }
 
       final expected = document['checksum'];
       if (expected is String && expected.isNotEmpty) {
         final actual = _checksumOf(payload);
         if (actual != expected) {
-          await _quarantine(key, raw, 'checksum mismatch');
-          return null;
+          return const _DecodedDocument(reason: 'checksum mismatch');
         }
       }
 
       final migrated = _migrate(payload, schemaVersion);
-      return BenchmarkRun.fromJson(migrated);
+      return _DecodedDocument(run: BenchmarkRun.fromJson(migrated));
     } catch (error) {
-      await _quarantine(key, raw, 'unreadable: $error');
-      return null;
+      return _DecodedDocument(reason: 'unreadable: $error');
     }
   }
 
@@ -301,20 +365,24 @@ class BenchmarkStore {
     return migrated;
   }
 
-  Future<void> _quarantine(String key, String raw, String reason) async {
+  /// Keeps the bytes of a document that failed validation, under a key that
+  /// says why. It never deletes the original: recovery and deletion are
+  /// separate decisions made by the caller.
+  Future<void> _archiveCorrupt(String key, String raw, String reason) async {
     final stamp = DateTime.now().millisecondsSinceEpoch;
-    // Kept, not deleted: a corrupt run may be worth recovering by hand, and
-    // silently discarding a user's data is worse than a stale file. The reason
-    // is part of the key, so a reader can see what happened without opening it
-    // — and it is reduced to key-safe characters, because a storage key is a
-    // file name.
-    await storage.write(
-        '$kBenchmarkCorruptPrefix${stamp}__${_keySafeReason(reason)}', raw);
-    await storage.delete(key);
+    try {
+      await storage.write(
+          '$kBenchmarkCorruptPrefix${stamp}__${_keySafeReason(reason)}', raw);
+    } catch (error) {
+      debugPrint('[BenchmarkStore] could not archive $key: $error');
+    }
+  }
 
-    // The index is edited directly rather than through `summary()`: a corrupt
-    // index is one of the things that leads here, and going through the public
-    // path would rebuild it out of the document that just failed.
+  /// Removes a run from the index. The index is edited directly rather than
+  /// through `summary()`: a corrupt index is one of the things that leads here,
+  /// and going through the public path would rebuild it out of the document
+  /// that just failed.
+  Future<void> _dropFromIndex(String id) async {
     final indexRaw = await storage.read(kBenchmarkIndexKey);
     if (indexRaw == null || indexRaw.isEmpty) return;
     try {
@@ -325,7 +393,7 @@ class BenchmarkStore {
         if (entry is! Map) continue;
         final summary =
             BenchmarkRunSummary.fromJson(Map<String, dynamic>.from(entry));
-        if (summary.id == _idFromKey(key)) continue;
+        if (summary.id == id) continue;
         kept.add(summary);
       }
       await _writeIndex(kept);

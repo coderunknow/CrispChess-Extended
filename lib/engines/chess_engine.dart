@@ -42,6 +42,19 @@ class EvalInfo {
       'EvalInfo(score: $score, depth: $depth, bestMove: $bestMove, pv#$pvIndex)';
 }
 
+/// Optional capability for engines that can await a stopped UCI search's
+/// protocol response before the same connection is reused.
+///
+/// A UCI engine is not idle when `stop` is written: it still owes one
+/// `bestmove`, and a caller that sends the next `position`/`go` before that
+/// answer arrives gets it read as the new search's answer. The Engine Lab and
+/// the tournament reuse one process for many games, so they need a way to wait
+/// for that handshake to finish; engines that cannot say anything about it
+/// simply do not implement this.
+abstract interface class SearchDrainableEngine {
+  Future<void> drainSearch({Duration timeout = const Duration(seconds: 5)});
+}
+
 /// Abstract interface for pluggable chess engines.
 ///
 /// All engines must implement this interface. The app codes against

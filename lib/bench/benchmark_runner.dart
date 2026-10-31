@@ -9,6 +9,11 @@
 /// fails to initialise is reported as failed and its games as aborted; an engine
 /// that breaks during a game forfeits that game; an engine that keeps breaking
 /// is taken out of the run rather than allowed to burn the rest of the schedule.
+///
+/// Both limits in [BenchmarkConfig] are hard limits. The game cap is spent in
+/// the plan (warm-ups included), so the runner cannot exceed it; the wall-clock
+/// cap is armed as a timer that stops the engines mid-search, so a run cannot
+/// outlive it by the length of one game.
 library;
 
 import 'dart:async';
@@ -166,6 +171,16 @@ class BenchmarkRunner {
   final DateTime _startedAt = DateTime.now();
   String _stopReason = 'completed';
   bool _cancelled = false;
+
+  /// Set when the configured wall-clock limit expires. It is a separate flag
+  /// from [_cancelled] because the report has to be able to say *why* a run
+  /// stopped, and because a game cut short by the cap is unfinished, not
+  /// cancelled by the user.
+  bool _timeCapReached = false;
+
+  /// Fires at the deadline so an in-flight search is stopped instead of being
+  /// allowed to run to its own budget after the cap has passed.
+  Timer? _deadlineTimer;
   bool _paused = false;
   Completer<void>? _pauseGate;
   int _finished = 0;
@@ -214,6 +229,8 @@ class BenchmarkRunner {
   /// Stops the run. The game in progress ends as cancelled and is not rated.
   void cancel() {
     _cancelled = true;
+    _deadlineTimer?.cancel();
+    _deadlineTimer = null;
     resume();
     for (final live in _live.values) {
       try {
@@ -229,8 +246,13 @@ class BenchmarkRunner {
     final config = plan.config;
     final recorded = plan.recordedGames.length + plan.warmUpGames;
     final clock = Stopwatch()..start();
+    _armDeadline(config.maxDuration);
 
     for (final identity in plan.engines) {
+      // Cancellation while the previous engine was starting must not start the
+      // next one: a slow handshake (a model load, a WASM instantiation) would
+      // otherwise keep the run alive after the user asked it to stop.
+      if (_cancelled || _timeCapReached) break;
       final slot = slots[identity.engineId];
       if (slot == null) {
         _warnings.add('No way to build ${identity.label} '
@@ -270,8 +292,7 @@ class BenchmarkRunner {
         _stopReason = 'cancelled';
         break;
       }
-      final limit = config.maxDuration;
-      if (limit != null && clock.elapsed >= limit) {
+      if (_deadlinePassed(clock, config.maxDuration)) {
         _stopReason = 'time cap';
         break;
       }
@@ -316,6 +337,7 @@ class BenchmarkRunner {
         moveTime: config.isTimeBased ? config.timePerMove : null,
         warmUp: planned.isWarmUp,
         cancelled: () => _cancelled,
+        stopReason: _gameStop,
         onMove: (fen, san, whiteToMove) {
           if (_cancelled) return;
           _ply++;
@@ -332,6 +354,12 @@ class BenchmarkRunner {
       black.gamesCompleted++;
       _noteOutcome(white, game, white.engineId);
       _noteOutcome(black, game, black.engineId);
+      if (game.outcome == GameOutcome.forfeit) {
+        // The engine that forfeited may still owe a `bestmove`. Drain both
+        // connections before the next game asks either for a move.
+        await drainEngine(white.engine);
+        await drainEngine(black.engine);
+      }
 
       if (!planned.isWarmUp) _finished++;
       _events.add(BenchmarkGameFinishedEvent(
@@ -342,6 +370,12 @@ class BenchmarkRunner {
 
       if (game.outcome == GameOutcome.cancelled) {
         _stopReason = 'cancelled';
+        break;
+      }
+      if (_timeCapReached) {
+        // The game that was cut short is recorded (unrated) and the run ends:
+        // the cap is a hard limit, not a target.
+        _stopReason = 'time cap';
         break;
       }
       if (!planned.isWarmUp) {
@@ -358,6 +392,8 @@ class BenchmarkRunner {
     }
 
     clock.stop();
+    _deadlineTimer?.cancel();
+    _deadlineTimer = null;
     // Engines are released before the report is built, but their recorded
     // state (status, forfeits, refined identities) is kept: clearing it here
     // would label every engine "skipped" in the report it just produced.
@@ -377,6 +413,8 @@ class BenchmarkRunner {
   /// Releases resources. The stream stays usable for a caller that wants the
   /// final event; call this after `run()` has completed.
   Future<void> dispose() async {
+    _deadlineTimer?.cancel();
+    _deadlineTimer = null;
     await _disposeEngines();
     if (!_events.isClosed) await _events.close();
   }
@@ -391,6 +429,46 @@ class BenchmarkRunner {
 
   int get _runningEngines => _live.values.where((live) => !live.failed).length;
 
+  /// Schedules the hard stop, so an engine that is thinking when the budget
+  /// runs out is interrupted instead of being waited for.
+  void _armDeadline(Duration? limit) {
+    _deadlineTimer?.cancel();
+    _deadlineTimer = null;
+    if (limit == null) return;
+    _deadlineTimer = Timer(limit, () {
+      if (_cancelled || _timeCapReached) return;
+      _timeCapReached = true;
+      for (final live in _live.values) {
+        try {
+          live.engine.stop();
+        } catch (_) {
+          // A dead engine cannot be stopped, and the game loop is about to end.
+        }
+      }
+      if (!_events.isClosed) {
+        _events.add(const BenchmarkNoticeEvent(
+            'The wall-clock limit was reached; the run is stopping.'));
+      }
+    });
+  }
+
+  bool _deadlinePassed(Stopwatch clock, Duration? limit) {
+    if (limit == null) return false;
+    if (_timeCapReached) return true;
+    if (clock.elapsed >= limit) {
+      _timeCapReached = true;
+      return true;
+    }
+    return false;
+  }
+
+  /// What to tell the game loop about why it should stop, if it should.
+  GameStop _gameStop() {
+    if (_cancelled) return GameStop.cancelled;
+    if (_timeCapReached) return GameStop.durationLimit;
+    return GameStop.none;
+  }
+
   Future<void> _awaitResume() async {
     while (_paused && !_cancelled) {
       final gate = _pauseGate ??= Completer<void>();
@@ -400,8 +478,10 @@ class BenchmarkRunner {
 
   MoveRequester _requesterFor(_LiveEngine live) {
     final engine = live.engine;
-    final SearchTelemetry? telemetry =
-        engine is SearchTelemetry ? engine : null;
+    // The cast is deliberate: the conditional's static type is the engine's,
+    // and Dart does not narrow it to the optional interface on its own.
+    final telemetry =
+        engine is SearchTelemetry ? engine as SearchTelemetry : null;
     final config = plan.config;
     return measuredRequester(
       (position) => engine.bestMove(
@@ -415,7 +495,7 @@ class BenchmarkRunner {
 
   void _applyConfiguration(_LiveEngine live, BenchmarkConfig config) {
     final engine = live.engine;
-    final UciOptionAware? aware = engine is UciOptionAware ? engine : null;
+    final aware = engine is UciOptionAware ? engine as UciOptionAware : null;
     final requested = config.requestedOptions();
     for (final entry in requested.entries) {
       if (aware == null) {
@@ -444,7 +524,7 @@ class BenchmarkRunner {
 
   void _refineIdentity(_LiveEngine live) {
     final engine = live.engine;
-    final UciOptionAware? aware = engine is UciOptionAware ? engine : null;
+    final aware = engine is UciOptionAware ? engine as UciOptionAware : null;
     final options = aware?.advertisedOptionNames ?? const <String>[];
     live.identity = live.identity.withAdvertisedOptions(options);
     if (options.isEmpty) {

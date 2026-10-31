@@ -1,27 +1,29 @@
 # Engine Lab diagnostics.
 #
-# The environment that produced this branch has no Flutter/Dart SDK, and the
-# Actions job log is only available to a browser session, not to the tools that
-# can drive the workflow. This job therefore runs the same gates `ci.yml` and
-# `benchmark.yml` run and posts their *verbatim* output as a pull-request
-# comment, where it can be read back through the API.
+# Why this exists: the environment that produced this branch has no
+# Flutter/Dart SDK, and the Actions job log is served from a host that only a
+# browser session can reach. Without real analyzer and test output the review
+# would be guessing. This job runs the same gates `ci.yml` and `benchmark.yml`
+# run and posts their *verbatim* output as a pull-request comment, which is
+# readable through the API.
 #
-# It is a debugging aid, not a gate: it is `workflow_dispatch` only, it never
-# writes to the repository, and the gates that decide whether the branch is
-# good remain `CI` and `Engine Lab`.
+# It is a debugging aid, not a gate:
+#   * it only runs when the pull-request description contains the marker text
+#     below (or when dispatched by hand);
+#   * it runs on the pull request's own token with read-only repository
+#     permission and one comment;
+#   * the gates that decide whether the branch is good remain `CI` and
+#     `Engine Lab`.
 name: Lab diagnostics
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       pr:
         description: Pull request number to post the diagnostics on
         required: true
-        type: string
-      suites:
-        description: Which extra test files to run (space separated, optional)
-        required: false
-        default: ""
         type: string
 
 # Least privilege: read the repository, write one comment on the pull request.
@@ -36,6 +38,11 @@ concurrency:
 jobs:
   diagnostics:
     name: Analyze and test, post the output
+    # `LAB-DIAGNOSTICS` in the PR description is the switch. Untrusted text is
+    # only ever compared, never executed.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.body, 'LAB-DIAGNOSTICS')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -51,10 +58,6 @@ jobs:
 
       - name: Analyze
         id: analyze
-        env:
-          # Inputs arrive as environment variables, never interpolated into the
-          # shell source, so a crafted value cannot become a command.
-          SUITES: ${{ inputs.suites }}
         run: |
           set +e
           flutter analyze --no-fatal-infos --no-fatal-warnings \
@@ -64,16 +67,9 @@ jobs:
 
       - name: Test
         id: test
-        env:
-          SUITES: ${{ inputs.suites }}
         run: |
           set +e
-          if [ -n "$SUITES" ]; then
-            flutter test --reporter expanded $SUITES \
-              > "$RUNNER_TEMP/test.txt" 2>&1
-          else
-            flutter test --reporter expanded > "$RUNNER_TEMP/test.txt" 2>&1
-          fi
+          flutter test --reporter expanded > "$RUNNER_TEMP/test.txt" 2>&1
           echo "test_exit=$?" >> "$GITHUB_OUTPUT"
           tail -n 5 "$RUNNER_TEMP/test.txt"
 
@@ -81,12 +77,16 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ inputs.pr }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
           ANALYZE_EXIT: ${{ steps.analyze.outputs.analyze_exit }}
           TEST_EXIT: ${{ steps.test.outputs.test_exit }}
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [ -z "${PR_NUMBER:-}" ]; then
+            echo "no pull request number; nothing to post"
+            exit 0
+          fi
           python3 - <<'PY'
           import os
           from pathlib import Path

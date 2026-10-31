@@ -137,6 +137,14 @@ class OpeningSuite {
   /// same position, which is what makes a run reproducible. Games 0 and 1 of a
   /// pairing share an opening — they are the two colours of the same game —
   /// and only then does the position change.
+  /// The opening for one game.
+  ///
+  /// [gameIndex] is the 0-based ordinal *within the pairing*: games 0 and 1 are
+  /// the colour-swapped pair and must share an opening, games 2 and 3 the next
+  /// one. [seed] is the seed of the repetition the game belongs to, so a
+  /// repeated run samples different openings. The result depends only on these
+  /// inputs — not on how many games have been played — so a schedule can be
+  /// rebuilt exactly.
   Opening openingFor({
     required int seed,
     required int pairingIndex,

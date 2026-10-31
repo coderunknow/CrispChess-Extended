@@ -155,16 +155,19 @@ class BenchmarkService {
   /// Every engine that could take part, including the ones that cannot run on
   /// this platform — with the reason, instead of disappearing from the list.
   Future<List<EngineCandidate>> candidates() async {
-    final candidates = <EngineCandidate>[];
+    // Named for what it holds: a local called `candidates` in a method called
+    // `candidates` shadows the method, and the next `candidates()` inside it
+    // would refer to a list that is not initialised yet.
+    final found = <EngineCandidate>[];
     for (final name in builtInMatchEngines) {
-      candidates.add(EngineCandidate(
+      found.add(EngineCandidate(
         engineId: builtInEngineId(name),
         label: name,
         isCustom: false,
       ));
     }
     for (final profile in await profiles()) {
-      candidates.add(EngineCandidate(
+      found.add(EngineCandidate(
         engineId: customEngineId(profile),
         label: profile.displayName,
         isCustom: true,
@@ -174,7 +177,7 @@ class BenchmarkService {
             : 'A browser cannot start a user-supplied executable.',
       ));
     }
-    return candidates;
+    return found;
   }
 
   /// The identity a run records for [engineId].

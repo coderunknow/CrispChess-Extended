@@ -20,8 +20,10 @@ library;
 import 'dart:async';
 
 import 'package:chess/chess.dart' as chess;
+import 'package:flutter/foundation.dart' show debugPrint;
 
-import '../engines/chess_engine.dart' show EngineProcessDiedException;
+import '../engines/chess_engine.dart'
+    show EngineProcessDiedException, SearchDrainableEngine;
 import '../engines/search_telemetry.dart';
 import 'game_record.dart';
 import 'opening_suite.dart';
@@ -104,6 +106,25 @@ MoveRequester measuredRequester(
       }
     };
 
+/// Waits for a stopped search's `bestmove`, when the engine can tell us.
+///
+/// Reusing a UCI connection whose previous search was stopped but has not yet
+/// answered `bestmove` makes the *next* search read that answer as its own move
+/// — a move computed for the previous position. Engines that implement
+/// [SearchDrainableEngine] can be drained explicitly; for the rest the
+/// coordinator inside `bestMove` already drains before starting.
+Future<void> drainEngine(
+  ChessEngine engine, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  if (engine is! SearchDrainableEngine) return;
+  try {
+    await engine.drainSearch(timeout: timeout);
+  } catch (error) {
+    debugPrint('[bench] draining $engine failed: $error');
+  }
+}
+
 /// Maps an exception from an engine to the reason a game is forfeited.
 EngineFailure classifyEngineFailure(Object error) {
   if (error is EngineFailure) return error;
@@ -120,6 +141,20 @@ EngineFailure classifyEngineFailure(Object error) {
     return EngineFailure(ForfeitReason.protocolError, text);
   }
   return EngineFailure(ForfeitReason.engineError, text);
+}
+
+/// Why a game had to stop before it produced a result.
+enum GameStop {
+  /// Nothing stopped it; play on.
+  none,
+
+  /// The user cancelled the run. The game is not rated.
+  cancelled,
+
+  /// The run's hard wall-clock limit expired during this game. The game is not
+  /// rated — but it is *not* the user's cancellation either, and the run's
+  /// stop reason says "time cap" because of it.
+  durationLimit,
 }
 
 /// Result of playing one game.
@@ -148,6 +183,7 @@ Future<BenchGame> playBenchGame({
   Duration? moveTime,
   bool warmUp = false,
   bool Function()? cancelled,
+  GameStop Function()? stopReason,
   void Function(String fen, String san, bool whiteToMove)? onMove,
 }) async {
   final board = chess.Chess();
@@ -198,7 +234,16 @@ Future<BenchGame> playBenchGame({
   var plies = played.length;
 
   while (true) {
-    if (cancelled?.call() ?? false) {
+    // Cancellation is polled between moves, and so is the wall-clock limit: a
+    // limit that is only checked before a game starts is not a limit, it is a
+    // hope that games are short.
+    final stop = stopReason?.call() ?? GameStop.none;
+    if (stop == GameStop.durationLimit) {
+      outcome = GameOutcome.aborted;
+      detail = "The run's wall-clock limit was reached during this game.";
+      break;
+    }
+    if (stop == GameStop.cancelled || (cancelled?.call() ?? false)) {
       outcome = GameOutcome.cancelled;
       detail = 'Stopped by the user.';
       break;

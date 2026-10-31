@@ -13,6 +13,9 @@ import 'benchmark_storage_base.dart';
 /// Prefix for every document this storage owns.
 const String kBenchmarkStoragePrefix = 'benchmark.';
 
+/// Suffix for the last known-good copy of a document.
+const String kBenchmarkStorageBackupSuffix = '#backup';
+
 /// Storage in `shared_preferences` (localStorage on web).
 class PrefsBenchmarkStorage implements BenchmarkStorage {
   SharedPreferences? _prefs;
@@ -34,15 +37,29 @@ class PrefsBenchmarkStorage implements BenchmarkStorage {
   }
 
   @override
+  Future<String?> readBackup(String key) async {
+    final prefs = await _instance();
+    return prefs.getString('$kBenchmarkStoragePrefix$key'
+        '$kBenchmarkStorageBackupSuffix');
+  }
+
+  @override
   Future<void> write(String key, String value) async {
     final prefs = await _instance();
-    await prefs.setString('$kBenchmarkStoragePrefix$key', value);
+    final storageKey = '$kBenchmarkStoragePrefix$key';
+    final existing = prefs.getString(storageKey);
+    if (existing != null && existing.isNotEmpty) {
+      await prefs.setString('$storageKey$kBenchmarkStorageBackupSuffix', existing);
+    }
+    await prefs.setString(storageKey, value);
   }
 
   @override
   Future<void> delete(String key) async {
     final prefs = await _instance();
     await prefs.remove('$kBenchmarkStoragePrefix$key');
+    await prefs.remove('$kBenchmarkStoragePrefix$key'
+        '$kBenchmarkStorageBackupSuffix');
   }
 
   @override
@@ -51,6 +68,7 @@ class PrefsBenchmarkStorage implements BenchmarkStorage {
     final result = <String>[];
     for (final key in prefs.getKeys()) {
       if (!key.startsWith(kBenchmarkStoragePrefix)) continue;
+      if (key.endsWith(kBenchmarkStorageBackupSuffix)) continue;
       final stripped = key.substring(kBenchmarkStoragePrefix.length);
       if (stripped.startsWith(prefix)) result.add(stripped);
     }

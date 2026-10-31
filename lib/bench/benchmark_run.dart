@@ -145,8 +145,8 @@ class BenchmarkRun {
 
   /// Standings: rated engines first by rating, then unrated ones by score.
   List<EngineAggregate> standings() {
-    final aggregates = aggregates();
-    final list = aggregates.values.toList();
+    final byEngine = aggregates();
+    final list = byEngine.values.toList();
     list.sort((a, b) {
       final ratingA = ratings.ratingFor(a.engineId);
       final ratingB = ratings.ratingFor(b.engineId);
@@ -167,6 +167,11 @@ class BenchmarkRun {
       .join('\n');
 
   /// One row per game.
+  ///
+  /// Every text cell goes through [_csvEscape], which is also the spreadsheet
+  /// guard: an engine label, an opening name or an error message can begin with
+  /// `=`, `+`, `-` or `@`, and a spreadsheet would then *execute* it as a
+  /// formula. The file is meant to be opened in one.
   String gamesCsv() {
     final header = [
       'game',
@@ -193,14 +198,14 @@ class BenchmarkRun {
       if (game.warmUp) continue;
       rows.add([
         '${game.index}',
-        game.whiteId,
-        game.whiteLabel,
-        game.blackId,
-        game.blackLabel,
-        game.openingName,
+        _csvEscape(game.whiteId),
+        _csvEscape(game.whiteLabel),
+        _csvEscape(game.blackId),
+        _csvEscape(game.blackLabel),
+        _csvEscape(game.openingName),
         game.outcome.id,
         game.forfeitReason.id,
-        game.forfeitedBy ?? '',
+        _csvEscape(game.forfeitedBy ?? ''),
         '${game.plies}',
         '${game.white.moves}',
         '${game.white.percentile(0.5)}',
@@ -254,13 +259,13 @@ class BenchmarkRun {
       final rating = ratings.ratingFor(aggregate.engineId);
       final status = engineStatus[aggregate.engineId];
       rows.add([
-        aggregate.engineId,
+        _csvEscape(aggregate.engineId),
         _csvEscape(aggregate.label),
         _csvEscape(identity?.engineVersion ?? ''),
-        identity?.fingerprintKind ?? '',
-        identity?.shortFingerprint ?? '',
-        identity?.platform ?? '',
-        identity?.backend ?? '',
+        _csvEscape(identity?.fingerprintKind ?? ''),
+        _csvEscape(identity?.shortFingerprint ?? ''),
+        _csvEscape(identity?.platform ?? ''),
+        _csvEscape(identity?.backend ?? ''),
         '${aggregate.ratedGames}',
         '${aggregate.wins}',
         '${aggregate.draws}',
@@ -270,7 +275,7 @@ class BenchmarkRun {
         rating == null ? '' : rating.stdErr.toStringAsFixed(1),
         rating == null ? '' : rating.ciLow.toStringAsFixed(1),
         rating == null ? '' : rating.ciHigh.toStringAsFixed(1),
-        rating?.quality.id ?? '',
+        _csvEscape(rating?.quality.id ?? ''),
         calibration.ratingFor(aggregate.engineId)?.toStringAsFixed(1) ?? '',
         '${aggregate.percentile(0.5)}',
         '${aggregate.percentile(0.95)}',
@@ -281,7 +286,7 @@ class BenchmarkRun {
         aggregate.maxDepth?.toString() ?? '',
         '${aggregate.forfeitLosses}',
         '${aggregate.aborted + aggregate.cancelled}',
-        status?.status ?? '',
+        _csvEscape(status?.status ?? ''),
         _csvEscape(status?.reason ?? ''),
       ].join(','));
     }
@@ -307,8 +312,8 @@ class BenchmarkRun {
     out.writeln();
     out.writeln('## Standings');
     out.writeln();
-    out.writeln('| # | Engine | Rating | 95% CI | Quality | Games | W/D/L '
-        '| Score | Notes |');
+    out.writeln('| # | Engine | Relative rating | 95% CI | Quality | Games '
+        '| W/D/L | Score | Notes |');
     out.writeln('|---|---|---|---|---|---|---|---|---|');
     var place = 0;
     for (final aggregate in standings()) {
@@ -718,6 +723,12 @@ EloFit fitRunRatings({
       excluded[game.outcome.id] = (excluded[game.outcome.id] ?? 0) + 1;
       continue;
     }
+    if (game.whiteId == game.blackId) {
+      // A game an engine played against itself is not a comparison; the fit
+      // rejects it, so it is counted and skipped rather than crashing a report.
+      excluded['self-play'] = (excluded['self-play'] ?? 0) + 1;
+      continue;
+    }
     rated.add(
         (white: game.whiteId, black: game.blackId, score: whiteScore));
   }
@@ -730,11 +741,27 @@ EloFit fitRunRatings({
   );
 }
 
+/// Escapes one CSV cell, including spreadsheet formula injection.
+///
+/// A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is
+/// executed (or at least interpreted) by spreadsheet software. Prefixing it with
+/// an apostrophe keeps the value readable while making it inert text.
 String _csvEscape(String value) {
-  if (value.contains(',') || value.contains('"') || value.contains('\n')) {
-    return '"${value.replaceAll('"', '""')}"';
+  if (value.isEmpty) return value;
+  final risky = value.startsWith('=') ||
+      value.startsWith('+') ||
+      value.startsWith('-') ||
+      value.startsWith('@') ||
+      value.startsWith('\t') ||
+      value.startsWith('\r');
+  final escaped = risky ? "'$value" : value;
+  if (escaped.contains(',') ||
+      escaped.contains('"') ||
+      escaped.contains('\n') ||
+      escaped.contains('\r')) {
+    return '"${escaped.replaceAll('"', '""')}"';
   }
-  return value;
+  return escaped;
 }
 
 String _md(String value) => value.replaceAll('|', '\\|');

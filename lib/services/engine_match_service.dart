@@ -106,7 +106,16 @@ class GameResult {
 /// Match configuration.
 class MatchConfig {
   final int numGames;
-  final int depthPerMove;
+
+  /// Fixed search depth, or null to search by time.
+  ///
+  /// Only one budget is ever sent. A UCI engine given both `go depth 8` and a
+  /// 100 ms `movetime` searches to depth 8 and ignores the clock
+  /// ([uciGoCommand] sends `depth` when it is present), so a caller that asks
+  /// for a time control used to get a depth control with the time control's
+  /// name on it — and every rating measured that way described a different
+  /// budget from the one the report recorded.
+  final int? depthPerMove;
   final Duration? moveTime;
   final bool alternateColors;
 
@@ -124,6 +133,29 @@ class MatchConfig {
     this.plyCap = 240,
     this.opening,
   });
+
+  /// A configuration that searches for [moveTime] per move.
+  ///
+  /// The depth is cleared, not merely deprioritised: an engine that is asked
+  /// for both runs on the depth.
+  factory MatchConfig.timed({
+    int numGames = 2,
+    required Duration moveTime,
+    bool alternateColors = true,
+    int plyCap = 240,
+    Opening? opening,
+  }) =>
+      MatchConfig(
+        numGames: numGames,
+        depthPerMove: null,
+        moveTime: moveTime,
+        alternateColors: alternateColors,
+        plyCap: plyCap,
+        opening: opening,
+      );
+
+  /// The depth to ask for, given the configured time control.
+  int? get effectiveDepth => moveTime != null ? null : depthPerMove;
 }
 
 /// Events emitted during a match.
@@ -147,6 +179,17 @@ class MatchMovePlayed extends MatchEvent {
 class MatchGameFinished extends MatchEvent {
   final GameResult result;
   MatchGameFinished(this.result);
+}
+
+/// Engines that could not be started before the games began.
+///
+/// Reported rather than thrown: a tournament in which one engine cannot start
+/// still produces forfeits that say which engine failed and why, which is more
+/// useful than a stack trace and no results.
+class TournamentEnginesUnavailable extends MatchEvent {
+  final List<String> reasons;
+
+  TournamentEnginesUnavailable(this.reasons);
 }
 
 class MatchFinished extends MatchEvent {
@@ -200,13 +243,19 @@ class EngineMatchService {
         engine2Id = engine2Id ?? engine2.name;
 
   /// Run the match. Returns all game results.
+  ///
+  /// A failed initialisation is a recorded outcome, not an exception: a match
+  /// between an engine that starts and one that does not has one forfeit per
+  /// game, and the screen can say which engine failed and why. Cancellation is
+  /// checked *before* each handshake, so stopping during a slow start does not
+  /// start the next process.
   Future<List<GameResult>> run() async {
     _stopped = false;
     results.clear();
+    _initFailures.clear();
 
-    // Initialize engines if needed
-    if (engine1.state == EngineState.idle) await engine1.initialize();
-    if (engine2.state == EngineState.idle) await engine2.initialize();
+    await _initializeIfNeeded(engine1, engine1Id);
+    if (!_stopped) await _initializeIfNeeded(engine2, engine2Id);
 
     for (int i = 0; i < config.numGames && !_stopped; i++) {
       final swapped = config.alternateColors && i.isOdd;
@@ -228,6 +277,29 @@ class EngineMatchService {
     return results;
   }
 
+  final Map<String, Object> _initFailures = {};
+
+  /// Starts one engine if it has not started, remembering the failure instead
+  /// of letting it end the match.
+  Future<void> _initializeIfNeeded(ChessEngine engine, String engineId) async {
+    if (engine.state == EngineState.idle) {
+      try {
+        await engine.initialize();
+        if (engine.state != EngineState.ready) {
+          _initFailures[engineId] =
+              StateError('initialisation ended in ${engine.state.name}');
+        }
+      } catch (error) {
+        _initFailures[engineId] = error;
+      }
+      return;
+    }
+    if (engine.state == EngineState.error || engine.state == EngineState.disposed) {
+      _initFailures[engineId] =
+          StateError('the engine is ${engine.state.name}');
+    }
+  }
+
   Future<GameResult?> _playGame(
     ChessEngine white,
     ChessEngine black,
@@ -235,6 +307,31 @@ class EngineMatchService {
     String blackId,
     int gameNum,
   ) async {
+    final whiteFailure = _initFailures[whiteId];
+    final blackFailure = _initFailures[blackId];
+    if (whiteFailure != null || blackFailure != null) {
+      // Both dead is an aborted game; one dead is a forfeit for that side.
+      final bothFailed = whiteFailure != null && blackFailure != null;
+      final forfeitedBy = bothFailed
+          ? null
+          : (whiteFailure != null ? whiteId : blackId);
+      return GameResult(
+        whiteId: whiteId,
+        blackId: blackId,
+        white: white.name,
+        black: black.name,
+        outcome: bothFailed ? GameOutcome.aborted : GameOutcome.forfeit,
+        forfeitReason:
+            bothFailed ? ForfeitReason.none : ForfeitReason.handshakeFailure,
+        forfeitedBy: forfeitedBy,
+        detail: bothFailed
+            ? 'Neither engine could start. White: $whiteFailure; '
+                'Black: $blackFailure'
+            : 'One engine could not start: ${whiteFailure ?? blackFailure}',
+        moves: 0,
+        pgn: '',
+      );
+    }
     final game = await playBenchGame(
       index: gameNum,
       whiteId: whiteId,
@@ -246,7 +343,7 @@ class EngineMatchService {
       opening: config.opening ??
           const Opening(id: 'startpos', name: 'Starting position', category: 'start'),
       plyCap: config.plyCap,
-      depth: config.depthPerMove > 0 ? config.depthPerMove : null,
+      depth: config.effectiveDepth,
       moveTime: config.moveTime,
       cancelled: () => _stopped,
       onMove: (fen, san, whiteToMove) {
@@ -260,8 +357,9 @@ class EngineMatchService {
   /// Wraps one engine as a [MoveRequester], keeping its own node/depth
   /// counters when it publishes them and measuring wall clock regardless.
   MoveRequester _requesterFor(ChessEngine engine) {
-    final telemetry = engine is SearchTelemetry ? engine : null;
-    final depth = config.depthPerMove > 0 ? config.depthPerMove : null;
+    final telemetry =
+        engine is SearchTelemetry ? engine as SearchTelemetry : null;
+    final depth = config.effectiveDepth;
     return measuredRequester(
       (position) => engine.bestMove(
         position,
@@ -401,9 +499,26 @@ class TournamentService {
     _stopped = false;
     results.clear();
 
-    // Initialize all engines
-    for (final e in engines) {
-      if (e.state == EngineState.idle) await e.initialize();
+    // Start the engines, but stop starting them the moment the run is
+    // cancelled: a slow handshake (a model load, a WASM instantiation) must not
+    // keep launching processes after the user asked the tournament to stop.
+    final failures = <String>[];
+    for (var i = 0; i < engines.length; i++) {
+      if (_stopped) break;
+      final engine = engines[i];
+      if (engine.state != EngineState.idle) continue;
+      try {
+        await engine.initialize();
+        if (engine.state != EngineState.ready) {
+          failures.add('${_idOf(i)}: initialisation ended in '
+              '${engine.state.name}');
+        }
+      } catch (error) {
+        failures.add('${_idOf(i)}: $error');
+      }
+    }
+    if (failures.isNotEmpty) {
+      _eventController.add(TournamentEnginesUnavailable(failures));
     }
 
     final pairings = _pairings;

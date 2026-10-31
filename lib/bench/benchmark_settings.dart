@@ -45,11 +45,16 @@ class AutoBenchmarkSettings {
   /// run this short), and a fresh seed so two automatic runs are not the same
   /// game over again.
   BenchmarkConfig toConfig({int seed = 1}) => BenchmarkConfig.quick.copyWith(
-        maxGames: maxGames,
+        // `copyWith` takes a factory for the nullable fields so it can clear
+        // them; passing the value itself does not compile.
+        maxGames: () => maxGames,
         maxDuration: () => maxDuration,
         warmUpGames: 0,
         seed: seed,
         adaptiveStopping: true,
+        // One repetition: an automatic run is a sanity check, not a measurement
+        // programme, and the cap above is expressed in games.
+        repetitions: 1,
       );
 
   AutoBenchmarkSettings copyWith({
