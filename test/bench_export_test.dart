@@ -27,6 +27,8 @@ void main() {
       expect(aggregate.draws, 2);
       expect(aggregate.ratedGames, 2);
     }
+    expect(run.reportMarkdown(), contains('Adjudicated games are included as statistical draws (0.5)'));
+    expect(run.reportMarkdown(), isNot(contains('Adjudicated games are excluded.')));
     expect(run.pgn(), contains('[Result "*"]'),
         reason: 'statistical treatment must not invent a chess result');
   });
