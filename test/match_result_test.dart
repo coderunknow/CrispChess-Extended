@@ -129,7 +129,11 @@ void main() {
       final standings = TournamentService.standings(results);
       expect(standings.map((entry) => entry.key).toSet(),
           {'builtin:Built-in', 'custom:p1'});
-      expect(standings.first.value, 1);
+      // Built-in wins the first game as White and the second as Black: two
+      // points. The old expectation of 1 predated scores being summed per
+      // engine rather than per game.
+      expect(standings.first.value, 2);
+      expect(standings.first.key, 'builtin:Built-in');
       expect(standings.length, 2);
     });
   });

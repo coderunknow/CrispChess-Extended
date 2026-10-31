@@ -66,6 +66,12 @@ class MemoryBenchmarkStorage implements BenchmarkStorage {
     _documents[key] = value;
   }
 
+  /// Nothing to rotate: there is no second copy in memory.
+  @override
+  Future<void> restore(String key, String value) async {
+    _documents[key] = value;
+  }
+
   @override
   Future<void> delete(String key) async {
     _documents.remove(key);

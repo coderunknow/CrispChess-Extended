@@ -400,11 +400,16 @@ class EngineMatchService {
     return scores;
   }
 
-  /// Rated games per engine id.
+  /// Games per engine id, rated or not.
+  ///
+  /// The count is what the name says: an engine that played four games and
+  /// forfeited two of them played four. What those games mean is
+  /// [unclassified] and [scores]; a caller that wants only the rated ones can
+  /// subtract. Counting rated games here made "3 games" and "3 rated games"
+  /// impossible to tell apart in a report.
   static Map<String, int> gamesPlayed(List<GameResult> results) {
     final games = <String, int>{};
     for (final r in results) {
-      if (!r.isRated) continue;
       games[r.whiteId] = (games[r.whiteId] ?? 0) + 1;
       games[r.blackId] = (games[r.blackId] ?? 0) + 1;
     }

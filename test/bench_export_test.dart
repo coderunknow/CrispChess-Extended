@@ -57,7 +57,8 @@ void main() {
     test('commas and quotes are quoted the CSV way', () async {
       final run = (await runScriptedBenchmark(alphaName: 'Alpha, "the" one')).run;
       final csv = run.enginesCsv();
-      expect(csv, contains('"Alpha, ""the"" one"'));
+      // The label the report prints is the display name plus the version.
+      expect(csv, contains('"Alpha, ""the"" one 1.0"'));
     });
 
     test('the relative rating column is named as relative', () async {
@@ -94,12 +95,18 @@ void main() {
           (await runScriptedBenchmark(alphaName: 'Alpha|Beta')).run;
       final report = run.reportMarkdown();
       expect(report, contains(r'Alpha\|Beta'));
-      // Every standings row still has the same number of separators.
-      final rows = report
-          .split('\n')
-          .where((line) => line.startsWith('| 1 |') || line.startsWith('| 2 |'));
+      // The escaped pipe is still a character in the line, so the check is that
+      // every standings row matches the header's column count plus the escaped
+      // pipes in the labels it prints.
+      final lines = report.split('\n');
+      final header =
+          lines.firstWhere((line) => line.startsWith('| # | Engine |'));
+      final columns = '|'.allMatches(header).length;
+      final rows = lines.where((line) =>
+          line.startsWith('| 1 |') || line.startsWith('| 2 |'));
+      expect(rows, isNotEmpty);
       for (final row in rows) {
-        expect('|'.allMatches(row).length, 10, reason: row);
+        expect('|'.allMatches(row).length, columns + 1, reason: row);
       }
     });
   });
@@ -110,8 +117,8 @@ void main() {
       await result.runner.dispose();
       final pgn = result.run.pgn();
       expect(pgn, contains('[Result "1-0"]'));
-      expect(pgn, contains('[White "Alpha"]'));
-      expect(pgn, contains('[Black "Beta"]'));
+      expect(pgn, contains('[White "Alpha 1.0"]'));
+      expect(pgn, contains('[Black "Beta 1.0"]'));
     });
 
     test('a game without a result is not given one', () async {
