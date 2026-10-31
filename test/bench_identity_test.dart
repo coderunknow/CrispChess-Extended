@@ -161,11 +161,31 @@ void main() {
   });
 
   group('digest', () {
-    test('is order independent and sensitive to values', () {
+    test('is deterministic, order-sensitive and 64 hex characters', () {
+      // The *callers* sort (see `withConfiguration` and `digestOf`'s use in
+      // engine_identity.dart), so the digest itself is a plain hash of the
+      // joined parts; hashing is not the place to hide an ordering bug.
       expect(digestOf(['a', 'b']), digestOf(['a', 'b']));
       expect(digestOf(['a', 'b']), isNot(digestOf(['b', 'a'])));
       expect(digestOf(['a=b']), isNot(digestOf(['a=c'])));
       expect(digestOf(['a', 'b']).length, 64);
+    });
+
+    test('a configuration digest does not depend on the map order', () {
+      final first = EngineIdentity.forBuiltIn(
+        name: 'Built-in',
+        engineVersion: '1',
+        appBuild: 'x',
+        configuration: const {'Threads': '2', 'Hash': '64'},
+      );
+      final second = EngineIdentity.forBuiltIn(
+        name: 'Built-in',
+        engineVersion: '1',
+        appBuild: 'x',
+        configuration: const {'Hash': '64', 'Threads': '2'},
+      );
+      expect(first.configurationDigest, second.configurationDigest);
+      expect(first.matchesVersionOf(second), isTrue);
     });
   });
 }
