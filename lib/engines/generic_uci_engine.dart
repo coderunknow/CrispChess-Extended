@@ -211,10 +211,10 @@ class GenericUciEngine
       // Bounded and not fatal: an engine that answers `uciok` but never
       // `readyok` is unusual, and one that is merely slow should still be
       // usable.
-      final ready = Completer<void>();
-      _readyOk = ready;
+      final readyAck = Completer<void>();
+      _readyOk = readyAck;
       _send('isready');
-      await ready.future.timeout(const Duration(seconds: 2), onTimeout: () {
+      await readyAck.future.timeout(const Duration(seconds: 2), onTimeout: () {
         debugPrint('[$processLabel] no readyok within 2s; continuing');
       });
       _readyOk = null;
