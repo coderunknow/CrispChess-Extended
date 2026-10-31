@@ -33,7 +33,7 @@ class EngineLabScreen extends StatefulWidget {
 class _EngineLabScreenState extends State<EngineLabScreen> {
   static const _autoVersionKey = 'engine_lab_auto_quick_on_binary_change';
   static const _builtIns = [
-    'Built-in', 'Frozenight', 'Stockfish', 'Maia3 Dart', 'ChessMamba', 'Lc0',
+    'Built-in', 'Frozenight', 'Stockfish', 'Lynx', 'Maia3 Dart', 'ChessMamba', 'Lc0',
     for (final e in availableSearchlessSizes) e.engineName,
     ...availableChessLmNames,
   ];
