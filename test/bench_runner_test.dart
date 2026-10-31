@@ -347,6 +347,29 @@ void main() {
   });
 
   group('game failures', () {
+    test('opponent forfeits interrupt each engines failure streak', () async {
+      var gameNumber = 0;
+      final alpha = ScriptedEngine('Alpha')..ask = (_, ply) async {
+        if (gameNumber.isOdd) throw TimeoutException('alpha forfeits');
+        return openingBookMove(ply)!;
+      };
+      final beta = ScriptedEngine('Beta')..ask = (_, ply) async {
+        if (gameNumber.isEven) throw TimeoutException('beta forfeits');
+        return openingBookMove(ply)!;
+      };
+      final runner = _runner(_config(gamesPerPairing: 8), white: alpha, black: beta);
+      final subscription = runner.events.listen((event) {
+        if (event is BenchmarkGameStartedEvent) gameNumber = event.gameNumber;
+      });
+      addTearDown(subscription.cancel);
+      addTearDown(runner.dispose);
+      final run = await runner.run();
+      expect(run.games, hasLength(8));
+      expect(run.games.every((game) => game.outcome == GameOutcome.forfeit), isTrue);
+      expect(run.engineStatus.values.every((status) => status.status == 'completed'), isTrue);
+      expect(run.stopReason, 'completed');
+    });
+
     test('an illegal move forfeits the game instead of ending the run',
         () async {
       final alpha = ScriptedEngine('Alpha')

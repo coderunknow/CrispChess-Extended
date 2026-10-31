@@ -583,7 +583,8 @@ class BenchmarkRunner {
           reason: live.failureReason!,
         ));
       }
-    } else if (game.outcome.isTerminal) {
+    } else {
+      // An opponent's forfeit also interrupts this engine's loss streak.
       live.consecutiveForfeits = 0;
     }
   }

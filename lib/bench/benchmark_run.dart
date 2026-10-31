@@ -369,9 +369,10 @@ class BenchmarkRun {
     out.writeln('Bradley–Terry maximum likelihood over every rated game, '
         'centred on ${ratings.anchor.toStringAsFixed(0)} on average (relative '
         'scale). The 95% interval is `rating ± 1.96 × standard error`, where the '
-        'standard error comes from the Fisher information of the fit. Games '
-        'that were adjudicated, aborted, cancelled or lost by forfeit are '
-        'excluded: ${_excludedSummary()}');
+        'standard error comes from the Fisher information of the fit. '
+        'Aborted, cancelled and forfeited games are excluded. '
+        '${config.countAdjudicatedAsDraws ? 'Adjudicated games are included as statistical draws (0.5), not terminal chess results.' : 'Adjudicated games are excluded.'} '
+        'Excluded: ${_excludedSummary()}');
     out.writeln();
     if (ratings.warnings.isNotEmpty) {
       out.writeln('### Rating warnings');

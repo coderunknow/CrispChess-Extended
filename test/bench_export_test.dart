@@ -27,6 +27,8 @@ void main() {
       expect(aggregate.draws, 2);
       expect(aggregate.ratedGames, 2);
     }
+    expect(run.reportMarkdown(), contains('Adjudicated games are included as statistical draws (0.5)'));
+    expect(run.reportMarkdown(), isNot(contains('Adjudicated games are excluded.')));
     expect(run.pgn(), contains('[Result "*"]'),
         reason: 'statistical treatment must not invent a chess result');
   });
@@ -90,6 +92,8 @@ void main() {
       await result.runner.dispose();
       final report = result.run.reportMarkdown();
       expect(report, contains('| Relative rating |'));
+      expect(report, contains('Adjudicated games are excluded.'));
+      expect(report, isNot(contains('Adjudicated games are included as statistical draws')));
       expect(report.toLowerCase(), contains('relative'));
       // The anchor is stated, so a reader knows what the numbers are relative to.
       expect(report, contains('${result.run.ratings.anchor.toStringAsFixed(0)}'));

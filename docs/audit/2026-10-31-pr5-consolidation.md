@@ -420,3 +420,35 @@ No tags, deployments, releases, uploads, force pushes, history rewrites, branch
 deletions or changes to PR #3/#4 were performed. Later verification results belong
 in a subsequent continuation or exact-SHA GitHub evidence, not a retroactive edit
 of this section's facts. **No readiness or final approval is asserted here.**
+
+## 10. Exact integrated execution and fresh-review follow-up
+
+At **3cdc7c06925a17f565fdf0c23ea7950636c54984**, the GitHub-hosted diagnostics
+executed real Flutter analysis **exit 0** and the full suite **exit 0**:
+**767 passed, 24 skipped**. The expanded Engine Lab suite also succeeded
+(check **124555978602**); rating-reference/localization/secret/latency checks
+succeeded. This validates that exact head, not later corrections. Full CI run
+**41207672518** was pending behind an older run, and platform application results
+at this SHA had not yet been produced. Attempts to cancel two superseded CI runs
+returned HTTP **403 Resource not accessible by integration**; no deployment was
+cancelled and no permission bypass was attempted. Branch-protection GET likewise
+returned 403, so protection settings cannot be certified from this token.
+
+The genuine new full-review command is PR #5 comment **6544270217**, targeting
+`3cdc7c0`. CodeRabbit acknowledgement **6544275204** reported its included-review
+quota reached (next included review in 40 minutes); the resulting check
+**124556810482**, run **41a76887-90f2-4968-8e8b-2dd0d98623dd**, finished
+**neutral / Review rate limited**. No analysis/feedback was run. This is neither
+an approval nor an additional completed review. Do not spam another command
+inside that quota window or treat the earlier automatic skipped check as review.
+
+The automatically delivered Codex review on that head added **two genuine P2**:
+**4431935682** (methodology must reflect enabled adjudication scoring) and
+**4431935686** (an opponent's forfeit must interrupt the current engine's
+consecutive-forfeit streak). Both are fixed in the following source change,
+with assertions on enabled/disabled report wording and an eight-game alternating
+forfeit regression retaining the existing three-consecutive-loss regression.
+These add to, rather than erase, the prior four P2 findings. No explicit new
+Codex review command was requested. The corrected later head still needs actual
+exact-head execution and a completed fresh CodeRabbit review. Main remains
+untouched and deployment-free merge remains unverified/prohibited.
