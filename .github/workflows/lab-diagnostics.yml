@@ -80,7 +80,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
           ANALYZE_EXIT: ${{ steps.analyze.outputs.analyze_exit }}
           TEST_EXIT: ${{ steps.test.outputs.test_exit }}
-          HEAD_SHA: ${{ github.sha }}
+          # For a pull_request event `github.sha` is the merge commit; the
+          # commit under review is the head one.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           if [ -z "${PR_NUMBER:-}" ]; then
@@ -89,33 +91,56 @@ jobs:
           fi
           python3 - <<'PY'
           import os
+          import re
           from pathlib import Path
 
-          def tail(path: str, limit: int = 45000) -> str:
+          def read(name: str) -> str:
               try:
-                  text = Path(path).read_text(errors="replace")
+                  return Path(os.path.join(os.environ["RUNNER_TEMP"], name)).read_text(errors="replace")
               except FileNotFoundError:
                   return "_no output: the step did not run_"
-              if len(text) > limit:
-                  text = "_truncated to the last %d characters_\n" % limit + text[-limit:]
-              return text
+
+          def section(text: str, patterns: list[str], limit: int = 12000) -> str:
+              """Keep only the lines that matter, with a count banner."""
+              lines = text.splitlines()
+              kept = [line for line in lines if any(re.search(p, line) for p in patterns)]
+              head = "_%d matching line(s) of %d_" % (len(kept), len(lines))
+              body = "\n".join(kept)
+              if len(body) > limit:
+                  body = "_first %d characters_\n" % limit + body[:limit]
+              return head + "\n\n" + (body or "_none_")
+
+          analyze = read("analyze.txt")
+          tests = read("test.txt")
 
           body = "\n".join([
               "## Lab diagnostics for `%s`" % os.environ["HEAD_SHA"][:12],
               "",
-              "- `flutter analyze` exit: `%s`" % os.environ.get("ANALYZE_EXIT"),
+              "- `flutter analyze --no-fatal-infos --no-fatal-warnings` exit: `%s`" % os.environ.get("ANALYZE_EXIT"),
               "- `flutter test` exit: `%s`" % os.environ.get("TEST_EXIT"),
               "",
-              "### analyze",
+              "### analyze: errors and warnings",
               "",
               "```",
-              tail(os.path.join(os.environ["RUNNER_TEMP"], "analyze.txt")),
+              section(analyze, [r"^\s*error •", r"^\s*warning •"]),
               "```",
               "",
-              "### test",
+              "### analyze: tail",
               "",
               "```",
-              tail(os.path.join(os.environ["RUNNER_TEMP"], "test.txt")),
+              "\n".join(analyze.splitlines()[-25:]),
+              "```",
+              "",
+              "### test: failures",
+              "",
+              "```",
+              section(tests, [r"\[E\]", r"^\s*Expected:", r"^\s*Actual:", r"^Some tests failed", r"^\d+:\d+:\d+ \+.*-\d+"]),
+              "```",
+              "",
+              "### test: tail",
+              "",
+              "```",
+              "\n".join(tests.splitlines()[-60:]),
               "```",
               "",
           ])

@@ -114,7 +114,6 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
   }
 
   Widget _body(BenchmarkRun run, AppLocalizations? l) {
-    final aggregates = run.aggregates();
     final standings = run.standings();
     final ratings = run.ratings.ratings;
     final low = ratings.isEmpty
