@@ -3115,6 +3115,8 @@ abstract class AppLocalizations {
   String get engineLabRunning;
 
   /// `engineLabSearchDepth`.
+  String get engineLabNodeLimit;
+
   String get engineLabSearchDepth;
 
   /// `engineLabSeed`.

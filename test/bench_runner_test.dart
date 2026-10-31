@@ -102,6 +102,27 @@ void main() {
     await expectLater(runner.run(), throwsArgumentError);
   });
 
+  test('deadline returns even when search ignores stop', () async {
+    final alpha = ScriptedEngine('Alpha');
+    final beta = ScriptedEngine('Beta');
+    alpha.ask = (_, __) => Completer<String>().future;
+    final runner = _runner(_config(maxDuration: const Duration(milliseconds: 40)),
+        white: alpha, black: beta);
+    addTearDown(runner.dispose);
+    final run = await runner.run().timeout(const Duration(seconds: 2));
+    expect(run.stopReason, 'time cap');
+    expect(run.games.single.outcome, GameOutcome.aborted);
+  });
+
+  test('deadline releases a paused benchmark', () async {
+    final runner = _runner(_config(maxDuration: const Duration(milliseconds: 40)),
+        white: ScriptedEngine('Alpha'), black: ScriptedEngine('Beta'));
+    addTearDown(runner.dispose);
+    runner.pause();
+    final run = await runner.run().timeout(const Duration(seconds: 2));
+    expect(run.stopReason, 'time cap');
+  });
+
   group('a normal run', () {
     test('deadline-induced search errors are aborted, not forfeits', () async {
       final alpha = ScriptedEngine('Alpha');

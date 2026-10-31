@@ -1696,6 +1696,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get engineLabRunning => 'Läuft…';
 
   @override
+  String get engineLabNodeLimit => 'Knotenlimit (0 = deaktiviert)';
+
+  @override
   String get engineLabSearchDepth => 'Suchtiefe';
 
   @override

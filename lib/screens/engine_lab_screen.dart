@@ -14,6 +14,8 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../chess/chess_game.dart';
+import '../widgets/chess_board.dart';
 import '../bench/benchmark_config.dart';
 import '../bench/benchmark_environment.dart';
 import '../bench/benchmark_fingerprint.dart' show hostSummary;
@@ -84,6 +86,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   int _gamesDone = 0;
   int _gamesTotal = 0;
   String _lastMove = '';
+  final ChessGame _liveBoard = ChessGame();
   final List<({String white, String black, int game, int total})> _liveGames = [];
   List<String> _liveNotices = const [];
 
@@ -219,6 +222,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         });
       case BenchmarkMoveEvent():
         setState(() {
+          _liveBoard.loadFen(event.fen);
           _lastMove = event.san;
           _progress = _gamesTotal == 0
               ? 0
@@ -682,6 +686,12 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                 LinearProgressIndicator(value: _progress.clamp(0.0, 1.0).toDouble()),
                 const SizedBox(height: 8),
                 Text(_status, style: const TextStyle(fontSize: 13)),
+                if (_lastMove.isNotEmpty)
+                  Center(child: SizedBox(width: 300, height: 300,
+                    child: ChessBoard(board: _liveBoard.board,
+                      whiteToMove: _liveBoard.whiteToMove,
+                      squareToAlgebraic: _liveBoard.squareToAlgebraic,
+                      animationDurationMs: 0))),
                 if (_lastMove.isNotEmpty)
                   Text('${l?.engineLabLastMove ?? 'Last move'}: $_lastMove',
                       style: const TextStyle(fontSize: 12)),
@@ -1435,6 +1445,18 @@ class _EngineLabScreenState extends State<EngineLabScreen>
               ),
             ),
           ],
+        ),
+        _numberField(
+          label: l?.engineLabNodeLimit ?? 'Node limit (0 = disabled)',
+          value: _config.nodeLimit ?? 0,
+          enabled: !_running,
+          onChanged: (value) => setState(() {
+            _config = _config.copyWith(
+              nodeLimit: () => value == null || value <= 0 ? null : value,
+              searchDepth: () => null,
+              preset: BenchmarkPreset.custom,
+            );
+          }),
         ),
         Row(
           children: [
