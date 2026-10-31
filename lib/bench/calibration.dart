@@ -303,6 +303,12 @@ CalibrationOutcome calibrateElo({
         'cost in time differs between engines; the calibrated scale is '
         'approximate.');
   }
+  final anchorIdentities = identities.where((identity) =>
+      identity.engineId == anchorRating.engineId).toList();
+  if (anchor.engineVersion.trim().isEmpty || anchorIdentities.length != 1 ||
+      anchorIdentities.single.engineVersion != anchor.engineVersion.trim()) {
+    return CalibrationOutcome.unavailable('The anchor version must match the measured engine version.');
+  }
   // Refuse a mixed-platform run only once the anchor is known to be here and
   // comparable: "the anchor did not take part" is the actionable answer when
   // that is the problem, and a cohort warning would bury it. A run that mixes

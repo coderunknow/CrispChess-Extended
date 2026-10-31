@@ -242,6 +242,10 @@ class BenchmarkRunner {
   /// Runs the benchmark to completion or until it is stopped.
   Future<BenchmarkRun> run() async {
     final config = plan.config;
+    if (config.nodeLimit != null &&
+        (config.nodeLimit! < 1 || config.searchDepth != null)) {
+      throw ArgumentError('A positive node budget cannot be combined with depth.');
+    }
     final recorded = plan.recordedGames.length + plan.warmUpGames;
     final clock = Stopwatch()..start();
     _armDeadline(config.maxDuration);

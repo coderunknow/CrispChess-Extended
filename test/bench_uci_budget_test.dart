@@ -57,6 +57,28 @@ done
     expect(run.engines.first.configuration['Hash'], '32');
   });
 
+  test('readiness timeout poisons connection; a late reply cannot be reused', () async {
+    final dir = Directory.systemTemp.createTempSync('uci_ready_timeout');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final script = File('${dir.path}/engine.sh');
+    script.writeAsStringSync('''#!/bin/bash
+count=0
+while IFS= read -r line; do
+ case "\$line" in
+ uci) echo uciok ;;
+ isready) count=\$((count+1)); if [ "\$count" = 1 ]; then echo readyok; else sleep 3; echo readyok; fi ;;
+ quit) exit 0 ;;
+ esac
+done
+''');
+    Process.runSync('chmod', ['+x', script.path]);
+    final engine = GenericUciEngine(EngineProfile(name: 'test', path: script.path));
+    await engine.initialize();
+    await expectLater(engine.synchronizeOptions(), throwsA(isA<TimeoutException>()));
+    await expectLater(engine.synchronizeOptions(), throwsStateError);
+    await expectLater(engine.bestMoveWithNodes('position startpos', 1000), throwsStateError);
+  });
+
   test('readiness disposal fails instead of acknowledging options', () async {
     final dir = Directory.systemTemp.createTempSync('uci_ready_dispose');
     addTearDown(() => dir.deleteSync(recursive: true));

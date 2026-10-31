@@ -80,6 +80,28 @@ void main() {
     expect(beta.askedPositions, isEmpty);
   });
 
+  test('node budgets fail explicitly for engines without node capability', () async {
+    final alpha = ScriptedEngine('Alpha');
+    final beta = ScriptedEngine('Beta');
+    final runner = _runner(_config().copyWith(nodeLimit: () => 1000),
+        white: alpha, black: beta);
+    addTearDown(runner.dispose);
+    final run = await runner.run();
+    expect(run.stopReason, 'engine failure');
+    expect(alpha.askedPositions, isEmpty);
+    expect(beta.askedPositions, isEmpty);
+    expect(run.ratings.ratedGames, 0);
+  });
+
+  test('node and depth budgets cannot silently contradict each other', () async {
+    final config = _config().copyWith(nodeLimit: () => 1000, searchDepth: () => 3);
+    expect(validateConfig(config, engineCount: 2).isValid, isFalse);
+    final runner = _runner(config,
+        white: ScriptedEngine('Alpha'), black: ScriptedEngine('Beta'));
+    addTearDown(runner.dispose);
+    await expectLater(runner.run(), throwsArgumentError);
+  });
+
   group('a normal run', () {
     test('deadline-induced search errors are aborted, not forfeits', () async {
       final alpha = ScriptedEngine('Alpha');
