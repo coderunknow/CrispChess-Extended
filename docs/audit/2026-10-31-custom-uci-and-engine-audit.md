@@ -958,6 +958,18 @@ at this head: `tool/perf/tournament.dart`, `tools/tests`, `tools/verify_macos_ap
 `native/frozenight-wasm/Cargo.toml` — **all present**. So when Actions is
 enabled, the workflow will not fail on a missing file.
 
+Re-probed this round, including the official mirrors, so the "no SDK"
+conclusion is not an artefact of one blocked host: `storage.flutter-io.cn`
+(**000**), `storage.flutter-io.cn/flutter_infra_release/releases/releases_linux.json`
+(**000**), `pub.flutter-io.cn` (**000**), `dl.google.com` (**000**),
+`storage.googleapis.com` (**000**), `download.flutter.io` (**000**),
+`static.rust-lang.org` (**000**). A filesystem-wide sweep
+(`find / -xdev` for `dart`, `flutter`, `dart-sdk*`, `flutter_linux*`, plus
+`~/.pub-cache`, `/usr/lib/dart`, `/snap`) finds **nothing** outside this
+project's own platform folders. Bootstrapping is closed too: the Dart SDK has to
+be built with a bootstrap SDK from `storage.googleapis.com`, and Rust needs a
+bootstrap `rustc` from `static.rust-lang.org` — both blocked.
+
 Still unavailable, for the reasons already proved in §10.1: no Dart or Flutter
 SDK anywhere on the filesystem or reachable from it; `cargo`, `rustc` and
 `wasm-pack` are not installed either, so the seven Frozenight jobs cannot be
