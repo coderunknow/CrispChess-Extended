@@ -1450,8 +1450,14 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
       // Persist engine resource settings
       final hashMb = result['engineHashMb'] as int?;
       final threads = result['engineThreads'] as int?;
-      if (hashMb != null) _prefs.engineHashMb = hashMb;
-      if (threads != null) _prefs.engineThreads = threads;
+      if (hashMb != null || threads != null) {
+        if (hashMb != null) _prefs.engineHashMb = hashMb;
+        if (threads != null) _prefs.engineThreads = threads;
+        // The switch above ran before these values were known, so the engine it
+        // started received the previous ones. Apply them now, to whichever
+        // engine is actually in play.
+        _applyEngineOptions();
+      }
     }
   }
 

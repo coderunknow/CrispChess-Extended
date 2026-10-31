@@ -224,6 +224,11 @@ class GenericUciEngine
         await _teardownProcess(announce: false);
         throw StateError('Engine disposed during initialization');
       }
+      // It can also die during the wait above — `onProcessLost` releases the
+      // waiter, so without this the dead engine would be marked ready and the
+      // caller told it started. That is the "a failing engine is saved as a
+      // working one" defect this class exists to prevent.
+      if (processGone) throw await processDeathReport();
       _stateNotifier.value = EngineState.ready;
       debugPrint('[UCI] $name ready (${options.length} options)');
     } catch (e) {
