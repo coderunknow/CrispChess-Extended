@@ -179,10 +179,19 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
       return;
     }
 
-    final started = await _engineService.switchEngine(
+    // Take the number of *this* call. `switchEngine` bumps it synchronously, and
+    // the service runs switches in request order — so when this call returns, a
+    // higher number means a newer selection exists and this one is obsolete. It
+    // must then neither record anything nor roll back: the rollback would be
+    // queued behind the newer switch and would win, leaving the screen and the
+    // saved preference naming an engine that is not the one running.
+    final pending = _engineService.switchEngine(
       newEngine,
       rebuilder: _rebuilderFor(id),
     );
+    final ticket = _engineService.switchRequestCount;
+    final started = await pending;
+    if (_engineService.switchRequestCount != ticket) return;
     if (started) {
       _engineId = id;
       _prefs.engineId = id;
@@ -193,6 +202,7 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
 
     // The new engine replaced the old one and failed to start. Put the old one
     // back rather than leaving the app with an engine that cannot move.
+    if (_engineService.switchRequestCount != ticket) return;
     final previousLabel = engineLabelForId(previousId, _engineProfiles);
     var restored = false;
     try {
@@ -205,6 +215,7 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
     } on EngineUnavailableException {
       restored = false;
     }
+    if (_engineService.switchRequestCount != ticket) return;
     _showEngineSwitchProblem(
       '${engineLabelForId(id, _engineProfiles)} failed to start. '
       '${restored ? 'Still playing with $previousLabel.' : 'No engine is available — pick one in Settings.'}',

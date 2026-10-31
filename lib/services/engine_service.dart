@@ -116,6 +116,17 @@ class EngineService {
   /// instead of touching a closed event stream.
   bool _disposed = false;
 
+  int _switchSeq = 0;
+
+  /// How many switches have been requested, counting the queued ones.
+  ///
+  /// Incremented synchronously by [switchEngine]. A caller keeps the number its
+  /// own call received and compares it with this getter when the call returns:
+  /// switches run in request order, so if the count moved on, a newer switch
+  /// owns the outcome and the older one must not write the selection or start a
+  /// rollback behind it.
+  int get switchRequestCount => _switchSeq;
+
   /// Starts and switches run one at a time, in the order they were asked for.
   Future<void> _queue = Future<void>.value();
 
@@ -171,8 +182,10 @@ class EngineService {
   Future<bool> switchEngine(
     ChessEngine newEngine, {
     ChessEngine Function()? rebuilder,
-  }) =>
-      _serialised(() => _switchNow(newEngine, rebuilder: rebuilder));
+  }) {
+    _switchSeq++;
+    return _serialised(() => _switchNow(newEngine, rebuilder: rebuilder));
+  }
 
   /// The body of [switchEngine], already inside the queue — so it starts the
   /// new engine with [_initializeNow] rather than re-entering the queue.

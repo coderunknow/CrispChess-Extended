@@ -239,6 +239,33 @@ void _engineSwitchingTests() {
           reason: 'and the queued switch must not add to a closed stream');
     });
 
+    test('a superseded switch can tell from the request count', () async {
+      final service = EngineService(_StartingEngine());
+      await service.initialize();
+      expect(service.switchRequestCount, 0);
+
+      final slow = _GatedEngine();
+      final first = service.switchEngine(slow);
+      // Incremented synchronously, before the queue is reached: the caller keeps
+      // this number and compares it after its own call returns.
+      final firstTicket = service.switchRequestCount;
+      final second = service.switchEngine(_StartingEngine());
+      final secondTicket = service.switchRequestCount;
+
+      expect(firstTicket, 1);
+      expect(secondTicket, 2);
+      expect(service.switchRequestCount, isNot(firstTicket),
+          reason: 'the older caller must be able to see it was superseded');
+      expect(service.switchRequestCount, secondTicket,
+          reason: 'the newest caller still owns the outcome');
+
+      slow.gate.complete();
+      expect(await first, isTrue);
+      expect(await second, isTrue);
+      expect(service.engine.state, EngineState.ready);
+      service.dispose();
+    });
+
     test('a recovered switch reports success again', () async {
       final service = EngineService(_StartingEngine());
       await service.initialize();
