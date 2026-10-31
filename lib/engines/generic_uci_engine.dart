@@ -202,7 +202,22 @@ class GenericUciEngine
           _detectedAuthor.isEmpty ? null : _detectedAuthor;
       profile.optionCount = options.length;
 
+      // UCI's own synchronisation point: after `isready` the engine answers
+      // `readyok` once it is idle again, which is what says the option values
+      // above have been applied. Marking the engine ready as soon as the
+      // command was written let the first `position`/`go` overtake an engine
+      // still working through them.
+      //
+      // Bounded and not fatal: an engine that answers `uciok` but never
+      // `readyok` is unusual, and one that is merely slow should still be
+      // usable.
+      final ready = Completer<void>();
+      _readyOk = ready;
       _send('isready');
+      await ready.future.timeout(const Duration(seconds: 2), onTimeout: () {
+        debugPrint('[$processLabel] no readyok within 2s; continuing');
+      });
+      _readyOk = null;
       if (_isDisposed) {
         // Disposed while the handshake was running: the caller is gone and the
         // process has to go with it.
@@ -226,6 +241,9 @@ class GenericUciEngine
   void onProcessLost() {
     if (!disposingProcess) _stateNotifier.value = EngineState.error;
     resetSearches();
+    final ready = _readyOk;
+    _readyOk = null;
+    if (ready != null && !ready.isCompleted) ready.complete();
   }
 
   @override
@@ -241,8 +259,21 @@ class GenericUciEngine
 
   void _send(String command) => sendUci(command);
 
+  /// Completed by the engine's `readyok`.
+  Completer<void>? _readyOk;
+
   void _handleLine(String line, {bool handshake = false}) {
     final t = line.trim();
+
+    // `readyok` answers `isready`: the engine has finished whatever it was
+    // doing, including applying the `setoption`s before it. Checked before the
+    // handshake branch because it can arrive either side of `uciok`.
+    if (t == 'readyok') {
+      final ready = _readyOk;
+      _readyOk = null;
+      if (ready != null && !ready.isCompleted) ready.complete();
+      return;
+    }
 
     // During handshake, parse engine identity and options
     if (handshake) {
