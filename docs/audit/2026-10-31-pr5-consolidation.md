@@ -288,3 +288,135 @@ candidate fixes have not reached its head; full audit, final-head Flutter/CI,
 CodeRabbit completion, protection/approval checks and final merge gates have not
 been completed. The implementation commit is recorded in the follow-up GitHub
 comment rather than embedded self-referentially here.
+
+## 9. Engineering continuation after the first full CodeRabbit review
+
+This section supersedes §8's current-state statements, not its historical
+observations. Refreshed `origin/main` remains
+`20bc1b8e670f8d75152a465ec3da094b2fcf2997`. Commit `04b08749` is preserved.
+PR #6 was retargeted from main to `consolidation/engine-lab-pr5`, then merged
+normally with an exact source-SHA guard. Its merge commit is
+`cc532aaff8fc1b5aa230b286987dfd331a0cdb8d`; **main was not merged**. This is the
+authorized integration route, not a workaround for a protected direct push.
+
+### Four P2 findings and executable regressions
+
+- **4431855123, node budget:** Generic UCI implements a real `go nodes N`
+  capability. Unsupported engines fail explicitly, contradictory depth/nodes and
+  nonpositive values fail validation. The custom UI exposes nodes and clears
+  depth when enabled. Fixed nodes/depth cannot silently receive calibrated Elo.
+  Protocol tests inspect child-process command logs, not just a command helper.
+- **4431855127, adjudication:** an explicitly enabled adjudication scores 0.5;
+  default adjudications, warmups, aborts and cancellations remain excluded.
+  Aggregate counts and exported eligibility follow that same setting.
+- **4431855130, saved options:** profile overrides participate in measurement
+  identity and explicit benchmark overrides win. Source configuration has its own
+  persisted digest so benchmark-only overrides do not trigger endless automatic
+  reruns. Actual applied options are recorded only after acknowledgement. Stable
+  standings IDs intentionally do not change; `identityKey` does.
+- **4431855132, readiness:** startup and post-option `isready` require actual
+  `readyok`; timeout/process loss are failures. A failed barrier tears the process
+  down so late replies cannot acknowledge a later operation. Scripted tests cover
+  delay, absent/late acknowledgement, process loss and no `go` before readiness.
+
+Tests reside in `bench_uci_budget_test.dart`, `generic_uci_go_test.dart`,
+`generic_uci_init_test.dart`, `bench_identity_test.dart`,
+`bench_service_identity_test.dart`, `bench_rating_test.dart` and
+`bench_export_test.dart`. Source implementation is not, by itself, runtime proof.
+
+### Independent diff audit scope
+
+The refreshed main-to-integrated-head inventory contains **85 changed files**:
+12 workflows; 22 benchmark modules; 8 engine modules; 7 screens; 2 services;
+1 widget module; 5 localization files; 16 test/support files; 5 tooling/test
+files; 5 documentation files; `pubspec.yaml`; and `web/index.html`.
+Changed-file inventory, conditional-import boundaries, test coverage, locale
+presence, workflow syntax/permissions/triggers and release boundaries were
+checked across that diff. Deep source inspection concentrated on orchestration,
+UCI lifecycle, rating/calibration math, persistence/recovery/import/export,
+identity and automatic rebenchmarking; UI callbacks, numeric controls, live
+board and rendering edge cases were followed through their model contracts.
+This is a risk-oriented source audit plus executable checks, not a claim that
+parsing all files proves their correctness or that platforms were exercised.
+
+Additional root-cause fixes include: bounded stop/deadline races even for engines
+ignoring stop; deadline releasing pause; single-use runner; disposal once per
+runner-owned instance; rejecting non-ready initialization; connected/all-engine
+minimum-game criteria for adaptive stop; real live-board rendering; fractional
+percentiles; focus-preserving numeric editors; mounted/Navigator lifetime fixes;
+gauntlet-aware estimates and stale comparison fallback; truthful auto-budget
+text and privacy/cohort wording; build-aware built-in identities; independently
+anchored disconnected fits; observed centered joint Fisher information and a
+conservative sum-of-errors comparison bound; calibration restricted to the
+anchor's connected component and exact version; no verdict across components;
+backup-only recovery, index consistency, safe IDs and import FormatExceptions;
+quota failures surfaced without discarding the in-memory finished result;
+missing uncertainty treated as unknown, not zero; path-sensitive binary hash
+cache; and serialization of index-rebuilding reads with mutations.
+
+Workflow audit additionally found manual iOS input directly interpolated into
+shell source: move it into the environment. Numeric macOS bundle versions now
+come from the same tested parser in store and ordinary CI builds. Build jobs
+receive read-only tokens and nonpersisted checkout credentials; the authenticated
+web-bundle publishing job is separate, does not execute dependency/build code,
+and no longer force-pushes. Diagnostics runs PR code read-only and posts its
+output in a separate write-scoped job. Deployment triggers are unchanged.
+
+### CodeRabbit dispositions
+
+Actual completed full review:
+https://github.com/coderunknow/ScrispChess-Extended/pull/5#pullrequestreview-5722975237
+at **62b418fb4e62fd701ffc2b058b3ef7a1dee4e953**, check **124551940780**, run
+`4fb13e7f-2473-45c2-bf92-a7e86cd19641`. The review is COMMENTED, **not approval**.
+It contains **7 Major** (six inline plus one outside-diff), **21 Minor**, no
+reported Critical. Historical §4's 36 and the four subsequent P2s are not
+silently relabeled as these 28 findings.
+
+All seven Major have source-level dispositions: screenshot platform case;
+disposal identity guard; service execution reservation at the point work starts
+(an abandoned constructed runner must not lock the service); stable numeric
+editor; percentile fractions; numeric macOS version; isolated authenticated
+web-artifact publishing. All 21 Minor have source fixes or previously implemented
+fixes rechecked. The live-board finding is addressed by implementing the board,
+not deleting the feature. The reference math was updated to component-local
+fits and observed centered covariance, with analytic unit tests; old reference
+results are not evidence for this newer implementation. No genuine finding is
+being dismissed solely because of the bot's severity label. Threads remain open
+pending exact-head execution/review evidence. A new full review on the final
+integrated PR SHA is still required; stale/skipped/acknowledged runs do not count.
+
+### Actual verification so far, and explicit remaining gates
+
+At integrated `cc532aa`, supported GitHub-hosted Flutter ran real analysis with
+exit **0** and full tests with exit **1**: **764 passed, 24 skipped, 1 failed**.
+The failing test incorrectly expected `ratingKey` to change with configuration;
+that key is documented as the stable engine ID. The correction asserts stable
+`ratingKey`, changed **identityKey**, changed configuration detection and retained
+JSON/override-precedence behavior. This is a corrected contract assertion, not
+removal of the regression. Targeted Lab execution independently recorded
+**204 passed, 1 failed**, the same assertion. These are not final green results.
+Diagnostics: PR #5 bot comment headed `Lab diagnostics for cc532aaff8fc`.
+CI run **41207411159**, Lab run **41207411160**, diagnostics **41207411284**.
+Six Frozenight platform library jobs succeeded in that CI run; these are engine
+library builds, not evidence that all Flutter app builds passed.
+
+Local continuation checks: Python tooling **21 tests passed**; independent rating
+reference **25 checks passed at 400 trials**, repeated with seed **20260101**;
+**276 Dart files parsed**, **169 localization keys checked**; workflow YAML and
+bash/sh syntax and `git diff --check` pass. These checks do not execute Dart.
+The SDK download remains inaccessible locally (`storage.googleapis.com` TLS
+failure); GitHub-hosted Flutter is the actual execution route. Final-head full
+analysis/tests, platform application build results, genuine fresh CodeRabbit
+review and protection/approval status must be collected after these corrections
+are published. Windows app builds and real-device validation are not claimed.
+
+### Deployment and merge decision
+
+`deploy-web.yml` runs on relevant main pushes and publishes GitHub Pages plus
+Vercel. Main merge would match its `lib/**`/`web/**` paths. There is no verified,
+authorized deployment-free prevention; do **not** merge #5, modify triggers to
+hide the deployment, merge then cancel, or dispatch releases/store uploads.
+No tags, deployments, releases, uploads, force pushes, history rewrites, branch
+deletions or changes to PR #3/#4 were performed. Later verification results belong
+in a subsequent continuation or exact-SHA GitHub evidence, not a retroactive edit
+of this section's facts. **No readiness or final approval is asserted here.**

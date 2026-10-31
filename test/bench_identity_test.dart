@@ -33,7 +33,10 @@ void main() {
       final before = identity('16');
       final after = identity('32');
       expect(after.changeFrom(before), 'configuration changed');
-      expect(after.ratingKey, isNot(before.ratingKey));
+      expect(after.ratingKey, before.ratingKey,
+          reason: 'standings remain keyed by stable engine id');
+      expect(after.identityKey, isNot(before.identityKey),
+          reason: 'measurement identity must include the saved options');
       final overridden = identity('16', run: {'Hash': '64'});
       expect(overridden.configuration, {'Hash': '64', 'Threads': '2'});
       expect(EngineIdentity.fromJson(after.toJson()).configuration,

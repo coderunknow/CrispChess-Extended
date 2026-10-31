@@ -89,6 +89,27 @@ void main() {
   });
 
   group('saving', () {
+    test('switching paths invalidates a matching size/time digest cache', () async {
+      final dir = await Directory.systemTemp.createTemp('lab-digest-');
+      try {
+        final first = File('${dir.path}/first');
+        final second = File('${dir.path}/second');
+        await first.writeAsString('AAAA');
+        await second.writeAsString('BBBB');
+        final stamp = DateTime.utc(2026, 1, 1);
+        await first.setLastModified(stamp);
+        await second.setLastModified(stamp);
+        final a = await store.fingerprintForProfile('same-profile', first.path);
+        final b = await store.fingerprintForProfile('same-profile', second.path);
+        expect(a.stat, b.stat);
+        expect(a.sha256, isNotNull);
+        expect(b.sha256, isNotNull);
+        expect(a.sha256, isNot(b.sha256));
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    });
+
     test('delete removes an index-only history entry', () async {
       await store.saveRun(run);
       storage.primary.remove(_runKey(run.id));
