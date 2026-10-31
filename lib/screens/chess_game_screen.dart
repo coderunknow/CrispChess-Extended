@@ -48,6 +48,7 @@ import '../l10n/generated/app_localizations.dart';
 import 'ai_coach_sheet.dart';
 import 'drill_screen.dart';
 import 'engine_match_screen.dart';
+import 'engine_lab_screen.dart';
 import 'pgn_database_screen.dart';
 import 'position_editor_screen.dart';
 import 'puzzle_screen.dart';
@@ -2640,6 +2641,9 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
             );
           }),
           item(Icons.groups, l?.humanLens ?? 'Human Lens', _openHumanLens),
+          item(Icons.science_outlined, 'Engine Lab', () {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const EngineLabScreen()));
+          }),
           item(Icons.sports_esports, l?.engineVsEngine ?? 'Engine vs Engine', () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => const EngineMatchScreen()));
           }),

@@ -1,5 +1,49 @@
 # Changelog
 
+## 2.3.2-dev2 — Engine Lab development (not released)
+
+- Added a local Engine Lab dashboard with Quick (100 ms), Standard (300 ms),
+  Accurate (1,000 ms) and Custom presets, multi-engine selection, workload
+  estimates, cancellation, live game progress, rating tables, and benchmark
+  history.
+- Engine matches and round robins now preserve stable engine IDs separately
+  from display names. Illegal moves, invalid UCI moves, initialization errors,
+  cancellations and ply-limit adjudications have explicit result states;
+  forfeits and aborted games are not silently recorded as draws or included in
+  strength ratings.
+- Added local persistent benchmark reports with a versioned JSON schema,
+  atomic native snapshot writes and backup recovery, additive validated JSON
+  import, JSON/CSV clipboard export, and PGN clipboard export. Web persistence
+  uses browser storage and is subject to its quota.
+- Relative Bradley–Terry ratings now identify disconnected comparison groups;
+  each is independently centered at 1500 and cannot be compared to other
+  groups. Confidence intervals and quality labels are shown, with uncertainty
+  calculated from observed games rather than the numerical stabilizing prior.
+  Calibrated Elo is explicitly unavailable without matched published reference
+  data.
+- Recorded per-engine move-response latency samples and report median, P95 and
+  maximum latency. Nodes, NPS, CPU and memory remain unavailable through the
+  current engine interface and are not fabricated.
+- Added an opt-in automatic Quick benchmark after a custom UCI engine is
+  successfully added. The global strength level no longer sends `Skill Level`
+  to a custom UCI profile, preserving the profile's explicit override.
+- Improved cancellation/event cleanup in matches and prevented round-robin
+  selection from silently dropping a selected engine that cannot be built.
+- Fixed release Web fallback selection: a valid WASM build requires
+  `main.dart.wasm` and `flutter_bootstrap.js`, not `main.dart.js`; a failed or
+  incomplete WASM build triggers a clean JavaScript rebuild.
+- Improved the manual Engine Strength workflow to publish full logs and a
+  parameter/source-SHA artifact; it explicitly records that binary fingerprints
+  are not produced by the existing headless harness.
+
+**Known dev2 gaps:** changed custom binaries are fingerprinted and can trigger
+an opt-in Quick benchmark when Engine Lab opens; built-in version changes are
+not detected automatically. Adaptive stops, custom opening suites, gauntlet
+mode, configuration sweeps, full stability diagnostics, and charted history are
+not implemented. The current benchmark uses standard-start positions and fixed,
+balanced round-robin pairings. Platform builds and Dart tests must be verified
+in CI; no calibration anchor is claimed.
+
 ## Unreleased — custom UCI engines, finished
 
 ### Engines

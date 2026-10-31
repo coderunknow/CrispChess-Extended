@@ -236,16 +236,22 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Try WASM
-        run: flutter build web --release --wasm
-        continue-on-error: true
-      - name: Fallback JS
+      - name: Build Web (WASM, with a real JS fallback)
+        shell: bash
         run: |
-          # A failed WASM build can leave `build/web` half-written, so check for
-          # the compiler's output rather than the directory — otherwise the
-          # release would tar up an incomplete build and ship it.
-          if [ ! -f "build/web/main.dart.js" -a ! -f "build/web/main.dart.wasm" ]; then
+          # A WASM release is valid with main.dart.wasm and does not require
+          # main.dart.js. Trust both the compiler exit status and its expected
+          # WASM bootstrap artifacts: a failed build can leave partial files.
+          if flutter build web --release --wasm \
+              && test -s build/web/main.dart.wasm \
+              && test -s build/web/flutter_bootstrap.js; then
+            echo "Using verified Flutter WASM output (main.dart.wasm)."
+          else
+            echo "WASM build failed or emitted incomplete output; rebuilding JavaScript."
+            rm -rf build/web
             flutter build web --release
+            test -s build/web/main.dart.js
+            test -s build/web/flutter_bootstrap.js
           fi
       - run: |
           cd build/web

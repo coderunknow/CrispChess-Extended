@@ -24,7 +24,12 @@ class VersionTests(unittest.TestCase):
     def test_reads_pubspec_formats(self):
         with tempfile.TemporaryDirectory() as directory:
             pubspec = Path(directory) / "pubspec.yaml"
-            for value in ("3.2.1+42", "'3.2.1+42'", '"3.2.1+42" # release'):
+            for value in (
+                "3.2.1+42",
+                "'3.2.1+42'",
+                '"3.2.1+42" # release',
+                "3.2.1-dev2+42",
+            ):
                 with self.subTest(value=value):
                     pubspec.write_text(f"name: crispchess\nversion: {value}\n")
                     self.assertEqual(read_version(pubspec), ("3.2.1", "42"))

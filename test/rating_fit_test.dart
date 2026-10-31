@@ -18,6 +18,17 @@ void main() {
     expect(b.losses, 3);
   });
 
+  test('standard errors use the centered joint Fisher information', () {
+    final ratings = fitRatings([
+      g('A', 'B', 0.5),
+      g('B', 'A', 0.5),
+      g('A', 'B', 0.5),
+      g('B', 'A', 0.5),
+    ], prior: 0);
+    expect(ratings[0].stdErr, closeTo((400 / math.ln10) / 2, 1e-6));
+    expect(ratings[1].stdErr, closeTo(ratings[0].stdErr, 1e-9));
+  });
+
   test('the prior keeps an unbeaten player finite', () {
     final r = fitRatings([g('A', 'B', 1), g('B', 'A', 0)]);
     expect(r.first.name, 'A');
@@ -49,6 +60,26 @@ void main() {
   test('expected score is the Elo curve', () {
     expect(expectedScore(1500, 1500), 0.5);
     expect(expectedScore(1700, 1500), closeTo(0.76, 0.01));
+  });
+
+  test('disconnected comparison groups are independently anchored and marked', () {
+    final ratings = fitRatings([
+      g('id-a1', 'id-a2', 1),
+      g('id-b1', 'id-b2', 0),
+    ]);
+    expect(ratings.map((r) => r.name).toSet(), {'id-a1', 'id-a2', 'id-b1', 'id-b2'});
+    expect(ratings.map((r) => r.component).toSet().length, 2);
+    for (final group in [
+      ratings.where((r) => r.component == 0),
+      ratings.where((r) => r.component == 1),
+    ]) {
+      expect(group.map((r) => r.rating).reduce((a, b) => a + b) / 2, closeTo(1500, 1e-6));
+    }
+  });
+
+  test('rejects invalid outcomes and self-play identity collisions', () {
+    expect(() => fitRatings([g('same', 'same', 0.5)]), throwsArgumentError);
+    expect(() => fitRatings([g('A', 'B', 0.25)]), throwsArgumentError);
   });
 
   test('no games, no ratings', () => expect(fitRatings(const []), isEmpty));

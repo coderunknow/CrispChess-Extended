@@ -16,6 +16,7 @@ import 'uci_option.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_position.dart';
 import 'uci_search_coordinator.dart';
+import 'engine_fingerprint.dart';
 
 export 'generic_uci_engine_stub.dart' show EngineProfile;
 export 'chess_engine.dart' show EngineProcessDiedException;
@@ -229,6 +230,13 @@ class GenericUciEngine
       // caller told it started. That is the "a failing engine is saved as a
       // working one" defect this class exists to prevent.
       if (processGone) throw await processDeathReport();
+      try {
+        await refreshEngineFingerprint(profile);
+      } catch (error) {
+        // Fingerprinting is supplementary metadata; a valid engine must remain
+        // usable even if its executable cannot be read back after launch.
+        debugPrint('[UCI] Could not fingerprint $name: $error');
+      }
       _stateNotifier.value = EngineState.ready;
       debugPrint('[UCI] $name ready (${options.length} options)');
     } catch (e) {
@@ -348,9 +356,8 @@ class GenericUciEngine
     if (_process == null) throw StateError('Not initialized');
     if (processGone) throw await processDeathReport();
     _stateNotifier.value = EngineState.thinking;
-    if (skillLevel != null) {
-      _send('setoption name Skill Level value $skillLevel');
-    }
+    // A custom profile's explicit UCI Skill Level is a user-owned option. The
+    // app-wide strength slider must never overwrite it on every move.
 
     // Drive play by time rather than a fixed depth: the cost of a given depth
     // grows by an order of magnitude once the position opens up, which is what

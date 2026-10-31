@@ -202,6 +202,12 @@ in the app binary, nothing is linked, and the app redistributes nothing.
 The earlier `maia-<elo>-opset15.onnx` files in that repo are mis-converted and
 are no longer used — see the repo README. They are unrelated to licensing.
 
+## crypto (Dart package)
+
+- Package: `crypto` 3.0.7 (`pub.dev/packages/crypto`)
+- License: BSD-3-Clause
+- Use: streaming SHA-256 fingerprints for user-selected UCI executables; hashes are local metadata and executable files are not uploaded.
+
 ## Piece Themes
 
 All from Lichess (https://github.com/lichess-org/lila), authors and licences as

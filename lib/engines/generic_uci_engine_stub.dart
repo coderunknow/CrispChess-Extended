@@ -60,6 +60,11 @@ class EngineProfile {
   /// without re-probing; it is not a source of truth for behaviour.
   int optionCount;
 
+  /// Cached content fingerprint and cheap file-stat key. SHA-256 is recomputed
+  /// only when the executable's size or modification time changes.
+  String? binaryFingerprint;
+  String? binaryFingerprintMetadata;
+
   EngineProfile({
     String? id,
     required this.name,
@@ -68,6 +73,8 @@ class EngineProfile {
     this.detectedName,
     this.detectedAuthor,
     this.optionCount = 0,
+    this.binaryFingerprint,
+    this.binaryFingerprintMetadata,
   })  : id = (id == null || id.isEmpty) ? newEngineProfileId() : id,
         optionOverrides = optionOverrides ?? {};
 
@@ -98,6 +105,12 @@ class EngineProfile {
         detectedName: detectedName ?? this.detectedName,
         detectedAuthor: detectedAuthor ?? this.detectedAuthor,
         optionCount: optionCount ?? this.optionCount,
+        binaryFingerprint: path != null && path != this.path
+            ? null
+            : binaryFingerprint ?? this.binaryFingerprint,
+        binaryFingerprintMetadata: path != null && path != this.path
+            ? null
+            : binaryFingerprintMetadata ?? this.binaryFingerprintMetadata,
       );
 
   Map<String, dynamic> toJson() => {
@@ -108,6 +121,9 @@ class EngineProfile {
         if (detectedName != null) 'detectedName': detectedName,
         if (detectedAuthor != null) 'detectedAuthor': detectedAuthor,
         if (optionCount > 0) 'optionCount': optionCount,
+        if (binaryFingerprint != null) 'binaryFingerprint': binaryFingerprint,
+        if (binaryFingerprintMetadata != null)
+          'binaryFingerprintMetadata': binaryFingerprintMetadata,
       };
 
   /// Reads a saved profile, tolerating entries written by older versions.
@@ -143,6 +159,12 @@ class EngineProfile {
           ? json['detectedAuthor'] as String
           : null,
       optionCount: rawCount is int ? rawCount : 0,
+      binaryFingerprint: json['binaryFingerprint'] is String
+          ? json['binaryFingerprint'] as String
+          : null,
+      binaryFingerprintMetadata: json['binaryFingerprintMetadata'] is String
+          ? json['binaryFingerprintMetadata'] as String
+          : null,
     );
   }
 

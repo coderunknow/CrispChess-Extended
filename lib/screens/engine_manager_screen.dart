@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../engines/generic_uci_engine.dart'
     if (dart.library.js_interop) '../engines/generic_uci_engine_web.dart';
 import '../engines/uci_option.dart';
 import '../services/engine_profile_store.dart';
+import '../engines/engine_registry.dart';
+import 'engine_lab_screen.dart';
 
 /// Screen for managing user-added UCI engine profiles.
 ///
@@ -20,11 +23,65 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
   final _store = EngineProfileStore();
   List<EngineProfile> _profiles = [];
   bool _loading = true;
+  bool _autoBenchmarkAfterAdd = false;
+  bool _autoBenchmarkOnBinaryChange = false;
+  static const _autoBenchmarkKey = 'engine_lab_auto_quick_after_add';
+  static const _autoVersionKey = 'engine_lab_auto_quick_on_binary_change';
 
   @override
   void initState() {
     super.initState();
     _loadProfiles();
+    _loadAutomaticBenchmarkSetting();
+  }
+
+  Future<void> _loadAutomaticBenchmarkSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _autoBenchmarkAfterAdd = prefs.getBool(_autoBenchmarkKey) ?? false;
+      _autoBenchmarkOnBinaryChange = prefs.getBool(_autoVersionKey) ?? false;
+    });
+  }
+
+  Future<void> _configureAutomaticBenchmark() async {
+    var afterAdd = _autoBenchmarkAfterAdd;
+    var onBinaryChange = _autoBenchmarkOnBinaryChange;
+    final result = await showDialog<(bool, bool)>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(builder: (context, updateDialog) => AlertDialog(
+        title: const Text('Automatic engine benchmark'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: afterAdd,
+            onChanged: (value) => updateDialog(() => afterAdd = value),
+            title: const Text('Run Quick benchmark after adding an engine'),
+            subtitle: const Text('Compares the new UCI engine against Built-in after a successful probe.'),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: onBinaryChange,
+            onChanged: (value) => updateDialog(() => onBinaryChange = value),
+            title: const Text('Run Quick benchmark after custom binary changes'),
+            subtitle: const Text('The Engine Lab checks cached file metadata and hashes only when it changes. Detection runs when Engine Lab opens.'),
+          ),
+          const Text('Automatic tests are Quick only; Accurate runs are never started in the background.'),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, (afterAdd, onBinaryChange)), child: const Text('Save')),
+        ],
+      )),
+    );
+    if (result == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_autoBenchmarkKey, result.$1);
+    await prefs.setBool(_autoVersionKey, result.$2);
+    if (mounted) setState(() {
+      _autoBenchmarkAfterAdd = result.$1;
+      _autoBenchmarkOnBinaryChange = result.$2;
+    });
   }
 
   Future<void> _loadProfiles() async {
@@ -134,6 +191,14 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
                     ' (${result.optionCount} UCI options)'),
           ),
         );
+        if (_autoBenchmarkAfterAdd) {
+          await Navigator.push(context, MaterialPageRoute(
+            builder: (_) => EngineLabScreen(
+              initialEngineId: customEngineId(result),
+              autoStart: true,
+            ),
+          ));
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -228,7 +293,16 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(l?.engineManager ?? 'Engine Manager')),
+      appBar: AppBar(
+        title: Text(l?.engineManager ?? 'Engine Manager'),
+        actions: [
+          IconButton(
+            tooltip: 'Automatic benchmark settings',
+            onPressed: _configureAutomaticBenchmark,
+            icon: Icon(_autoBenchmarkAfterAdd ? Icons.auto_mode : Icons.auto_mode_outlined),
+          ),
+        ],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _profiles.isEmpty

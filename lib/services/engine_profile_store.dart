@@ -86,6 +86,8 @@ class EngineProfileStore {
           detectedName: profile.detectedName,
           detectedAuthor: profile.detectedAuthor,
           optionCount: profile.optionCount,
+          binaryFingerprint: profile.binaryFingerprint,
+          binaryFingerprintMetadata: profile.binaryFingerprintMetadata,
         );
         _needsRewrite = true;
       }
