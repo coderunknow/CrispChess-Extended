@@ -308,7 +308,7 @@ void main() {
       file.writeAsStringSync('#!/bin/bash\n'
           'echo start >> "$log"\n'
           'while IFS= read -r line; do\n'
-          '  case "$line" in\n'
+          '  case "\$line" in\n'
           '    uci) echo "id name Once"; echo "uciok" ;;\n'
           '    isready) echo "readyok" ;;\n'
           '  esac\n'
