@@ -134,6 +134,17 @@ void main() {
       );
     });
 
+    test('a saved built-in name wins over a namesake user-added engine', () {
+      // Pre-id selection: the user had the built-in Lynx. Later they added a
+      // custom engine whose label happens to be "Lynx". The upgrade must not
+      // quietly start their custom binary instead of what they had chosen.
+      final namesake = _profile('Lynx', id: 'their-lynx');
+      expect(
+        resolveSelectedEngineId(savedName: 'Lynx', profiles: [namesake]),
+        builtInEngineId('Lynx'),
+      );
+    });
+
     test('a legacy saved name is migrated, including a custom engine name', () {
       // Old builds stored only the display name. A user who had a custom
       // engine selected used to land back on the built-in engine.
@@ -203,6 +214,25 @@ void main() {
   });
 
   group('matchEngineChoices', () {
+    test('engine namesakes are told apart in the label', () {
+      // The dropdowns render only the label, so two profiles with one display
+      // name would be indistinguishable — and pickable — as the wrong engine.
+      final first = _profile('Twin', id: 'a');
+      final second = _profile('Twin', id: 'b');
+      final choices = matchEngineChoices(['Built-in'], [first, second]);
+
+      final labels = choices.map((c) => c.label).toList();
+      expect(labels, ['Built-in', 'Twin (1)', 'Twin (2)']);
+      expect(choices.map((c) => c.id).toSet().length, 3,
+          reason: 'the ids were always distinct; the labels now are too');
+    });
+
+    test('a unique name is left alone', () {
+      final choices =
+          matchEngineChoices(['Built-in'], [_profile('Mine', id: 'm1')]);
+      expect(choices.last.label, 'Mine');
+    });
+
     test('lists built-ins then user-added engines', () {
       final custom = _profile('Mine', id: 'm1');
       final choices = matchEngineChoices(['Built-in', 'Lynx'], [custom]);

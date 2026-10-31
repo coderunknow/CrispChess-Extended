@@ -99,6 +99,27 @@ ChessEngine? createEngineOrNull(String name, {
   }
 }
 
+/// Whether [name] is one of the engines that ship with the app.
+///
+/// The same dispatch as [createEngineOrNull], without building anything:
+/// resolving a *saved* name has to prefer a built-in over a user-added engine
+/// that happens to share its label, and constructing every candidate just to
+/// see whether it exists would do work — and start downloads — for a question
+/// about a string.
+bool isBuiltInEngineName(String name) => switch (name) {
+      'Built-in' ||
+      'Stockfish' ||
+      'Frozenight' ||
+      'Maia3' ||
+      'Maia3 Dart' ||
+      'ChessMamba' ||
+      ghostEngineName ||
+      'Lc0' ||
+      'Lynx' =>
+        true,
+      _ => searchlessSizeNamed(name) != null || chessLmSpecNamed(name) != null,
+    };
+
 /// Create a [ChessEngine] from a user-added engine profile.
 ///
 /// Only available on native platforms (not web).

@@ -199,6 +199,11 @@ String resolveSelectedEngineId({
   }
 
   if (savedName != null && savedName.isNotEmpty) {
+    // A name saved without an id predates ids. If it is a built-in engine's
+    // name, that is what the user had selected — a user-added engine that was
+    // added later and happens to share the label must not take the selection
+    // over, which would change which binary starts without anyone choosing it.
+    if (isBuiltInEngineName(savedName)) return builtInEngineId(savedName);
     for (final profile in profiles) {
       if (profile.displayName == savedName || profile.name == savedName) {
         return customEngineId(profile);
@@ -223,8 +228,23 @@ List<({String id, String label})> matchEngineChoices(
       (id: builtInEngineId(name), label: name),
   ];
   if (customEnginesSupported) {
+    // Two profiles may share a display name — ids are exactly what tells them
+    // apart — but these labels are all the match dropdowns have to go on, and
+    // identical labels there mean the wrong engine can be picked without the
+    // user being able to see it. Number the ones that would otherwise collide.
+    final totals = <String, int>{};
     for (final profile in profiles) {
-      choices.add((id: customEngineId(profile), label: profile.displayName));
+      totals[profile.displayName] = (totals[profile.displayName] ?? 0) + 1;
+    }
+    final seen = <String, int>{};
+    for (final profile in profiles) {
+      var label = profile.displayName;
+      if ((totals[label] ?? 0) > 1) {
+        final n = (seen[label] ?? 0) + 1;
+        seen[label] = n;
+        label = '$label ($n)';
+      }
+      choices.add((id: customEngineId(profile), label: label));
     }
   }
   return choices;
