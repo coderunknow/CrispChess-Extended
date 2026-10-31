@@ -355,3 +355,22 @@ so no conflicting identity is published now.
 | `test/engine_registry_test.dart`, `test/engine_profile_store_test.dart`, `test/generic_uci_init_test.dart` | **new** — see §1 |
 | `tool/dev/parse_check.py` | **new** — tree-sitter syntax check used during this audit |
 | `README.md`, `CHANGELOG.md` | documentation of the above |
+
+---
+
+## 7. Release verification log
+
+| Step | Result |
+|---|---|
+| Branch `arena/6eac624a-scrispchess-extended` pushed | `65dac93` (`feat(engines): finish custom UCI integration…`) |
+| Pull request | [#1](https://github.com/coderunknow/ScrispChess-Extended/pull/1), open, not merged |
+| GitHub Actions on the PR head | **none.** `/actions/runs` → `total_count: 0`; `/actions/workflows` → `total_count: 0` although 12 workflow files are present. The token cannot read or set Actions permissions (`403 Resource not accessible by integration`), so Actions could not be enabled |
+| Check runs on `65dac93` | `Kilo Code Review` → **fail** ("could not run — your account is out of credits"); Qodo → **paused** ("trial has ended"); CodeRabbit → **skipped** ("repository has fewer than 10 stars") |
+| Merge | **withheld** — the merge gate requires passing tests and builds, and none could be run |
+| Tag | **not created** (no tag existed before; creating one would assert a verified artifact) |
+| GitHub pre-release | **not created** |
+| Version | unchanged: `2.3.1+17` |
+
+Because every available verification channel was unavailable, the honest
+classification of this change is: **implemented, syntax-checked, and manually
+reviewed — not unit-tested, not built, and not runtime-tested.**
