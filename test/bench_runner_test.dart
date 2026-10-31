@@ -158,6 +158,8 @@ void main() {
           isTrue);
       expect(alpha.disposed, isTrue);
       expect(beta.disposed, isTrue);
+      expect(alpha.disposeCalls, 1);
+      expect(beta.disposeCalls, 1);
     });
 
     test('each colour wins one game, so the fit is centred', () async {

@@ -300,7 +300,9 @@ class BenchmarkService {
     _active = runner;
     try {
       final run = await runner.run();
-      await store.saveRun(run);
+      // The runner already performs the final save and records failures.
+      // Saving twice could rotate the same document over its recovery copy,
+      // or hide a completed run from the caller on browser quota failure.
       return run;
     } finally {
       _active = null;

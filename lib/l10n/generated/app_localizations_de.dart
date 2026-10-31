@@ -1732,7 +1732,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get engineLabZeroIsNever => '0 = ganzen Plan spielen';
 
   @override
-  String get engineLabZeroIsTime => '0 = Uhrzeit verwenden';
+  String get engineLabZeroIsTime => '0 = Bedenkzeit verwenden';
 
   @override
   String get engineLabZeroIsUnlimited => '0 = kein Limit';

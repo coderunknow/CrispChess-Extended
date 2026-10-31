@@ -29,7 +29,6 @@ on:
 # Least privilege: read the repository, write one comment on the pull request.
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: lab-diagnostics-${{ github.ref }}
@@ -45,8 +44,13 @@ jobs:
       contains(github.event.pull_request.body, 'LAB-DIAGNOSTICS')
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      analyze_exit: ${{ steps.analyze.outputs.analyze_exit }}
+      test_exit: ${{ steps.test.outputs.test_exit }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: subosito/flutter-action@v2
         with:
@@ -73,13 +77,34 @@ jobs:
           echo "test_exit=$?" >> "$GITHUB_OUTPUT"
           tail -n 5 "$RUNNER_TEMP/test.txt"
 
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lab-diagnostics-output
+          path: |
+            ${{ runner.temp }}/analyze.txt
+            ${{ runner.temp }}/test.txt
+          if-no-files-found: warn
+
+  post:
+    needs: diagnostics
+    if: ${{ always() && needs.diagnostics.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: lab-diagnostics-output
+          path: ${{ runner.temp }}
       - name: Post the output as a pull-request comment
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
-          ANALYZE_EXIT: ${{ steps.analyze.outputs.analyze_exit }}
-          TEST_EXIT: ${{ steps.test.outputs.test_exit }}
+          ANALYZE_EXIT: ${{ needs.diagnostics.outputs.analyze_exit }}
+          TEST_EXIT: ${{ needs.diagnostics.outputs.test_exit }}
           # For a pull_request event `github.sha` is the merge commit; the
           # commit under review is the head one.
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -146,4 +171,4 @@ jobs:
           ])
           Path("diagnostics.md").write_text(body)
           PY
-          gh pr comment "$PR_NUMBER" --body-file diagnostics.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file diagnostics.md

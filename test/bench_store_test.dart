@@ -89,6 +89,21 @@ void main() {
   });
 
   group('saving', () {
+    test('delete removes an index-only history entry', () async {
+      await store.saveRun(run);
+      storage.primary.remove(_runKey(run.id));
+      storage.backup.remove(_runKey(run.id));
+      expect(await store.deleteRun(run.id), isTrue);
+      expect(await store.summaries(), isEmpty);
+    });
+
+    test('unsafe imported ids report a format error without touching storage', () async {
+      final document = run.toJson();
+      document['id'] = '../escape';
+      await expectLater(store.importJson(jsonEncode(document)), throwsFormatException);
+      expect(storage.primary, isEmpty);
+    });
+
     test('missing or non-list index is rebuilt from durable documents', () async {
       await store.saveRun(run);
       storage.primary.remove(kBenchmarkIndexKey);

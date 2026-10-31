@@ -95,6 +95,10 @@ jobs:
           TOURNAMENT_HANG_SECONDS: "60"
         run: |
           set -o pipefail
+          for value in "$TOURNAMENT_MOVETIME_MS" "$TOURNAMENT_GAMES" "$TOURNAMENT_PLY_CAP"; do
+            case "$value" in ''|*[!0-9]*) echo "Tournament budgets must be positive integers" >&2; exit 1 ;; esac
+            [ "$value" -gt 0 ] || exit 1
+          done
           flutter test tool/perf/tournament.dart --timeout none 2>&1 | tee run.log
 
       # Store the parameters beside the complete console log so a summary is

@@ -208,13 +208,13 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
       try {
         final run = await service.runAutomatic(decision);
         if (!mounted || run == null) return;
+        final navigator = Navigator.of(context);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${engine.label}: '
               '${run.gamesCompleted} rated game(s) after the change'),
           action: SnackBarAction(
             label: AppLocalizations.of(context)?.engineLabOpenReport ?? 'Report',
-            onPressed: () => Navigator.push(
-              context,
+            onPressed: () => navigator.push(
               MaterialPageRoute(
                   builder: (_) => const EngineLabScreen(initialTab: 2)),
             ),
@@ -256,6 +256,7 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
     try {
       final run = await service.runAutomatic(decision);
       if (!mounted || run == null) return;
+      final navigator = Navigator.of(context);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('${profile.displayName}: ${run.gamesCompleted} '
             'rated game(s), '
@@ -264,8 +265,7 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
             '${run.ratings.ratingFor(customEngineId(profile))?.rating.toStringAsFixed(0) ?? '—'}'),
         action: SnackBarAction(
           label: AppLocalizations.of(context)?.engineLabOpenReport ?? 'Report',
-          onPressed: () => Navigator.push(
-            context,
+          onPressed: () => navigator.push(
             MaterialPageRoute(
                 builder: (_) => const EngineLabScreen(initialTab: 2)),
           ),

@@ -447,6 +447,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
 
   Future<void> _runStability(String engineId) async {
     await _loadIdentityForDiagnostics(engineId);
+    if (!mounted) return;
     setState(() {
       _probing = true;
       _stabilityEngineId = engineId;
@@ -813,7 +814,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                     l?.engineLabAutoAfterChange ?? 'When an engine changes'),
               ),
               LabInfoRow(
-                label: l?.engineLabBudget ?? 'Budget',
+                label: l?.engineLabAutoBudget ?? 'Budget',
                 value: '${_auto.maxGames} ${l?.engineLabGames ?? 'games'} · '
                     '${_auto.maxDuration.inMinutes} min',
               ),
@@ -1338,9 +1339,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           value: _formatDuration(
               estimateWorkload(_config,
                       engineCount: _selected.length < 2 ? 2 : _selected.length,
-                      pairings: _selected.length < 2
-                          ? 1
-                          : _selected.length * (_selected.length - 1) ~/ 2)
+                      pairings: _selected.length < 2 ? 1
+                          : _format == TournamentFormat.gauntlet
+                              ? _selected.length - 1
+                              : _selected.length * (_selected.length - 1) ~/ 2)
                   .estimated),
         ),
         Row(
@@ -1621,19 +1623,8 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     bool enabled = true,
     String? helper,
   }) =>
-      TextFormField(
-        key: ValueKey('$label-$value-$enabled'),
-        initialValue: '$value',
-        enabled: enabled,
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(
-          labelText: label,
-          helperText: helper,
-          helperMaxLines: 2,
-          isDense: true,
-        ),
-        onChanged: (text) => onChanged(int.tryParse(text.trim())),
-      );
+      LabNumberField(key: ValueKey(label), label: label, value: value,
+          enabled: enabled, helper: helper, onChanged: onChanged);
 
   // ------------------------------------------------------------------- tab 3
 
@@ -1660,8 +1651,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     final high = ratings.isEmpty
         ? 0.0
         : ratings.map((r) => r.ciHigh).reduce((a, b) => a > b ? a : b);
-    final compareA = _compareA ?? (ratings.isEmpty ? null : ratings.first.engineId);
-    final compareB = _compareB ?? (ratings.length < 2 ? null : ratings.last.engineId);
+    final compareA = ratings.any((r) => r.engineId == _compareA)
+        ? _compareA : (ratings.isEmpty ? null : ratings.first.engineId);
+    final compareB = ratings.any((r) => r.engineId == _compareB)
+        ? _compareB : (ratings.length < 2 ? null : ratings.last.engineId);
     final comparison = compareA != null && compareB != null
         ? run.ratings.compare(compareA, compareB)
         : null;
@@ -1858,9 +1851,9 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     if (aggregate.moveMillis.isEmpty) {
       return l?.engineLabNoMetrics ?? 'no move timing recorded';
     }
-    return 'p50 ${aggregate.percentile(50)} ms · '
-        'p95 ${aggregate.percentile(95)} ms · '
-        'p99 ${aggregate.percentile(99)} ms · '
+    return 'p50 ${aggregate.percentile(0.5)} ms · '
+        'p95 ${aggregate.percentile(0.95)} ms · '
+        'p99 ${aggregate.percentile(0.99)} ms · '
         'max ${aggregate.maxMillis} ms';
   }
 

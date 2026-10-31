@@ -48,10 +48,16 @@ class PrefsBenchmarkStorage implements BenchmarkStorage {
     final prefs = await _instance();
     final storageKey = '$kBenchmarkStoragePrefix$key';
     final existing = prefs.getString(storageKey);
-    if (existing != null && existing.isNotEmpty) {
-      await prefs.setString('$storageKey$kBenchmarkStorageBackupSuffix', existing);
+    try {
+      if (existing != null && existing.isNotEmpty) {
+        if (!await prefs.setString('$storageKey$kBenchmarkStorageBackupSuffix', existing)) {
+          throw StateError('Backup write rejected');
+        }
+      }
+      if (!await prefs.setString(storageKey, value)) throw StateError('Write rejected');
+    } catch (error) {
+      throw StateError('Browser storage rejected the write for $key: $error');
     }
-    await prefs.setString(storageKey, value);
   }
 
   @override

@@ -431,3 +431,57 @@ class ProgressionBar extends StatelessWidget {
     );
   }
 }
+
+/// Keeps the user's in-progress text while configuration callbacks clamp values.
+/// External model changes synchronize only while the field is not being edited.
+class LabNumberField extends StatefulWidget {
+  final String label;
+  final int value;
+  final bool enabled;
+  final String? helper;
+  final ValueChanged<int?> onChanged;
+  const LabNumberField({super.key, required this.label, required this.value,
+    required this.enabled, this.helper, required this.onChanged});
+
+  @override
+  State<LabNumberField> createState() => _LabNumberFieldState();
+}
+
+class _LabNumberFieldState extends State<LabNumberField> {
+  late final TextEditingController _controller =
+      TextEditingController(text: '${widget.value}');
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_sync);
+  }
+
+  void _sync() {
+    if (!_focus.hasFocus) _controller.text = '${widget.value}';
+  }
+
+  @override
+  void didUpdateWidget(covariant LabNumberField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) _sync();
+  }
+
+  @override
+  void dispose() {
+    _focus.removeListener(_sync);
+    _focus.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+    controller: _controller, focusNode: _focus, enabled: widget.enabled,
+    keyboardType: TextInputType.number,
+    decoration: InputDecoration(labelText: widget.label,
+      helperText: widget.helper, helperMaxLines: 2, isDense: true),
+    onChanged: (text) => widget.onChanged(int.tryParse(text.trim())),
+  );
+}

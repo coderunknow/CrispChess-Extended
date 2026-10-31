@@ -164,6 +164,7 @@ class BenchmarkRunner {
       StreamController<BenchmarkEvent>.broadcast();
   final List<BenchGame> _games = [];
   final Map<String, _LiveEngine> _live = {};
+  final Set<ChessEngine> _disposedEngines = Set<ChessEngine>.identity();
   final List<String> _warnings = [];
 
   final DateTime _startedAt = DateTime.now();
@@ -278,6 +279,9 @@ class BenchmarkRunner {
         await _untilStopped(live.engine.initialize());
         init.stop();
         live.initMillis = init.elapsedMilliseconds;
+        if (live.engine.state != EngineState.ready) {
+          throw StateError('initialize returned with state ${live.engine.state.name}');
+        }
         if (config.nodeLimit != null && live.engine is! NodeLimitedEngine) {
           throw UnsupportedError('Engine does not support node-limited search');
         }
@@ -416,12 +420,13 @@ class BenchmarkRunner {
     // state (status, forfeits, refined identities) is kept: clearing it here
     // would label every engine "skipped" in the report it just produced.
     await _disposeEngines(keepState: true);
-    final run = _buildRun();
+    var run = _buildRun();
     if (onProgressSave != null) {
       try {
         await onProgressSave!(run);
       } catch (error) {
         _warnings.add('The finished run could not be stored: $error');
+        run = _buildRun();
       }
     }
     if (!_events.isClosed) _events.add(BenchmarkFinishedEvent(run));
@@ -643,6 +648,7 @@ class BenchmarkRunner {
 
   Future<void> _disposeEngines({bool keepState = false}) async {
     for (final live in _live.values) {
+      if (!_disposedEngines.add(live.engine)) continue;
       try {
         live.engine.dispose();
       } catch (error) {

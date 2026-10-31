@@ -78,6 +78,7 @@ class ScriptedEngine extends ChessEngine
   Completer<void>? stopGate;
 
   bool disposed = false;
+  int disposeCalls = 0;
   int stopCalls = 0;
   int drainCalls = 0;
   SearchStatistics stats = SearchStatistics.none;
@@ -148,6 +149,7 @@ class ScriptedEngine extends ChessEngine
 
   @override
   void dispose() {
+    disposeCalls++;
     disposed = true;
     _state = EngineState.disposed;
   }

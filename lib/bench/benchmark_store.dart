@@ -437,9 +437,10 @@ class BenchmarkStore {
   Future<bool> deleteRun(String id) => _serialised(() async {
         await init();
         final raw = await storage.read('$kBenchmarkRunPrefix$id');
-        if (raw == null) return false;
-        await storage.delete('$kBenchmarkRunPrefix$id');
         final summaries = await this.summaries();
+        final listed = summaries.any((summary) => summary.id == id);
+        if (raw == null && !listed) return false;
+        await storage.delete('$kBenchmarkRunPrefix$id');
         await _writeIndex([
           for (final summary in summaries)
             if (summary.id != id) summary
@@ -548,7 +549,16 @@ class BenchmarkStore {
         throw const FormatException('A run in that document has no games.');
       }
 
-      final parsed = BenchmarkRun.fromJson(_migrate(payload, schemaVersion));
+      final BenchmarkRun parsed;
+      try {
+        parsed = BenchmarkRun.fromJson(_migrate(payload, schemaVersion));
+      } catch (error) {
+        throw FormatException('Unreadable benchmark run: $error');
+      }
+      if (!RegExp(r'^[A-Za-z0-9_-][A-Za-z0-9._-]*$').hasMatch(parsed.id) ||
+          parsed.id.contains('..')) {
+        throw const FormatException('Invalid benchmark run id.');
+      }
       // Existence, not successful decoding: a future-schema document belongs
       // to the user too and must not be downgraded by an import.
       final existing = await storage.read('$kBenchmarkRunPrefix${parsed.id}') ??
