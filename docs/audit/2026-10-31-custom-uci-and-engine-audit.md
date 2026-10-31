@@ -1115,3 +1115,80 @@ switch is still in flight, or by returning from Settings during one.
 
 No Dart process was executed for this round either, so the two fixes above are
 reviewed and covered by tests that will run in CI, not executed here.
+
+## 13. Sixth round — Engine Lab (v2.3.2-dev2)
+
+This round adds the Engine Lab: a benchmark runner, a rating fit with
+intervals, durable history and a report. It also fixes the two defects this
+audit left open in §11.1 and §11.5 (results keyed by display name, and games
+that did not finish recorded as draws).
+
+### 13.1 What was built
+
+| Area | Where | What it does |
+|---|---|---|
+| Fingerprints | `lib/bench/benchmark_fingerprint{,_io,_web}.dart` | SHA-256 of an engine binary, cached against size+mtime; `hostSummary()` for the environment line |
+| Identity | `lib/bench/engine_identity.dart` | stable `builtin:`/`custom:` id, self-reported name, fingerprint + kind, option and configuration digests, `cohortKey`, `changeFrom` |
+| Configuration | `lib/bench/benchmark_config.dart` | presets quick/standard/accurate/custom, budgets and caps, adaptive stopping, `validateConfig`, `estimateWorkload` |
+| Schedule | `lib/bench/benchmark_plan.dart` | pairings, colours, openings, warm-ups, one plan per run |
+| Game loop | `lib/bench/game_player.dart` + `game_record.dart` | legal-move-checked play, forfeit/adjudication/cancellation as distinct outcomes, per-move telemetry |
+| Ratings | `lib/bench/elo.dart` (+ `lib/services/rating_fit.dart`) | Bradley–Terry MLE with a prior, geometric-mean centring, Fisher-information SE, 95% intervals, quality grades, connectivity, comparisons, regression detector |
+| Calibration | `lib/bench/calibration.dart` | calibrated Elo only from a declared, sourced anchor in the same cohort with a matching move budget (±20%) |
+| Storage | `lib/bench/benchmark_store.dart`, `benchmark_storage*.dart` | one JSON document per run, schema version, SHA-256 checksum, quarantine, migration, import that never overwrites |
+| Runner | `lib/bench/benchmark_runner.dart` | init checks, option application with per-engine warnings, pause/resume/cancel, forfeit knockout, partial saves, adaptive stop |
+| Stability | `lib/bench/stability_probe.dart` | repeated start-up and repeated searches; hangs and leaks reported, not averaged away |
+| Service | `lib/bench/benchmark_service.dart`, `benchmark_settings.dart` | candidate inventory, identity resolution, run creation, automatic-run policy |
+| UI | `lib/screens/engine_lab_screen.dart`, `benchmark_report_screen.dart`, `lib/widgets/engine_lab/lab_widgets.dart` | five-tab Lab (overview, benchmark, ratings, history, diagnostics) and a per-run report |
+| Match/tournament | `lib/services/engine_match_service.dart`, `engine_match_screen.dart` | now use the shared game loop, ids and the shared rating fit |
+| Entry points | `settings_screen.dart`, `chess_game_screen.dart`, `engine_match_screen.dart`, `engine_manager_screen.dart` | the Lab is reachable from Settings, the in-game menu, the match screen, and after adding an engine |
+
+### 13.2 Defects closed from earlier rounds
+
+- **§11.1 (results keyed by display name).** `GameResult` now carries
+  `whiteId`/`blackId`; `EngineMatchService.scores`, `gamesPlayed`,
+  `TournamentService.standings` and every rating are keyed by id. The match
+  screen resolves labels through `engineLabelForId`, so two profiles called
+  "Stockfish" stay two players and a renamed profile keeps its history.
+- **§11.5 (false draws).** `GameOutcome` distinguishes win, draw, forfeit,
+  adjudicated, aborted and cancelled. A game that ended without a result is
+  counted, given a reason and excluded from the fit; it is never scored 0.5.
+  This is enforced in one place (`fitRunRatings` / `game_player.dart`), so the
+  match screen cannot disagree with the Lab.
+- **Round-robin-only tournaments.** `TournamentFormat.gauntlet` exists in the
+  plan, the runner, the Lab and `TournamentService`; a gauntlet without a
+  reference is refused rather than silently run as a round robin.
+
+### 13.3 Verification in this round
+
+| Gate | Result |
+|---|---|
+| `tool/dev/parse_check.py` over all 266 Dart files | **PASS** |
+| `tool/bench/verify_rating_math.py --trials 400` (25 checks) | **PASS** (two seeds) |
+| `python3 -m unittest discover -s tools/tests` | **PASS** — 19/19 |
+| `tool/dev/l10n_add_keys.py --from-file … --check` | **PASS** — all 54 round-six keys present in EN, DE and the three generated files |
+| PyYAML over `.github/workflows/benchmark.yml` | **PASS** |
+| `flutter analyze` | **BLOCKED** — no SDK in this environment |
+| `flutter test` (5 new test files) | **BLOCKED** — no SDK here; they run in CI |
+| Running a benchmark end to end | **BLOCKED** — needs Flutter and an engine |
+
+**No Dart process was executed in this round.** The files parse; the rating
+*algorithm* is verified by an independent Python implementation; nothing here
+is evidence that the Dart code compiles, links or behaves as reviewed. The
+first real evidence will be the `Engine Lab` workflow and `CI` jobs.
+
+### 13.4 Known limits of what the Lab claims
+
+- Ratings are relative. The scale is centred on 1500 across the engines in one
+  run; a number from one run is not comparable with a number from another
+  unless the engine set overlaps. The report says which cohort a run belongs
+  to.
+- Calibrated Elo needs a declared anchor with a source, date, hardware and
+  time control, and a move budget within 20%. Without that the Lab refuses to
+  invent an absolute number, and prints the reason.
+- The standard error treats the other engines as fixed, so it overstates the
+  uncertainty of a *difference* in small pools. The comparison text says so,
+  and `verify_rating_math.py` asserts the interval never under-covers.
+- Automatic runs are the Quick preset, capped at 24 games and 10 minutes, and
+  are skipped on web or when the engine cannot be fingerprinted.
+- A browser cannot fingerprint or start a user-supplied executable, so the
+  custom-engine path is listed as unavailable there rather than hidden.

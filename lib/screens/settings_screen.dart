@@ -14,6 +14,7 @@ import '../engines/engine_registry.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
 import '../widgets/ghost_profile_card.dart';
+import 'engine_lab_screen.dart';
 import 'engine_manager_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -597,6 +598,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 );
               }).toList(),
+            ),
+          ),
+
+          // Engine Lab: benchmarks and rating history. Available on every
+          // platform — the built-in and WASM engines can be benchmarked in a
+          // browser too; only user-supplied executables cannot.
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.science_outlined, size: 18),
+              label: Text(l?.engineLab ?? 'Engine Lab'),
+              onPressed: () async {
+                await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const EngineLabScreen()));
+              },
             ),
           ),
 
