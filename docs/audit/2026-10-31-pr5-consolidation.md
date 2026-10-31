@@ -452,3 +452,109 @@ These add to, rather than erase, the prior four P2 findings. No explicit new
 Codex review command was requested. The corrected later head still needs actual
 exact-head execution and a completed fresh CodeRabbit review. Main remains
 untouched and deployment-free merge remains unverified/prohibited.
+
+## 11. Final-review and deployment-free release gate follow-up
+
+2026-10-31 continuation, session branch
+`arena/f696497f-scrispchess-extended`. The new checkout started at main; it was
+fast-forwarded to the exact existing PR head without rewriting history or
+changing branches. No product code was changed and no previously verified build
+or 85-file audit was repeated.
+
+### Exact-head review and the four remaining Major threads
+
+PR #5 remains OPEN, base `main`, head `consolidation/engine-lab-pr5`, SHA
+**f7c23727eb5b0c508ef297db1424c3c9979a14de**. CI **41208369872** is completed
+success at that exact SHA. The macOS job **124559751197** includes successful
+numeric-version build and bundle-verification steps. The existing hosted test
+record remains 768 passed / 24 skipped; analyzer exit 0 with nonfatal warnings.
+
+The four Major threads were read, checked against current code and returned to
+the reviewer with exact-SHA evidence. **CodeRabbit itself independently verified
+and resolved all four**, without an author-side resolve mutation:
+
+| Original finding | Reviewer acceptance/resolution reply |
+| --- | --- |
+| 4431906820, double disposal | 4432048769 |
+| 4431906824, concurrent execution reservation | 4432048772 |
+| 4431906831, percentile fractions | 4432048910 |
+| 4431906838, numeric macOS bundle version | 4432049653 |
+
+Official command documentation was checked at
+https://docs.coderabbit.ai/reference/review-commands. `@coderabbitai rate limit`
+(comment **6544741590**) received reply **6544742856** at 14:32:16Z saying more
+reviews would be available in 3 minutes. After that reset, one standalone
+`@coderabbitai full review` was posted at 14:36Z, comment **6544789004**.
+Acknowledgement **6544790089** subsequently changed to **Full review finished**.
+No duplicate request was made while this review was running.
+
+**Completed actual full review:**
+https://github.com/coderunknow/CrispChess-Extended/pull/5#pullrequestreview-5723393892
+on **f7c23727eb5b0c508ef297db1424c3c9979a14de**.
+Check **124565492010**, run **c14b36a4-f0c8-4fdd-b0f8-155e69518295**, completed
+success / Finished; elapsed 16m02s. All scope preparation, analysis, feedback and
+publication stages completed. The review body separately identifies internal
+run `f6f3419a-d8d9-4c61-beab-d2977edc0bfb`. It examined all 82 selected files;
+three generated localization files were excluded by the reviewer's default path
+filter. Review range is main `20bc1b8` through exact PR head `f7c2372`.
+
+The new review is **COMMENTED, not APPROVED**. It reports **19 actionable Minor,
+0 Major, 0 Critical**. The 19 new Minor threads remain open and are neither
+silently waived nor declared fixed. Their IDs are 4432113030, 4432113035,
+4432113038, 4432113041, 4432113042, 4432113046, 4432113049, 4432113059,
+4432113063, 4432113066, 4432113069, 4432113075, 4432113082, 4432113083,
+4432113087, 4432113092, 4432113099, 4432113102 and 4432113108. Thus the four
+old Major gates are reviewer-resolved and a genuine final-head full review now
+exists, but this record does not claim all review findings or approval gates
+are clear. No code edit was made merely to restart the one-review-per-hour
+allowance or invalidate the completed exact-head evidence.
+
+### Protection: supported read-only alternatives to the failing endpoint
+
+The dedicated `/branches/main/protection` endpoint still returns 403 Resource
+not accessible by integration. Repository metadata lists admin/push capability,
+which does not prove the integration token can read that endpoint. Rather than
+infer policy from that 403, supported alternatives were queried:
+
+- `GET /branches/main`: `protected:false`, protection enabled false, required
+  check contexts/checks empty and enforcement off.
+- GraphQL `defaultBranchRef.branchProtectionRule`: null.
+- `GET /rulesets` and `GET /rules/branches/main`: both empty arrays.
+- PR server state: MERGEABLE / CLEAN; reviewDecision null.
+
+These responses expose no effective branch protection requirement at inspection
+time. No protection, reviewer, status-check, permission or merge-queue setting
+was changed. CLEAN is not reviewer approval and does not satisfy no-deployment.
+A speculative merge was not attempted because the deployment gate already fails.
+
+### Actual non-deployment blockers to merge/tag/release
+
+`deploy-web.yml` is **active** in GitHub. On push to main, its paths-ignore list
+excludes docs/tests/platform folders/workflow metadata, but **does not exclude
+lib/**, web/** or pubspec.yaml**. PR #5 changes those paths. The workflow builds
+and publishes Pages, then calls `vercel deploy --prod`. Neither job nor those
+steps has a merge-method-specific no-deployment condition. Normal merge,
+squash and rebase all update main with matching paths; none is an evidenced safe
+alternative. No triggers were changed, no skip trick used, and no merge-then-
+cancel attempted. This is an independent hard blocker even after review/CI.
+
+There is an additional tag risk: active `ios-release.yml` handles push of `v*`
+tags and has App Store/TestFlight upload/submission steps. Its manual dry_run
+input defaults true, but a tag push is not a manually dispatched dry run. A
+version tag cannot be claimed upload-free. `release.yml` also builds/publishes
+on `v*`. Neither was dispatched or altered.
+
+The current source version is 2.3.2+18. Tag **v2.3.2-dev1 already exists**, an
+annotated tag object `a246c0f894939e2ede62f5382be26d3e1b93c9ec` targeting main
+**20bc1b8e670f8d75152a465ec3da094b2fcf2997**; its existing GitHub prerelease is
+https://github.com/coderunknow/CrispChess-Extended/releases/tag/v2.3.2-dev1 .
+It was not created in this continuation and is not a release of PR #5. The
+recorded release policy prescribes verified merge commit then prerelease; it
+does not authorize stable release of this unmerged feature branch. No replacement
+or arbitrary next version was invented.
+
+**Outcome:** full review completed and all four old Major threads accepted by
+the reviewer; PR remains OPEN, main unchanged, no merge commit, no new tag or
+release, and no deployment/upload initiated. New Minor findings remain visible.
+This append-only log is kept on the session branch separately from the reviewed
+PR head so logging does not invalidate the exact-head review/CI evidence.
