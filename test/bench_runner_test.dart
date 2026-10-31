@@ -366,7 +366,9 @@ void main() {
       final run = await runner.run();
       expect(run.games, hasLength(8));
       expect(run.games.every((game) => game.outcome == GameOutcome.forfeit), isTrue);
-      expect(run.engineStatus.values.every((status) => status.status == 'completed'), isTrue);
+      expect(run.engineStatus.values.every((status) => status.status == 'partial'), isTrue,
+          reason: 'forfeits must stay visible without prematurely removing either engine');
+      expect(run.aggregates().values.every((aggregate) => aggregate.forfeitLosses == 4), isTrue);
       expect(run.stopReason, 'completed');
     });
 
