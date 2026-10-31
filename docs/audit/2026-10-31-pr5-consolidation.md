@@ -5,7 +5,7 @@ Branch: `consolidation/engine-lab-pr5` (also pushed as
 `arena/d77cd611-scrispchess-extended`, same tree)
 Sources: PR #3 (`6344129`) and PR #4 (`b4ec77a`), both branched from
 `main` @ `20bc1b8`
-Status: draft, open for review
+Status: ready for review
 
 ---
 
@@ -163,15 +163,19 @@ runs the same gates as `ci.yml` and posts their output as a PR comment.
 | Workflow YAML | `python3 -c "yaml.safe_load(...)"` over `.github/workflows/*.yml` | all parse |
 | Workflow shell | `bash -n` on every `run:` block in the diagnostics workflow | clean |
 | Whitespace | `git diff --check` | clean |
-| Type analysis | `flutter analyze --no-fatal-infos --no-fatal-warnings` (CI parity) | **exit 0** at `8b3e4a8` ([diagnostics run](https://github.com/coderunknow/ScrispChess-Extended/actions/runs/41202978558)) |
-| Unit/widget tests | `flutter test` (CI parity) | **exit 0** at `8b3e4a8` (same run) |
-| Engine Lab gate | `Engine Lab` workflow (plan tests, rating maths reference, localisation) | **success** at `8b3e4a8` ([run](https://github.com/coderunknow/ScrispChess-Extended/actions/runs/41202978541)) |
+| Type analysis | `flutter analyze --no-fatal-infos --no-fatal-warnings` (CI parity) | **exit 0** — `Lab diagnostics`; the exact SHA and run link are in the pull-request description, because this file cannot name a commit that must exist before it can be written |
+| Unit/widget tests | `flutter test` (CI parity) | **exit 0** — same run |
+| Engine Lab gate | `Engine Lab` workflow (plan tests, rating maths reference, localisation) | **success** — same SHA |
+| Application builds | `CI`: Build Android, iOS, Linux, macOS, Web (WASM) | **success** — same SHA |
+| Engine builds | `CI`: Frozenight for Android arm64, Linux, Windows, WASM, iOS, macOS | **success** — same SHA |
+| Windows application build | — | **BLOCKED** — `ci.yml` has no Windows *application* job (only the Windows engine build); not claimed |
+| macOS/iOS release upload | `macos-appstore.yml`, `ios-release.yml` | **NOT RUN** — release-triggered; not claimed |
 
 Earlier commits of this branch failed these gates, and the failures are what
-drove the last three commits: the imported PR #3 code did not type-check at all
-(§4, 3.10), and two of PR #3's own tests encoded behaviour its code no longer
-had. The results above belong to `8b3e4a8` only; a green run on an earlier
-commit is not evidence for a later one.
+drove the last fixes: the imported PR #3 code did not type-check at all (§4,
+3.10), and two of PR #3's own tests encoded behaviour its code no longer had.
+Each result above belongs to one commit, named in the pull request; a green run
+on an earlier commit is never used as evidence for a later one.
 
 ## 6. Two judgement calls worth reviewing
 
