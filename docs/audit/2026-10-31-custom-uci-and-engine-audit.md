@@ -620,3 +620,23 @@ and the ones that did not were the outliers.
 | `test/engine_registry_test.dart` | unknown `builtin:` id throws; `looksLikeEngineId` |
 | `test/engine_contract_test.dart` | `createEngineOrNull` vs the documented fallback |
 | `test/generic_uci_init_test.dart` | post-handshake lifecycle: no resurrection, one process for concurrent starts, retry after failure |
+
+### Release-verification log — second round
+
+| Step | Result |
+|---|---|
+| Commit | `d1d3e4a` (`fix(engines): complete the eval-perspective fix and close review findings`), on top of `65dac93` and `a72a225` |
+| Pull request | [#1](https://github.com/coderunknow/ScrispChess-Extended/pull/1) — open, `MERGEABLE`, head `d1d3e4a` |
+| Syntax check | `python3 tool/dev/parse_check.py` → 233 Dart files, 0 errors (tree-sitter; **not** `dart analyze`) |
+| Unit tests | **not run** — no Dart/Flutter SDK, and no way to install one (`pub.dev`, `storage.googleapis.com` unreachable) |
+| Builds | **not run** — same reason |
+| GitHub Actions | **none.** `/actions/runs` → `total_count: 0`; the token cannot read or set Actions permissions |
+| Automated reviewers | Kilo: out of credits; Qodo: trial ended; CodeRabbit: repository under 10 stars |
+| Merge | **withheld** — the gate is a passing test suite and build, and neither could be run |
+| Tag / pre-release | **not created** — would point at an unverified commit |
+| Version | unchanged: `2.3.1+17` |
+
+The release is withheld for the reason the directive itself gives: a release
+must not point at a commit whose tests and builds have never been run. The work
+is complete and pushed; what is missing is a machine that can run `flutter test`
+and `flutter build`.
