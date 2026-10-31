@@ -8,8 +8,9 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -98,7 +99,11 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   void initState() {
     super.initState();
     _tabs.addListener(() {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      setState(() {});
+      // The diagnostics tab shows the identity of the selected engine, which
+      // means starting it once. Loaded on arrival rather than on every build.
+      if (_tabs.index == 4 && !_running) _loadIdentityForDiagnostics();
     });
     _load();
   }
@@ -265,23 +270,31 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _snack(validation.errors.join(' '), error: true);
       return;
     }
-    final suite = openingSuiteById(_customSuiteId, extra: _userSuites);
-    final plan = buildPlan(
-      config: _config,
-      engines: [
-        for (final id in _selected)
-          _identities[id] ??
-              EngineIdentity.forBuiltIn(
-                  name: engineLabelForId(id, _profiles),
-                  engineVersion: '',
-                  appBuild: kBenchmarkFormatVersion)
-      ],
-      format: _format,
-      referenceEngineId: _format == TournamentFormat.gauntlet ? _referenceId : null,
-      suite: suite,
+    // The estimate is computed from the configuration, not from a plan built
+    // out of placeholder identities: the identities a run records come from
+    // the engines themselves, inside the service, and inventing them here to
+    // preview a number would be the kind of guess this feature exists to
+    // avoid.
+    final pairings = _format == TournamentFormat.gauntlet
+        ? math.max(0, _selected.length - 1)
+        : _selected.length * (_selected.length - 1) ~/ 2;
+    final estimate = estimateWorkload(
+      _config,
+      engineCount: _selected.length,
+      pairings: pairings,
     );
-    final estimate = plan.estimate();
-    final confirmed = await _confirmWorkload(l, plan, estimate, validation);
+    final gamesPlanned = pairings *
+        (_config.balanceColors && _config.gamesPerPairing.isOdd
+            ? _config.gamesPerPairing + 1
+            : _config.gamesPerPairing);
+    final confirmed = await _confirmWorkload(
+      l,
+      engineCount: _selected.length,
+      gamesPlanned: gamesPlanned,
+      warmUpGames: _config.warmUpGames,
+      estimate: estimate,
+      validation: validation,
+    );
     if (confirmed != true) return;
 
     setState(() {
@@ -359,11 +372,13 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   }
 
   Future<bool?> _confirmWorkload(
-    AppLocalizations? l,
-    BenchmarkPlan plan,
-    WorkloadEstimate estimate,
-    BenchmarkValidation validation,
-  ) =>
+    AppLocalizations? l, {
+    required int engineCount,
+    required int gamesPlanned,
+    required int warmUpGames,
+    required WorkloadEstimate estimate,
+    required BenchmarkValidation validation,
+  }) =>
       showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -373,9 +388,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('${plan.engines.length} engines · '
-                    '${plan.totalGames} games'
-                    '${plan.warmUpGames > 0 ? ' (+${plan.warmUpGames} warm-up)' : ''}'),
+                Text('$engineCount ${l?.engineLabEngines ?? 'engines'} · '
+                    '$gamesPlanned ${l?.engineLabGames ?? 'games'}'
+                    '${warmUpGames > 0 ? ' (+$warmUpGames '
+                        '${l?.engineLabWarmUp ?? 'warm-up'})' : ''}'),
                 const SizedBox(height: 4),
                 Text(l?.engineLabEstimate ?? 'Estimated time',
                     style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -403,7 +419,29 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         ),
       );
 
+  /// Loads the identity the diagnostics tab shows, once per engine.
+  Future<void> _loadIdentityForDiagnostics([String? requested]) async {
+    final candidates = [
+      for (final candidate in _candidates)
+        if (candidate.available) candidate
+    ];
+    final engineId = requested ??
+        _stabilityEngineId ??
+        (candidates.isEmpty ? null : candidates.first.engineId);
+    if (engineId == null || _identities.containsKey(engineId)) return;
+    try {
+      final identity = await _service.identityFor(engineId);
+      if (!mounted) return;
+      setState(() => _identities[engineId] = identity);
+    } catch (error) {
+      // Reported in the tab's own words when it cannot be established; a
+      // failure to identify an engine is not a reason to fail the screen.
+      debugPrint('[EngineLab] could not identify $engineId: $error');
+    }
+  }
+
   Future<void> _runStability(String engineId) async {
+    await _loadIdentityForDiagnostics(engineId);
     setState(() {
       _probing = true;
       _stabilityEngineId = engineId;

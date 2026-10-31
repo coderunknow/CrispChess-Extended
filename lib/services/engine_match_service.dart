@@ -5,6 +5,7 @@ import '../bench/game_player.dart';
 import '../bench/game_record.dart';
 import '../engines/chess_engine.dart';
 import '../engines/opening_suite.dart' show Opening;
+import '../engines/search_telemetry.dart';
 
 export '../bench/game_record.dart' show GameOutcome, ForfeitReason;
 
@@ -256,13 +257,20 @@ class EngineMatchService {
     return _toGameResult(game);
   }
 
-  MoveRequester _requesterFor(ChessEngine engine) => measuredRequester(
-        (position) => engine.bestMove(
-          position,
-          depth: config.depthPerMove > 0 ? config.depthPerMove : null,
-          moveTime: config.moveTime,
-        ),
-      );
+  /// Wraps one engine as a [MoveRequester], keeping its own node/depth
+  /// counters when it publishes them and measuring wall clock regardless.
+  MoveRequester _requesterFor(ChessEngine engine) {
+    final telemetry = engine is SearchTelemetry ? engine : null;
+    final depth = config.depthPerMove > 0 ? config.depthPerMove : null;
+    return measuredRequester(
+      (position) => engine.bestMove(
+        position,
+        depth: depth,
+        moveTime: config.moveTime,
+      ),
+      statsOf: telemetry == null ? null : () => telemetry.lastSearchStatistics,
+    );
+  }
 
   void stop() {
     _stopped = true;
@@ -420,7 +428,12 @@ class TournamentService {
             plyCap: plyCap,
           ),
         );
-        final sub = match.events.listen((e) => _eventController.add(e));
+        // A sub-match's own MatchFinished is not forwarded: the tournament
+        // emits one at the end, and passing every pair's through would tell
+        // the screen the tournament was over after the first pairing.
+        final sub = match.events
+            .where((event) => event is! MatchFinished)
+            .listen(_eventController.add);
         results.addAll(await match.run());
         await sub.cancel();
         match.dispose();
