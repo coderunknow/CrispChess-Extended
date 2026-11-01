@@ -346,3 +346,16 @@ screen and no framework exception. The two integration files are also run in
 separate xvfb/flutter-test invocations because the second file failed to obtain a
 debug connection after the first file's failed assertion. The EngineService and
 20-move self-play assertions are unchanged.
+
+### Least-privilege CI/release posting and YAML pin gate
+
+CodeRabbit review 5726775509 on `e755d7f` raised three still-valid security
+findings and one integration assertion already fixed at `c830edb`. The workflow
+level `pull-requests: write` permission was removed from `ci.yml` and
+`release.yml`. Build/test jobs now only upload failure logs; isolated
+`post-integration-failure` and `post-failure-logs` jobs download the artifacts and
+hold job-level PR write permission without executing repository build code.
+`tool/dev/check_action_pins.py` now parses workflow YAML with hash-pinned PyYAML
+and fails closed on invalid YAML or any mutable `uses` ref, including quoted
+keys/values. Four regression tests cover pinned, quoted mutable, and invalid YAML
+cases; the Python tooling suite is now 36 tests.

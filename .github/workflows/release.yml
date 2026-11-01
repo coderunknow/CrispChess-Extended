@@ -15,7 +15,6 @@ concurrency:
 # Build jobs are read-only. Only the tag-only publication job may write releases.
 permissions:
   contents: read
-  pull-requests: write
 
 env:
   # Prebuilt CrispASR library for voice moves (tool/bundle_crispasr.sh).
@@ -71,13 +70,6 @@ jobs:
         with:
           name: linux-build-log-${{ github.job }}
           path: linux-build.log
-      - name: Post Linux build failure log to PR
-        if: failure() && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          { echo '### Linux build failure (${{ github.job }})'; echo '```'; tail -c 60000 linux-build.log; echo '```'; } > linux-failure-comment.md
-          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file linux-failure-comment.md
       # package:onnxruntime bundles its native library for Android, iOS, macOS
       # and Windows, and expects the system to provide it on Linux — where
       # almost nobody has it. The Lc0 engine then falls back to the pure-Dart
@@ -130,13 +122,6 @@ jobs:
         with:
           name: linux-build-log-${{ github.job }}
           path: linux-build.log
-      - name: Post Linux build failure log to PR
-        if: failure() && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          { echo '### Linux build failure (${{ github.job }})'; echo '```'; tail -c 60000 linux-build.log; echo '```'; } > linux-failure-comment.md
-          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file linux-failure-comment.md
       # package:onnxruntime bundles its native library for Android, iOS, macOS
       # and Windows, and expects the system to provide it on Linux — where
       # almost nobody has it. The Lc0 engine then falls back to the pure-Dart
@@ -285,14 +270,6 @@ jobs:
           name: windows-build-log
           path: windows-build.log
           if-no-files-found: warn
-      - name: Post Windows build failure log to PR
-        if: failure() && github.event_name == 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          { echo '### Windows build failure'; echo '```'; tail -c 60000 windows-build.log; echo '```'; } > windows-failure-comment.md
-          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file windows-failure-comment.md
       - name: Bundle the MSVC runtime app-locally
         shell: pwsh
         run: tool/bundle_msvc_windows.ps1 build\windows\x64\runner\Release
@@ -312,14 +289,6 @@ jobs:
           name: windows-bundle-log
           path: windows-bundle.log
           if-no-files-found: warn
-      - name: Post Windows bundle failure log to PR
-        if: failure() && github.event_name == 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          { echo '### Windows bundle failure'; echo '```'; tail -c 60000 windows-bundle.log; echo '```'; } > windows-bundle-comment.md
-          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file windows-bundle-comment.md
       - name: Package and verify the extracted archive
         shell: pwsh
         run: |
@@ -396,6 +365,31 @@ jobs:
         with:
           name: web
           path: CrispChess-web.tar.gz
+
+  post-failure-logs:
+    name: Post build failure logs
+    needs: [build-android, build-ios, build-linux, build-linux-frozenight, build-frozenight-libs, build-macos, build-windows, build-web]
+    if: failure() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: '*-log*'
+          path: logs
+      - name: Comment on the PR without exposing a write token to build code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          posted=0
+          while IFS= read -r -d '' f; do
+            rel="${f#logs/}"
+            { echo "### Build failure log: $rel"; echo '```'; tail -c 60000 "$f"; echo '```'; } > failure-comment.md
+            gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file failure-comment.md
+            posted=1
+          done < <(find logs -type f -name '*.log' -print0)
+          if [ "$posted" -eq 0 ]; then echo 'No build failure log artifacts were uploaded.'; fi
 
   verify-release-assets:
     name: Verify all release assets
