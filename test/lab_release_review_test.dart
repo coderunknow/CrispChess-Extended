@@ -31,7 +31,7 @@ void main() {
     final selected = selectCompatibleAnchor([
       anchor('wrong-version', version: '2.0'),
       anchor('wrong-budget', budget: 1000),
-      anchor('conflicting-hint', hint: 'builtin:Beta'),
+      anchor('conflicting-hint', hint: 'builtin:Gamma'),
       anchor('valid'),
     ], identities, config);
     expect(selected?.id, 'valid');
@@ -43,10 +43,13 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final profiles = EngineProfileStore();
     await profiles.add(EngineProfile(id: 'p', name: 'Alpha', path: 'unused-binary'));
+    // Resolve the custom identity before arming the gate; otherwise identity
+    // discovery itself blocks and the test never reaches concurrent runAutomatic.
+    final identityService = BenchmarkService(profileStore: profiles);
+    final identity = await identityService.identityFor('custom:p');
     final gate = Completer<void>();
     final store = BenchmarkStore(storage: _GatedStorage(gate));
     final service = BenchmarkService(store: store, profileStore: profiles);
-    final identity = await service.identityFor('custom:p');
     final decision = AutoBenchmarkDecision(
       shouldRun: true, reason: 'test', config: BenchmarkConfig.quick,
       identity: identity, opponents: const ['builtin:Built-in'],
@@ -65,7 +68,7 @@ void main() {
     final beta = ScriptedEngine('Beta');
     final identities = [testIdentity('Alpha'), testIdentity('Beta')];
     final runner = BenchmarkRunner(
-      plan: buildPlan(config: benchConfig(), engines: identities),
+      plan: buildPlan(config: benchConfig().copyWith(threads: 1, hashMb: 16), engines: identities),
       slots: {
         identities[0].engineId: BenchEngineSlot(identity: identities[0], build: () => alpha),
         identities[1].engineId: BenchEngineSlot(identity: identities[1], build: () => beta),
