@@ -59,6 +59,11 @@ set(include_crispchess_tests TRUE)
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# package:jni is an Android-only transitive FFI plugin. Its Windows helper
+# imports jvm.dll, but the Windows app never loads JNI. Do not ship a dead,
+# JVM-dependent helper in the release archive.
+list(FILTER PLUGIN_BUNDLED_LIBRARIES EXCLUDE REGEX "[Jj][Nn][Ii]")
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

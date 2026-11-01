@@ -30,7 +30,7 @@ class WindowsBundleTests(unittest.TestCase):
     def test_all_required_images_are_parsed_and_x64(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            for name in wb.REQUIRED + wb.VC_RUNTIME:
+            for name in wb.REQUIRED + wb.RUNTIME_IMAGES:
                 (root / name).write_bytes(b'fake')
             calls = []
             def fake(data):
@@ -38,14 +38,14 @@ class WindowsBundleTests(unittest.TestCase):
                 return (set(wb.EXPORTS) if len(calls) == 3 else set(), ['kernel32.dll'])
             with patch.object(wb, 'pe_info', side_effect=fake):
                 result = wb.verify(root)
-            self.assertEqual(len(calls), 6)
+            self.assertEqual(len(calls), 7)
             self.assertEqual(result['architecture'], 'x64')
-            self.assertEqual(set(result['peImages']), set(wb.REQUIRED + wb.VC_RUNTIME))
+            self.assertEqual(set(result['peImages']), set(wb.REQUIRED + wb.RUNTIME_IMAGES))
 
     def test_wrong_architecture_fails(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            for name in wb.REQUIRED + wb.VC_RUNTIME:
+            for name in wb.REQUIRED + wb.RUNTIME_IMAGES:
                 (root / name).write_bytes(b'fake')
             def fake(data):
                 if data == b'crispchess.exe':
@@ -60,7 +60,7 @@ class WindowsBundleTests(unittest.TestCase):
         self.assertFalse(set(wb.VC_RUNTIME) & wb.SYSTEM)
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            for name in wb.REQUIRED + wb.VC_RUNTIME:
+            for name in wb.REQUIRED + wb.RUNTIME_IMAGES:
                 (root / name).write_bytes(b'fake')
             def fake(data):
                 return (set(wb.EXPORTS), ['msvcp140.dll', 'vcruntime140.dll'])

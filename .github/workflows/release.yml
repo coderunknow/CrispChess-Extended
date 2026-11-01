@@ -320,7 +320,21 @@ jobs:
             Copy-Item $_.FullName -Destination $destination -Force
             if ($LASTEXITCODE -ne 0) { throw "Failed to copy $($_.Name)" }
           }
-          Write-Host "Bundled MSVC runtime from $source"
+          $openMpSource = $null
+          foreach ($version in (Get-ChildItem $redistRoot -Directory | Sort-Object Name -Descending)) {
+            $arch = Join-Path $version.FullName 'x64'
+            if (!(Test-Path $arch)) { continue }
+            $omp = Get-ChildItem $arch -Directory -Filter 'Microsoft.VC*.OpenMP' | Select-Object -First 1
+            if ($null -ne $omp) { $openMpSource = $omp.FullName; break }
+          }
+          if ($null -eq $openMpSource) { throw 'No x64 Microsoft.VC*.OpenMP redist directory was found' }
+          $vcomp = Join-Path $openMpSource 'vcomp140.dll'
+          if (!(Test-Path $vcomp)) { throw "Required OpenMP runtime file is missing: $vcomp" }
+          Get-ChildItem $openMpSource -Filter '*.dll' | ForEach-Object {
+            Copy-Item $_.FullName -Destination $destination -Force
+            if ($LASTEXITCODE -ne 0) { throw "Failed to copy $($_.Name)" }
+          }
+          Write-Host "Bundled MSVC runtime from $source and OpenMP runtime from $openMpSource"
       - name: Bundle CrispASR (voice moves)
         shell: bash
         run: tool/bundle_crispasr.sh windows build/windows/x64/runner/Release

@@ -20,6 +20,8 @@ EXPORTS = {
 }
 REQUIRED = ('crispchess.exe', 'flutter_windows.dll', 'frozenight_ffi.dll')
 VC_RUNTIME = ('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')
+OPENMP_RUNTIME = ('vcomp140.dll',)
+RUNTIME_IMAGES = VC_RUNTIME + OPENMP_RUNTIME
 # Windows 10 ships the UCRT and these API sets. The VC++ 2015-2022 runtime is
 # NOT assumed: CMake InstallRequiredSystemLibraries copies the redistributable
 # DLLs beside the executable and this verifier requires them.
@@ -34,7 +36,9 @@ SYSTEM = {
     'wininet.dll', 'oleacc.dll', 'uxtheme.dll', 'imm32.dll', 'msimg32.dll',
     'winspool.drv', 'combase.dll', 'rpcrt4.dll', 'sechost.dll', 'mswsock.dll',
     'nsi.dll', 'wtsapi32.dll', 'user32.dll', 'gdiplus.dll', 'd3d11.dll',
-    'dxgi.dll', 'dcomp.dll', 'windowscodecs.dll', 'propsys.dll',
+    'd3d9.dll', 'opengl32.dll', 'dxgi.dll', 'dcomp.dll', 'windowscodecs.dll',
+    'propsys.dll', 'mf.dll', 'mfplat.dll', 'mfreadwrite.dll',
+    'uiautomationcore.dll',
 }
 
 
@@ -60,7 +64,7 @@ def pe_info(data: bytes):
 
 def verify(root: Path):
     files = {p.relative_to(root).as_posix().lower(): p for p in root.rglob('*') if p.is_file()}
-    for required in REQUIRED + VC_RUNTIME:
+    for required in REQUIRED + RUNTIME_IMAGES:
         if required not in files:
             raise ValueError(f'missing {required}')
     images = {}
@@ -90,6 +94,7 @@ def verify(root: Path):
         'frozenightExports': images['frozenight_ffi.dll']['exports'],
         'frozenightImports': images['frozenight_ffi.dll']['imports'],
         'visualCppRuntime': list(VC_RUNTIME),
+        'openMpRuntime': list(OPENMP_RUNTIME),
         'runtimeVerification': 'packaging/import-closure only; see workflow runtime probes',
     }
 
