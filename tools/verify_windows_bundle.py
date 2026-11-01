@@ -43,13 +43,15 @@ def pe_info(data: bytes):
     optional = pe + 24
     magic = u16(data, optional)
     if magic != 0x20b: raise ValueError('not PE32+');
-    count = u32(data, optional+108)
-    sections = optional + u16(data, pe+20)
-    size = u16(data, pe+20)
+    section_count = u16(data, pe+6)
+    optional_size = u16(data, pe+20)
+    sections = optional + optional_size
+    size = 40
     ranges = []
-    for i in range(count):
+    for i in range(section_count):
         p = sections + (size+24)*i
-        ranges.append((u32(data,p+12), u32(data,p+8), u32(data,p+20)))
+        virtual, raw_size, raw = u32(data,p+12), u32(data,p+8), u32(data,p+20)
+        ranges.append((virtual, virtual, raw))
     def offset(rva):
         for base, length, raw in ranges:
             if base <= rva < base+length: return raw+rva-base

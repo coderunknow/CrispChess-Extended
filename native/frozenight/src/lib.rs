@@ -13,7 +13,7 @@ struct EngineState {
 
 /// ABI 2 owns one engine per handle. The old global entry points remain below
 /// solely so an already-released dev2 executable can load a repaired DLL.
-struct FrozenightHandle(Mutex<EngineState>);
+pub struct FrozenightHandle(Mutex<EngineState>);
 
 struct SearchResult {
     nodes: u64,
