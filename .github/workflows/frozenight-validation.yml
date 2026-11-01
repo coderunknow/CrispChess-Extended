@@ -77,7 +77,7 @@ jobs:
       - name: Build the exact locked native source
         shell: bash
         run: |
-          { cargo build --locked --release && cargo test --locked; } 2>&1 | tee validation-evidence/baseline-build.log
+          { cargo build --locked --release && cargo test --locked; } 2>&1 | tee "$GITHUB_WORKSPACE/validation-evidence/baseline-build.log"
         working-directory: native/frozenight
       - name: Controlled repair, same extracted archive plus its missing DLL
         shell: pwsh
@@ -87,7 +87,7 @@ jobs:
           Get-FileHash $runtime\frozenight_ffi.dll -Algorithm SHA256 | Format-List | Out-File validation-evidence\dll-hash.txt
           $env:PATH = "$runtime;$env:PATH"
           # Exercise the production executable-relative loader, not a PATH override.
-          Copy-Item (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') (Split-Path (Get-Command dart).Source)
+          Copy-Item (Join-Path $runtime 'frozenight_ffi.dll') (Split-Path (Get-Command dart).Source)
           $env:CRISP_FROZENIGHT_EXPECT = 'ready'
           dart tool/native/frozenight_probe.dart (Join-Path $runtime 'frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\repaired-ffi.jsonl
           if ($LASTEXITCODE -ne 0) { throw 'Real native smoke test failed' }
@@ -140,7 +140,9 @@ jobs:
         run: |
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath CrispChess-windows-x64.zip
           Expand-Archive CrispChess-windows-x64.zip -DestinationPath $env:RUNNER_TEMP\candidate -Force
+          python tools/verify_windows_bundle.py CrispChess-windows-x64.zip --manifest validation-evidence\zip-bundle.json
           python tools/verify_windows_bundle.py $env:RUNNER_TEMP\candidate --manifest validation-evidence\extracted-bundle.json
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') (Split-Path (Get-Command dart).Source)
           $env:CRISP_FROZENIGHT_EXPECT = 'ready'
           dart tool/native/frozenight_probe.dart (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\candidate-ffi.jsonl
           if ($LASTEXITCODE -ne 0) { throw 'Candidate native smoke failed' }

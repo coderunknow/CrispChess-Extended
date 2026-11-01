@@ -1,4 +1,4 @@
-"""Fail closed on an incomplete Windows x64 release (stdlib only).
+"""Fail closed on an incomplete Windows x64 release.
 
 Checks the actual ZIP/directory, PE architecture, Frozenight ABI exports and
 non-system import closure. This is a packaging gate, not a claim of Windows 10
