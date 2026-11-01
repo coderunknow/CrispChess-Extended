@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:crispchess/bench/benchmark_config.dart';
 import 'package:crispchess/bench/benchmark_environment.dart';
@@ -41,8 +42,14 @@ void main() {
 
   test('concurrent automatic preparation returns null instead of StateError', () async {
     SharedPreferences.setMockInitialValues({});
+    // A real temporary file makes fingerprintForProfile consult the gated
+    // storage cache; a missing path returns before any storage read.
+    final dir = await Directory.systemTemp.createTemp('crisp-lab-concurrent-');
+    addTearDown(() => dir.delete(recursive: true));
+    final binary = File('${dir.path}/alpha.bin');
+    await binary.writeAsBytes(List<int>.filled(64, 7));
     final profiles = EngineProfileStore();
-    await profiles.add(EngineProfile(id: 'p', name: 'Alpha', path: 'unused-binary'));
+    await profiles.add(EngineProfile(id: 'p', name: 'Alpha', path: binary.path));
     // Resolve the custom identity before arming the gate; otherwise identity
     // discovery itself blocks and the test never reaches concurrent runAutomatic.
     final identityService = BenchmarkService(profileStore: profiles);
