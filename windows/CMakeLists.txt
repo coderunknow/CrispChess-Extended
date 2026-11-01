@@ -109,14 +109,9 @@ install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
 
-# Distribute the MSVC runtime app-locally from the Visual Studio installation.
-# Windows 10 provides the UCRT; vcruntime/msvcp are not safe to assume. The
-# release verifier requires these files and checks every PE import closure.
-include(InstallRequiredSystemLibraries)
-if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
-  install(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
-    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
-endif()
+# The release workflow bundles the MSVC runtime app-locally with vswhere and
+# verifies the extracted ZIP. Local development builds may use the installed
+# Visual C++ runtime; release packaging must not depend on it being present.
 
 # Optional local-development runtime. Release workflows build the locked Rust
 # source and invoke tool/bundle_frozenight_windows.sh, which verifies the output.
