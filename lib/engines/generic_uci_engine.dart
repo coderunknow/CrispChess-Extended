@@ -358,7 +358,11 @@ class GenericUciEngine
         _detectedName = t.substring(8).trim();
         // UCI has no id-version field. Preserve a trailing numeric version
         // from `id name` (e.g. Stockfish 17.1); never invent one from a path.
-        final version = RegExp(r'\s(v?\d+(?:[.\-]\w+)*)\s*$').firstMatch(_detectedName);
+        // Strip a trailing architecture tag first so `Komodo 14.1 64-bit`
+        // yields 14.1, not 64-bit.
+        final base = _detectedName.replaceFirst(
+            RegExp(r'\s+(?:x86[-_]?)?(?:32|64)[-\s]?bit\s*$', caseSensitive: false), '');
+        final version = RegExp(r'\s(v?\d+(?:[.\-]\w+)*)\s*$').firstMatch(base);
         _detectedVersion = version == null ? '' : version.group(1)!;
       } else if (t.startsWith('id author ')) {
         _detectedAuthor = t.substring(10).trim();

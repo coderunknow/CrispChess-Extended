@@ -104,6 +104,7 @@ void main() {
     for (final entry in {
       'Stockfish 17': '17', 'Komodo 14': '14', 'Berserk 13': '13',
       'Stockfish 17.1': '17.1', 'Engine 1.2-rc3': '1.2-rc3', 'NoVersion': '',
+      'Komodo 14.1 64-bit': '14.1', 'Engine 2.0 x86_64-bit': '2.0',
     }.entries) {
       final engine = GenericUciEngine(EngineProfile(name: 'test', path: 'unused'));
       // The handshake parser is private; exercise it through the same line

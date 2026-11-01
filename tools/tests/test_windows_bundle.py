@@ -68,6 +68,28 @@ class WindowsBundleTests(unittest.TestCase):
                 result = wb.verify(root)
             self.assertIn('msvcp140.dll', result['files'])
 
+    def test_unbundled_non_system_import_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name in wb.REQUIRED + wb.RUNTIME_IMAGES:
+                (root / name).write_bytes(b'fake')
+            def fake(data):
+                return (set(wb.EXPORTS), ['missing_dep.dll'])
+            with patch.object(wb, 'pe_info', side_effect=fake):
+                with self.assertRaisesRegex(ValueError, 'unbundled non-system DLL imports'):
+                    wb.verify(root)
+
+    def test_missing_frozenight_export_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name in wb.REQUIRED + wb.RUNTIME_IMAGES:
+                (root / name).write_bytes(b'fake')
+            def fake(data):
+                return (set(), ['kernel32.dll'])
+            with patch.object(wb, 'pe_info', side_effect=fake):
+                with self.assertRaisesRegex(ValueError, 'missing Frozenight exports'):
+                    wb.verify(root)
+
     def test_duplicate_zip_entries_fail(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'bad.zip'

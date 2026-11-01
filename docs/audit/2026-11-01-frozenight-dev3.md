@@ -419,3 +419,21 @@ The adaptive-stop observation was also verified against `_stopReason`: a normal
 `uncertainty target` stop is a successful completion by design, so engine status
 is now `completed` for that stop reason while cancellation, time cap and engine
 failure remain partial/failed. The soak asserts all engine statuses are completed.
+
+## 2026-11-01 — Reviewed head 8ee2cda and cycle 7 follow-up
+
+The earlier “Final exact-head gates on 760db1f” section is historical: later
+commits changed release workflows, benchmark runner/settings, WASM soak and tests.
+The reviewed head for cycle 6/7 is **8ee2cda38257566cf0dc1bb7da994d5403de187c**.
+Its gates: CI **41301432837**, Release **41301432807**, Frozenight validation
+**41301432846**, Engine Lab **41301432826**, Lab diagnostics **41301433034**
+(comment 6557265114, 788 passed / 26 skipped), Engine latency **41301432910**,
+secret scans **41301432981** / **41301429579** — all SUCCESS. CodeRabbit cycle 6
+review 5727796933 and cycle 7 review 5727991658 are COMMENTED on this head.
+
+Cycle 7 follow-up: the iOS signing workflow's mutable action refs are pinned to
+the same verified full SHAs and added to the pin checker; custom UCI version
+parsing strips trailing architecture tags before extracting the numeric version;
+the Windows verifier suite gains negative tests for unbundled non-system imports
+and missing Frozenight exports. The final publication head is the commit that
+records this entry; its exact-head gates are tracked in PR #10's validation matrix.

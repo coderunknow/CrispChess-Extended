@@ -13,6 +13,7 @@ import yaml
 CRITICAL = [
     '.github/workflows/release.yml',
     '.github/workflows/frozenight-validation.yml',
+    '.github/workflows/ios-release.yml',
 ]
 SHA = re.compile(r'^[0-9a-f]{40}$')
 
