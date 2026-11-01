@@ -1,0 +1,133 @@
+name: Frozenight release validation
+
+# Read-only, non-publishing verification. In particular, this workflow never
+# creates a tag/release or deploys an application. The baseline mode examines
+# the owner's dev2 artifact; candidate mode will exercise the reviewed source.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validation mode
+        type: choice
+        options: [baseline]
+        default: baseline
+      pr:
+        description: Optional PR number for an evidence comment
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Windows dev2 archive and controlled DLL repair
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Record environment and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p validation-evidence
+          git rev-parse HEAD | tee validation-evidence/source-sha.txt
+          flutter --version | tee validation-evidence/flutter-version.txt
+          rustc --version -v | tee validation-evidence/rust-version.txt
+          python3 -c 'import platform,sys; print(platform.platform()); print(sys.version)' | tee validation-evidence/os.txt
+      - name: Download and extract the actual owner release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v2.3.2-dev2 --repo $env:GITHUB_REPOSITORY --pattern CrispChess-windows-x64.zip --dir $env:RUNNER_TEMP\dev2
+          $zip = Join-Path $env:RUNNER_TEMP 'dev2\CrispChess-windows-x64.zip'
+          Get-FileHash $zip -Algorithm SHA256 | Format-List | Out-File validation-evidence\archive-hash.txt
+          Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP\dev2-extracted -Force
+          Get-ChildItem $env:RUNNER_TEMP\dev2-extracted -Recurse -File | ForEach-Object {
+            [pscustomobject]@{Path=$_.FullName.Substring((Join-Path $env:RUNNER_TEMP 'dev2-extracted').Length+1); Bytes=$_.Length; SHA256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash}
+          } | ConvertTo-Json -Depth 4 | Out-File validation-evidence\archive-files.json -Encoding utf8
+          if (Test-Path (Join-Path $env:RUNNER_TEMP 'dev2-extracted\frozenight_ffi.dll')) {
+            throw 'Baseline hypothesis invalidated: the original archive contains the DLL.'
+          }
+      - run: flutter pub get
+      - name: Original archive, direct FFI and all application paths
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $env:RUNNER_TEMP 'dev2-extracted'
+          $env:PATH = "$runtime;$env:PATH"
+          $env:CRISP_FROZENIGHT_EXPECT = 'missing'
+          dart tool/native/frozenight_probe.dart (Join-Path $runtime 'frozenight_ffi.dll') missing 2>&1 | Tee-Object validation-evidence\original-ffi.jsonl
+          if ($LASTEXITCODE -ne 0) { throw 'Missing-library probe did not observe the expected failure' }
+          flutter test --no-pub --reporter expanded test/frozenight_release_repro_test.dart 2>&1 | Tee-Object validation-evidence\original-paths.log
+          if ($LASTEXITCODE -ne 0) { throw 'Original application-path reproduction failed' }
+      - name: Build the exact locked native source
+        shell: bash
+        run: |
+          cargo build --locked --release
+          cargo test --locked
+        working-directory: native/frozenight
+      - name: Controlled repair, same extracted archive plus its missing DLL
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $env:RUNNER_TEMP 'dev2-extracted'
+          Copy-Item native\frozenight\target\release\frozenight_ffi.dll $runtime\
+          Get-FileHash $runtime\frozenight_ffi.dll -Algorithm SHA256 | Format-List | Out-File validation-evidence\dll-hash.txt
+          $env:PATH = "$runtime;$env:PATH"
+          $env:CRISP_FROZENIGHT_EXPECT = 'ready'
+          dart tool/native/frozenight_probe.dart (Join-Path $runtime 'frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\repaired-ffi.jsonl
+          if ($LASTEXITCODE -ne 0) { throw 'Real native smoke test failed' }
+          flutter test --no-pub --reporter expanded test/frozenight_release_repro_test.dart 2>&1 | Tee-Object validation-evidence\repaired-paths.log
+          if ($LASTEXITCODE -ne 0) { throw 'Controlled DLL repair did not restore the application paths' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: frozenight-baseline-evidence
+          path: validation-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+  evidence:
+    needs: baseline
+    if: ${{ always() && inputs.pr != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: frozenight-baseline-evidence
+          path: evidence
+      - name: Post evidence without exposing a write token to build code
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ needs.baseline.result }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[0-9]+$ ]]
+          {
+            echo "## Frozenight baseline artifact investigation"
+            echo "Workflow result: **$RESULT**. Run: $RUN_URL"
+            echo 'This is Windows Server CI, not Windows 10. The controlled repair is an experiment, not a repaired release.'
+            for f in evidence/source-sha.txt evidence/os.txt evidence/archive-hash.txt evidence/original-ffi.jsonl evidence/dll-hash.txt evidence/repaired-ffi.jsonl; do
+              if [ -f "$f" ]; then echo "### $f"; echo '```'; head -c 14000 "$f"; echo; echo '```'; fi
+            done
+            for f in evidence/original-paths.log evidence/repaired-paths.log; do
+              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]' "$f" | head -c 20000; echo; echo '```'; fi
+            done
+          } > evidence.md
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file evidence.md
