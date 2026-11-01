@@ -460,7 +460,6 @@ class BenchmarkRunner {
     }
   }
 
-  int get _runningEngines => _live.values.where((live) => !live.failed).length;
 
   /// Schedules the hard stop, so an engine that is thinking when the budget
   /// runs out is interrupted instead of being waited for.

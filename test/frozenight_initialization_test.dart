@@ -31,7 +31,7 @@ void main() {
   test('gameplay service cannot call an error state a successful start', () async {
     final path = '${Directory.systemTemp.path}/crisp-missing-service.dll';
     final service = EngineService(FrozenightEngine(libraryPath: path));
-    final error = service.events.whereType<EngineErrorEvent>().first;
+    final error = service.events.where((e) => e is EngineErrorEvent).cast<EngineErrorEvent>().first;
     expect(await service.initialize(), isFalse);
     final event = await error;
     expect(event.kind, EngineFailure.startup);

@@ -55,7 +55,7 @@ void main(List<String> args) {
 
     for (var cycle = 0; cycle < 3; cycle++) {
       handle = create(32);
-      final rc = handle!.address == 0 ? -1 : 0;
+      final rc = handle.address == 0 ? -1 : 0;
       record('native-init', {'cycle': cycle, 'rc': rc});
       if (rc != 0) throw StateError('native init returned $rc');
       final fen = 'startpos'.toNativeUtf8();

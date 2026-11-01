@@ -365,7 +365,7 @@ class FrozenightEngine implements ChessEngine {
   static String _defaultLibraryPath() {
     if (Platform.isWindows) {
       // Resolve beside the executable, not the process working directory.
-      return File.fromUri(Platform.resolvedExecutable).parent.uri
+      return File(Platform.resolvedExecutable).parent.uri
           .resolve('frozenight_ffi.dll').toFilePath();
     }
     if (Platform.isAndroid || Platform.isLinux) return 'libfrozenight_ffi.so';
