@@ -4,6 +4,8 @@ name: Frozenight release validation
 # creates a tag/release or deploys an application. The baseline mode examines
 # the owner's dev2 artifact; candidate mode will exercise the reviewed source.
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
