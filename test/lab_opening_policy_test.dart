@@ -14,7 +14,7 @@ void main() {
     expect(suite.validationErrors().single, contains('bad-line: illegal move 1'));
   });
   test('suite length sharing seven does not repeat a subset', () {
-    const suite = OpeningSuite(id: 'seven', name: 'seven', description: '',
+    final suite = OpeningSuite(id: 'seven', name: 'seven', description: '',
       openings: [for (var i = 0; i < 7; i++) Opening(id: '$i', name: '$i', category: 'test')]);
     final ids = {for (var i = 0; i < 7; i++) suite.openingFor(seed: 1, pairingIndex: 0, gameIndex: i * 2).id};
     expect(ids.length, 7);

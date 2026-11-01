@@ -162,7 +162,7 @@ class OpeningSuite {
     // A stride sharing a factor with the suite length cycles through only a
     // subset (notably suites of length 7/14). Choose the nearest odd coprime.
     var stride = 7;
-    while (math.gcd(stride, openings.length) != 1) { stride += 2; }
+    while (BigInt.from(stride).gcd(BigInt.from(openings.length)) != BigInt.one) { stride += 2; }
     final offset = (mixed + pairedGame * stride) % openings.length;
     return openings[offset];
   }
