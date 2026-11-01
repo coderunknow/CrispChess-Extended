@@ -112,6 +112,11 @@ class _GatedStorage extends MemoryBenchmarkStorage {
   final Completer<void> gate;
   _GatedStorage(this.gate);
   @override
+  Future<void> init() async {
+    await gate.future;
+    return super.init();
+  }
+  @override
   Future<String?> read(String key) async {
     await gate.future;
     return super.read(key);
