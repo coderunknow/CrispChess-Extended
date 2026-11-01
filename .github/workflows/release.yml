@@ -227,7 +227,9 @@ jobs:
         run: tool/bundle_crispasr.sh windows build/windows/x64/runner/Release
       - name: Bundle and verify Frozenight before packaging
         shell: bash
-        run: tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release
+        run: |
+          python -m pip install --require-hashes -r tools/requirements-windows.txt
+          tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release
       - name: Package and verify the extracted archive
         shell: pwsh
         run: |
