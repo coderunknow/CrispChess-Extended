@@ -328,7 +328,23 @@ jobs:
         run: python -m pip install --require-hashes -r tools/requirements-windows.txt
       - name: Bundle and verify Frozenight before packaging
         shell: bash
-        run: tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release
+        run: |
+          set -o pipefail
+          tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release 2>&1 | tee windows-bundle.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: windows-bundle-log
+          path: windows-bundle.log
+          if-no-files-found: warn
+      - name: Post Windows bundle failure log to PR
+        if: failure() && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '### Windows bundle failure'; echo '```'; tail -c 60000 windows-bundle.log; echo '```'; } > windows-bundle-comment.md
+          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file windows-bundle-comment.md
       - name: Package and verify the extracted archive
         shell: pwsh
         run: |
