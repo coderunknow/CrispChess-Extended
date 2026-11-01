@@ -63,7 +63,16 @@ void main() {
       createEngineForId('builtin:Frozenight', profiles: const []),
     )..useOpeningBook = false;
     expect(await service.initialize(), isTrue);
-    expect(await service.requestMove('position startpos', depth: 2), isNotNull);
+    final serviceMove = Completer<String>();
+    final subscription = service.events.listen((event) {
+      if (event is EngineMoveEvent && !serviceMove.isCompleted) {
+        serviceMove.complete(event.move);
+      }
+    });
+    await service.requestMove('position startpos', depth: 2);
+    expect(await serviceMove.future.timeout(const Duration(seconds: 30)),
+        matches(RegExp(r'^[a-h][1-8][a-h][1-8][qrbn]?$')));
+    await subscription.cancel();
     service.dispose();
 
     for (final preset in BenchmarkPreset.values) {
