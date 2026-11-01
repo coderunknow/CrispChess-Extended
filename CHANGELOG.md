@@ -16,6 +16,10 @@
 - Lab initialization cancellation/deadline is not mislabeled as engine failure;
   healthy pairings continue when another engine fails, and unavailable pairings
   are recorded as aborted rather than omitted. Unfinished schedules are partial.
+- Lab also validates opening legality/promotion syntax, uses a coprime opening
+  stride, enforces automatic caps, records native runtime hashes, and keeps
+  rating uncertainty/exclusion/anchor reporting consistent. The singleton WASM
+  backend is leased and serialized across Dart instances.
 - Validation includes real native concurrency/reinitialization tests and an
   extracted Windows candidate exercising gameplay, all four presets and Match.
   Windows Server CI is not Windows 10 verification. This candidate is not a

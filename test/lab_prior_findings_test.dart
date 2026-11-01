@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('gauntlet validation uses actual pairing count', () {
-    final config = BenchmarkConfig.quick.copyWith(gamesPerPairing: 2, maxGames: () => 8);
+    final config = BenchmarkConfig.quick.copyWith(gamesPerPairing: 2, warmUpGames: 0, maxGames: () => 8);
     expect(validateConfig(config, engineCount: 5, pairings: 4).warnings, isEmpty);
   });
   test('non-finite uncertainty survives JSON export', () {

@@ -16,3 +16,12 @@ Readable Windows CI evidence: run 41257634990, harness 5ef8a7a, dev2 production
 FFI/gameplay/four bounded presets/Match. Windows 10 is still unverified. Added
 packaging gates, typed startup errors, ABI-2 handles, lifecycle serialization and
 truthful Lab partial/cancellation semantics. Tests/reviews are pending, not passed.
+
+## 2026-11-01 — candidate validation and review follow-through
+
+Verified official dev2 RCA again with pinned baseline harness. Candidate runs
+41262931779 and 41263336646 passed extracted Windows ZIP/ABI-2/gameplay/four
+presets/Match on Windows Server 2025. Fixed verifier PE parsing/import closure,
+test-host staging, review findings and scoped prior Lab defects. Recorded all 19
+prior Minor dispositions. No Windows 10 claim, publication, tag, merge or release.
+Final exact-head CI/re-review and owner decision remain the boundary.
