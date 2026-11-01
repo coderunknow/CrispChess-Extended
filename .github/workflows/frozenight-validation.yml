@@ -134,6 +134,8 @@ jobs:
           cargo build --locked --release --manifest-path native/frozenight/Cargo.toml &&
             cargo test --locked --manifest-path native/frozenight/Cargo.toml &&
             flutter build windows --release &&
+            pwsh -File tool/bundle_msvc_windows.ps1 build/windows/x64/runner/Release &&
+            tool/bundle_crispasr.sh windows build/windows/x64/runner/Release &&
             tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release &&
             python tools/verify_windows_bundle.py build/windows/x64/runner/Release --manifest validation-evidence/candidate-bundle.json
           } 2>&1 | tee validation-evidence/candidate-build.log
@@ -203,6 +205,7 @@ jobs:
           python -m pip install --require-hashes -r tools/requirements-windows.txt
           cargo build --locked --release --manifest-path native/frozenight/Cargo.toml
           flutter build windows --release
+          pwsh -File tool/bundle_msvc_windows.ps1 build/windows/x64/runner/Release
           tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release
           python tools/verify_windows_bundle.py build/windows/x64/runner/Release --manifest repro-evidence/bundle.json
           sha256sum build/windows/x64/runner/Release/crispchess.exe \

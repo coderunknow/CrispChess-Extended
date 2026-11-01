@@ -295,46 +295,7 @@ jobs:
           gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file windows-failure-comment.md
       - name: Bundle the MSVC runtime app-locally
         shell: pwsh
-        run: |
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-          if (!(Test-Path $vswhere)) { throw 'vswhere.exe was not found' }
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($vsPath)) { throw 'Visual Studio with the C++ toolset was not found' }
-          $redistRoot = Join-Path $vsPath 'VC\Redist\MSVC'
-          if (!(Test-Path $redistRoot)) { throw "Visual C++ redist directory not found: $redistRoot" }
-          $source = $null
-          foreach ($version in (Get-ChildItem $redistRoot -Directory | Sort-Object Name -Descending)) {
-            $arch = Join-Path $version.FullName 'x64'
-            if (!(Test-Path $arch)) { continue }
-            $crt = Get-ChildItem $arch -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
-            if ($null -ne $crt) { $source = $crt.FullName; break }
-          }
-          if ($null -eq $source) { throw 'No x64 Microsoft.VC*.CRT redist directory was found' }
-          $destination = 'build\windows\x64\runner\Release'
-          $required = @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')
-          foreach ($name in $required) {
-            $file = Join-Path $source $name
-            if (!(Test-Path $file)) { throw "Required MSVC runtime file is missing: $file" }
-          }
-          Get-ChildItem $source -Filter '*.dll' | ForEach-Object {
-            Copy-Item $_.FullName -Destination $destination -Force
-            if ($LASTEXITCODE -ne 0) { throw "Failed to copy $($_.Name)" }
-          }
-          $openMpSource = $null
-          foreach ($version in (Get-ChildItem $redistRoot -Directory | Sort-Object Name -Descending)) {
-            $arch = Join-Path $version.FullName 'x64'
-            if (!(Test-Path $arch)) { continue }
-            $omp = Get-ChildItem $arch -Directory -Filter 'Microsoft.VC*.OpenMP' | Select-Object -First 1
-            if ($null -ne $omp) { $openMpSource = $omp.FullName; break }
-          }
-          if ($null -eq $openMpSource) { throw 'No x64 Microsoft.VC*.OpenMP redist directory was found' }
-          $vcomp = Join-Path $openMpSource 'vcomp140.dll'
-          if (!(Test-Path $vcomp)) { throw "Required OpenMP runtime file is missing: $vcomp" }
-          Get-ChildItem $openMpSource -Filter '*.dll' | ForEach-Object {
-            Copy-Item $_.FullName -Destination $destination -Force
-            if ($LASTEXITCODE -ne 0) { throw "Failed to copy $($_.Name)" }
-          }
-          Write-Host "Bundled MSVC runtime from $source and OpenMP runtime from $openMpSource"
+        run: tool/bundle_msvc_windows.ps1 build\windows\x64\runner\Release
       - name: Bundle CrispASR (voice moves)
         shell: bash
         run: tool/bundle_crispasr.sh windows build/windows/x64/runner/Release

@@ -17,6 +17,7 @@ concurrency:
 # block the workflow inherits the repository default, which may be read-write.
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   analyze:
@@ -45,7 +46,22 @@ jobs:
       - name: Run tests
         run: flutter test
       - name: Automated UI and engine lifecycle integration tests
-        run: flutter test integration_test/app_test.dart integration_test/engine_lifecycle_test.dart
+        run: |
+          set -o pipefail
+          flutter test integration_test/app_test.dart integration_test/engine_lifecycle_test.dart 2>&1 | tee integration-tests.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: integration-tests-log
+          path: integration-tests.log
+          if-no-files-found: warn
+      - name: Post integration failure log to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '### CI integration test failure'; echo '```'; tail -c 60000 integration-tests.log; echo '```'; } > integration-comment.md
+          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file integration-comment.md
 
   # Plays the engines against each other and fails on an illegal move, a throw
   # or a hang. Every engine bug this session cost a tournament to notice:
