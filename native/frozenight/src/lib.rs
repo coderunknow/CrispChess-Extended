@@ -261,8 +261,9 @@ mod tests {
             let empty = CString::new("").unwrap();
             assert_eq!(frozenight_set_position_v2(a, start.as_ptr(), empty.as_ptr()), 0);
             assert_eq!(frozenight_set_position_v2(b, start.as_ptr(), black.as_ptr()), 0);
-            let workers: Vec<_> = [(a, 1100), (b, 2300)].into_iter().map(|(h, nodes)| {
+            let workers: Vec<_> = [(a as usize, 1100), (b as usize, 2300)].into_iter().map(|(address, nodes)| {
                 std::thread::spawn(move || {
+                    let h = address as *mut FrozenightHandle;
                     assert_eq!(frozenight_search_bounded_v2(h, 3, nodes), 0);
                     let mv = CStr::from_ptr(frozenight_get_best_move_v2(h)).to_str().unwrap().to_owned();
                     (mv, frozenight_get_nodes_v2(h))
