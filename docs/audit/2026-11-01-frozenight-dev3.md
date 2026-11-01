@@ -243,3 +243,95 @@ inspected and retained. No absolute Elo claim is made from smoke games.
 Recommendation: keep the PR draft and ask the owner to approve the candidate for
 a Windows 10 verification pass, or request more work. Do not publish from CI smoke
 evidence alone.
+
+## 2026-11-01 — Release engineering, import-closure repair and final-head gates
+
+Owner authorization now covers the full dev3 lifecycle: merge PR #10, tag the
+actual merge commit `v2.3.2-dev3`, run the tag release workflow and publish the
+GitHub prerelease with nine assets. External app-store submission, external
+credential signing and unrelated deployments remain unauthorized. This entry
+supersedes the earlier “blocked until owner approval” boundary; it does not
+rewrite the historical candidate entries above.
+
+### Windows import closure and runtime bundling
+
+The first real extracted-archive PE gate failed with unbundled imports
+`d3d9.dll`, `jvm.dll`, `mf.dll`, `mfplat.dll`, `mfreadwrite.dll`,
+`opengl32.dll`, `uiautomationcore.dll` and `vcomp140.dll` (PR comment 6554063219).
+The diagnosis was:
+
+- `d3d9/opengl32/mf/mfplat/mfreadwrite/uiautomationcore` are Windows system
+  components and are now explicitly allowlisted by the verifier.
+- `jvm.dll` came from the transitive `jni` Windows FFI helper, not from
+  Frozenight. The Windows install filters that helper out of
+  `PLUGIN_BUNDLED_LIBRARIES`; `jvm.dll` is not allowlisted.
+- `vcomp140.dll` is the Visual C++ OpenMP runtime and is not a system DLL.
+  `tool/bundle_msvc_windows.ps1` copies the CRT and OpenMP redist DLLs
+  app-locally from the installed VS redist directory and fails closed if any
+  source or target is missing. The verifier requires the three CRT images plus
+  `vcomp140.dll` and checks the import closure of every delivered PE image.
+
+`include(InstallRequiredSystemLibraries)` was tried and reverted: under the
+hosted VS generator it made `cmake_install.cmake` exit 1 (MSB3073, PR comment
+6553964946). The vswhere redist copy is the retained repair.
+
+Proof on head `0b3af59d68c71a69cd81aec375367d6ebbb1f687`:
+
+- Release run **41278815647**, Windows job: SUCCESS through MSVC CRT+OpenMP
+  bundle, CrispASR bundle, hash-pinned PE verification, ZIP packaging,
+  extracted-archive verification, runtime probe, executable launch and evidence
+  upload.
+- Frozenight release validation run **41278815687**: candidate archive, clean
+  rebuild 1, clean rebuild 2, comparison, evidence, all six Frozenight platform
+  jobs and engine-gate SUCCESS.
+
+Proof on head `660c165e6ecbedac1e97dd79560b851519bf0117`:
+
+- Release run **41279201169**: Android, iOS, Linux, Linux+Frozenight, macOS,
+  Windows, Web, Frozenight native libraries and **Verify all release assets**
+  SUCCESS. The tag-only GitHub Release job was correctly skipped on the PR.
+- Frozenight release validation run **41279201205**: baseline, candidate, both
+  clean rebuilds, comparison and evidence SUCCESS; candidate-sha.txt records
+  `660c165e6ecbedac1e97dd79560b851519bf0117`.
+- Engine Lab run **41279201315** SUCCESS; Lab diagnostics comment 6554234358:
+  analyze exit 0, test exit 0, **784 passed / 26 skipped**.
+- Python release-tooling suite: **32/32** locally and in CI.
+
+### CI integration device and display repair
+
+CI run 41278815661 failed because `flutter test integration_test/...` saw both
+Linux desktop and Chrome and required an explicit device (PR comment 6554197250).
+Head `660c165` added Linux desktop dependencies and `-d linux`. CI run
+41279201194 then built the Linux app but failed with “Error waiting for a debug
+connection: The log reader stopped unexpectedly, or never started” (PR comment
+6554288632): the hosted Linux runner has no interactive display. The final CI
+change runs the Linux integration tests under `xvfb-run` with a fixed screen and
+keeps the tee/artifact/PR-comment failure path. The app smoke test also uses a
+bounded pump instead of `pumpAndSettle`, because the app can host periodic
+timers. These are CI environment repairs, not a weakening of the integration
+assertions.
+
+### Review-thread reconciliation
+
+All 19 PR #10 review threads were individually verified, replied to and resolved
+on GitHub. Cycle 1 review 5725910525 (`d7dd854`) and cycle 2 review 5726314400
+(`97ffe04`) were both COMMENTED, not approval. The nine cycle-2 findings and the
+manifest-as-ninth-asset requirement are implemented: concurrent automatic
+preparation skip, compatible anchor selection, interruption-reason preservation,
+single-number UCI versions, iOS availability consistency, Darwin numeric bundle
+version, VC runtime import closure, and x64 PE validation of the executable,
+Flutter DLL and Frozenight DLL. A final exact-head CodeRabbit full review is
+requested after the last CI/docs commit; rate-limited, skipped, neutral or
+other-commit reviews are not counted.
+
+### Remaining limitations
+
+- Windows 10 is still **NOT VERIFIED**. CI is Windows Server 2025 build 26100.
+  App-local CRT/OpenMP bundling and loaded-module assertions are proven, but a
+  clean owner Windows 10 installation is not.
+- Byte-for-byte reproducibility is **NOT GUARANTEED**. Clean rebuilds are
+  compared and hashed; hosted MSVC/Rust toolchain and PE metadata can vary.
+- Smoke games and short soaks are not long-duration rating calibration. No
+  absolute Elo is claimed without a compatible declared anchor.
+- The iOS IPA is unsigned; no App Store/TestFlight submission or external
+  signing is performed.

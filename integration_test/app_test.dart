@@ -7,7 +7,7 @@ void main() {
 
   testWidgets('App launches and shows CrispChess', (tester) async {
     app.main();
-    await tester.pumpAndSettle(const Duration(seconds: 3));
+    await tester.pump(const Duration(seconds: 3));
     expect(find.text('CrispChess'), findsOneWidget);
   });
 }

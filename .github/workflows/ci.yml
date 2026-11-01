@@ -48,12 +48,12 @@ jobs:
       - name: Install Linux desktop integration-test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev xvfb xauth libgl1-mesa-dri
       - name: Automated UI and engine lifecycle integration tests
         run: |
           set -o pipefail
           flutter config --enable-linux-desktop
-          flutter test integration_test/app_test.dart integration_test/engine_lifecycle_test.dart -d linux 2>&1 | tee integration-tests.log
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" flutter test integration_test/app_test.dart integration_test/engine_lifecycle_test.dart -d linux 2>&1 | tee integration-tests.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
@@ -309,7 +309,7 @@ jobs:
       - name: Install Linux deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev xvfb xauth libgl1-mesa-dri
       - run: flutter build linux --release
       - name: Package
         run: |

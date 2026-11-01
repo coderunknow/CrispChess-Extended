@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.3.2-dev3 — Frozenight Windows runtime repair (candidate)
+## 2.3.2-dev3 — Frozenight Windows runtime repair
 
 - Windows releases now build and bundle the locked `frozenight_ffi.dll`; the
   extracted ZIP must pass an x64/export/import-closure check before upload.
@@ -20,10 +20,19 @@
   stride, enforces automatic caps, records native runtime hashes, and keeps
   rating uncertainty/exclusion/anchor reporting consistent. The singleton WASM
   backend is leased and serialized across Dart instances.
-- Validation includes real native concurrency/reinitialization tests and an
-  extracted Windows candidate exercising gameplay, all four presets and Match.
-  Windows Server CI is not Windows 10 verification. This candidate is not a
-  published release; see `docs/audit/2026-11-01-frozenight-dev3.md` for gates.
+- Windows bundles now include the app-local Visual C++ CRT and OpenMP runtime,
+  exclude the unnecessary JNI Windows helper, and fail closed on unbundled
+  non-system imports. The Windows bundle manifest is published as the ninth
+  release asset.
+- Release engineering pins critical actions to immutable SHAs, checks PowerShell
+  native exit codes, verifies all nine assets before publication, and uses a
+  numeric Darwin bundle version (`2.3.2` / `19`) while pubspec remains
+  `2.3.2-dev3+19`.
+- Validation includes real native concurrency/reinitialization tests, clean
+  Windows rebuild comparison, and an extracted Windows candidate exercising
+  gameplay, all four presets and Match. CI runs Linux desktop integration tests
+  under xvfb. Windows Server CI is not Windows 10 verification; see
+  `docs/audit/2026-11-01-frozenight-dev3.md` for gates and limitations.
 
 ## 2.3.2-dev2 — Engine Lab
 

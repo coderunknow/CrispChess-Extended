@@ -27,3 +27,15 @@ findings were individually dispositioned in the audit, with unrelated publicatio
 workflow changes explicitly deferred. Native runtime hashes now identify Lab
 measurements; the singleton WASM backend is leased and serialized across Dart
 instances. Binary reproducibility and actual Windows 10 remain unverified gates.
+
+## dev3 — release boundary and headless integration
+
+The release boundary is fail-closed: eight platform jobs feed a structural
+asset verifier, and only the tag job may publish. Windows delivery is defined by
+the extracted archive, not the build tree: every required PE image must be x64,
+ABI-2 exports must exist, non-system imports must close over bundled or documented
+system DLLs, and the app-local CRT/OpenMP runtime must load from the delivered
+layout. The JNI Windows helper is excluded because it introduced an unnecessary
+jvm.dll import. CI integration tests are real Linux desktop tests under xvfb;
+headless runners are an environment constraint, not a reason to skip the UI and
+EngineService lifecycle assertions.

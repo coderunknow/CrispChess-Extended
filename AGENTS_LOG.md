@@ -25,3 +25,14 @@ presets/Match on Windows Server 2025. Fixed verifier PE parsing/import closure,
 test-host staging, review findings and scoped prior Lab defects. Recorded all 19
 prior Minor dispositions. No Windows 10 claim, publication, tag, merge or release.
 Final exact-head CI/re-review and owner decision remain the boundary.
+
+## 2026-11-01 — release engineering and final-head CI repair
+
+Completed the Windows import-closure repair: system DLL allowlist, JNI helper
+exclusion, app-local VS CRT+OpenMP bundling, schema-2 PE verifier and fail-closed
+release asset gate. Release 41279201169 and validation 41279201205 passed on
+660c165, including all eight platform builds and release-asset verification.
+Resolved all 19 PR review threads individually. CI integration first failed on
+ambiguous device selection, then on a headless Linux display; the final change
+selects `-d linux` and runs under xvfb-run. Owner authorization now covers
+merge/tag/prerelease; Windows 10 and byte reproducibility remain unverified.
