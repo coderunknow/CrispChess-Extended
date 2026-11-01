@@ -140,3 +140,20 @@ void main() {
     }
   });
 }
+
+  test('a cached thinking engine is reused without a readiness throw', () async {
+    final slot = _slot();
+    final first = await slot.get() as _Stub;
+    first._notifier.value = EngineState.thinking;
+    final second = await slot.get();
+    expect(identical(first, second), isTrue);
+    expect(_Stub.built, 1);
+  });
+
+  test('a cached initializing engine is still rejected', () async {
+    final slot = _slot();
+    final first = await slot.get() as _Stub;
+    first._notifier.value = EngineState.initializing;
+    await expectLater(slot.get(), throwsA(isA<Exception>()));
+    expect(_Stub.built, 1);
+  });

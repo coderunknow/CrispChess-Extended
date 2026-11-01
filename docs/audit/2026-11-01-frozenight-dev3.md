@@ -359,3 +359,14 @@ hold job-level PR write permission without executing repository build code.
 and fails closed on invalid YAML or any mutable `uses` ref, including quoted
 keys/values. Four regression tests cover pinned, quoted mutable, and invalid YAML
 cases; the Python tooling suite is now 36 tests.
+
+### Follow-up review dispositions on the final candidate
+
+The next CodeRabbit pass raised five additional items; all were verified and
+addressed: evidence comments are capped below GitHub's comment limit; iOS
+upload/TestFlight metadata uses the same numeric Darwin `read_version()` as the
+build; `EngineSlot` reuses a cached `thinking` engine but still rejects
+`initializing`; the native probe's `missing` mode only succeeds when the target
+file is absent and loading failed; and the Windows JNI exclusion removes the
+exact `$<TARGET_FILE:jni>` generator expression instead of scanning ancestor
+paths. Regression tests cover the cached thinking/initializing slot states.

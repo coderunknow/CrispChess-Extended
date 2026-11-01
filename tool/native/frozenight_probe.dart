@@ -93,7 +93,11 @@ void main(List<String> args) {
   } catch (error, stack) {
     record('original-error', {'type': error.runtimeType.toString(), 'message': '$error', 'stack': '$stack'});
     record('result', {'outcome': 'failed'});
-    if (expected != 'missing') exitCode = 1;
+    // `missing` is only a successful diagnosis when the target itself is
+    // absent and the load failed. A loaded library with a later ABI/search
+    // failure, or an existing file that fails to load, is a different fault.
+    final targetAbsent = !File(args[0]).existsSync();
+    if (expected != 'missing' || lib != null || !targetAbsent) exitCode = 1;
   } finally {
     dispose?.call();
     record('exit', {'code': exitCode});

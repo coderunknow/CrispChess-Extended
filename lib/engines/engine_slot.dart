@@ -48,7 +48,12 @@ class EngineSlot {
     if (engine.state == EngineState.idle) {
       await engine.initialize();
     }
-    requireEngineReady(engine, platform: 'native');
+    // A cached thinking engine may still be finishing a prior search. It is
+    // already initialized, and the engine serializes the next request. Do not
+    // skip the check for initializing/error/disposed: those are not usable.
+    if (engine.state != EngineState.thinking) {
+      requireEngineReady(engine, platform: 'native');
+    }
     return engine;
   }
 

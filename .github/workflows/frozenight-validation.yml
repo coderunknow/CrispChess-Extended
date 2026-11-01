@@ -292,5 +292,9 @@ jobs:
             for f in candidate/validation-evidence/candidate-build.log evidence/baseline-build.log evidence/original-paths.log evidence/repaired-paths.log candidate/validation-evidence/candidate-paths.log; do
               if [ -f "$f" ]; then echo "### $f"; echo '```'; tail -n 30 "$f"; grep -E 'panicked|assertion|left:|right:|help:|consider|borrow|move occurs|FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|error\[|error:|Expected:|Actual:|FAILED|verified|test result:' "$f" | head -c 20000; echo; echo '```'; fi
             done
-          } > evidence.md
+          } > evidence-full.md
+          head -c 60000 evidence-full.md > evidence.md
+          if [ "$(wc -c < evidence-full.md)" -gt 60000 ]; then
+            printf '\n_Evidence truncated to 60000 bytes; full logs are in the workflow artifacts._\n' >> evidence.md
+          fi
           gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file evidence.md

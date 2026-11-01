@@ -62,7 +62,7 @@ include(flutter/generated_plugins.cmake)
 # package:jni is an Android-only transitive FFI plugin. Its Windows helper
 # imports jvm.dll, but the Windows app never loads JNI. Do not ship a dead,
 # JVM-dependent helper in the release archive.
-list(FILTER PLUGIN_BUNDLED_LIBRARIES EXCLUDE REGEX "[Jj][Nn][Ii]")
+list(REMOVE_ITEM PLUGIN_BUNDLED_LIBRARIES "$<TARGET_FILE:jni>")
 
 
 # === Installation ===
