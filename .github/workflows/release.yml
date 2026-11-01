@@ -60,7 +60,16 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
-      - run: flutter build linux --release
+      - name: Build Linux
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build linux --release 2>&1 | tee linux-build.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: linux-build-log-${{ github.job }}
+          path: linux-build.log
       # package:onnxruntime bundles its native library for Android, iOS, macOS
       # and Windows, and expects the system to provide it on Linux — where
       # almost nobody has it. The Lc0 engine then falls back to the pure-Dart
@@ -103,7 +112,16 @@ jobs:
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
       - run: cargo build --locked --release
         working-directory: native/frozenight
-      - run: flutter build linux --release
+      - name: Build Linux
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build linux --release 2>&1 | tee linux-build.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: linux-build-log-${{ github.job }}
+          path: linux-build.log
       # package:onnxruntime bundles its native library for Android, iOS, macOS
       # and Windows, and expects the system to provide it on Linux — where
       # almost nobody has it. The Lc0 engine then falls back to the pure-Dart

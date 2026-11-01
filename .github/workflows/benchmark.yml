@@ -67,6 +67,8 @@ jobs:
           python-version: '3.12'
       # Unittest discovery is here as well as in ci.yml because this script is
       # the thing that made the release tooling's tests relevant to the Lab.
+      - name: Install hash-pinned release verifier dependencies
+        run: python3 -m pip install --require-hashes -r tools/requirements-windows.txt
       - name: Release tooling
         run: python3 -m unittest discover -s tools/tests -v
       - name: Rating maths
