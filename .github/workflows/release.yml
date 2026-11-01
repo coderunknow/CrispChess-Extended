@@ -274,7 +274,24 @@ jobs:
       - name: Build the pinned Frozenight runtime
         run: cargo build --locked --release
         working-directory: native/frozenight
-      - run: flutter build windows --release
+      - name: Build Windows
+        shell: pwsh
+        run: |
+          flutter build windows --release 2>&1 | Tee-Object -FilePath windows-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'flutter build windows failed' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: windows-build-log
+          path: windows-build.log
+          if-no-files-found: warn
+      - name: Post Windows build failure log to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '### Windows build failure'; echo '```'; tail -c 60000 windows-build.log; echo '```'; } > windows-failure-comment.md
+          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file windows-failure-comment.md
       - name: Bundle CrispASR (voice moves)
         shell: bash
         run: tool/bundle_crispasr.sh windows build/windows/x64/runner/Release
