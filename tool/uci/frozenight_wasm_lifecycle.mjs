@@ -19,8 +19,11 @@ let peak = 0;
 for (let i = 0; i < cycles; i++) {
   await globalThis.frozenightLoad({ module_or_path: wasmBytes });
   globalThis.frozenightSetPosition('startpos', 'e2e4 e7e5');
-  const move = globalThis.frozenightSearchBounded(3, 5000) || globalThis.frozenightSearch(3);
-  if (!/^[a-h][1-8][a-h][1-8][qrbn]?/.test(move)) throw new Error(`bad move at cycle ${i}: ${move}`);
+  const result = globalThis.frozenightSearchBounded(3, 5000) || globalThis.frozenightSearch(3);
+  const move = typeof result === 'string' ? result.trim().split(/\s+/, 1)[0] : result;
+  if (typeof result !== 'string' || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(move)) {
+    throw new Error(`bad move at cycle ${i}: ${result}`);
+  }
   globalThis.frozenightDispose();
   if (globalThis.frozenightIsLoaded()) throw new Error('module still loaded after dispose');
   if (i % 20 === 0) {

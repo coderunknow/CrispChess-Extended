@@ -398,3 +398,13 @@ after the CodeRabbit fair-usage cooldown; rate-limited attempts are not counted.
 The remaining limitations are unchanged: Windows 10 is not verified; byte-for-byte
 reproducibility is not guaranteed; smoke/short soak is not long-duration rating
 calibration; the iOS IPA is unsigned and no store submission is performed.
+
+### Final full-review follow-up (cycle 5)
+
+CodeRabbit full review 5727549754 on `d0edc6f` posted four Minor findings; all
+were verified and addressed: the Linux Frozenight release job now selects the
+centralized `RUST_VERSION`; the Windows runtime probe asserts `vcomp140.dll`
+loads from the extracted archive; stored automatic benchmark budgets are clamped
+to the effective 24-game/10-minute caps on load; and the WASM soak validates the
+first UCI token while retaining the compatibility fallback. The local 3-cycle
+WASM soak passed after the change.

@@ -86,9 +86,9 @@ class AutoBenchmarkSettings {
       afterVersionChange: json['afterVersionChange'] is bool
           ? json['afterVersionChange'] as bool
           : true,
-      maxGames: maxGames is num ? maxGames.toInt().clamp(2, 400).toInt() : 24,
+      maxGames: maxGames is num ? maxGames.toInt().clamp(2, 24).toInt() : 24,
       maxDuration: maxMinutes is num
-          ? Duration(minutes: maxMinutes.toInt().clamp(1, 240).toInt())
+          ? Duration(minutes: maxMinutes.toInt().clamp(1, 10).toInt())
           : const Duration(minutes: 10),
     );
   }
