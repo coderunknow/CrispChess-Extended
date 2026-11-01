@@ -12,6 +12,7 @@ import 'package:crispchess/bench/calibration.dart';
 import 'package:crispchess/engines/generic_uci_engine.dart';
 import 'package:crispchess/services/engine_profile_store.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/bench_harness.dart';
@@ -42,6 +43,7 @@ void main() {
 
   test('concurrent automatic preparation returns null instead of StateError', () async {
     SharedPreferences.setMockInitialValues({});
+    PackageInfo.setMockInitialValues(appName: 'CrispChess', packageName: 'crispchess', version: '2.3.2', buildNumber: '19', buildSignature: '');
     // A real temporary file makes fingerprintForProfile consult the gated
     // storage cache; a missing path returns before any storage read.
     final dir = await Directory.systemTemp.createTemp('crisp-lab-concurrent-');
@@ -52,7 +54,10 @@ void main() {
     await profiles.add(EngineProfile(id: 'p', name: 'Alpha', path: binary.path));
     // Resolve the custom identity before arming the gate; otherwise identity
     // discovery itself blocks and the test never reaches concurrent runAutomatic.
-    final identityService = BenchmarkService(profileStore: profiles);
+    final identityService = BenchmarkService(
+      store: BenchmarkStore(storage: MemoryBenchmarkStorage()),
+      profileStore: profiles,
+    );
     final identity = await identityService.identityFor('custom:p');
     final gate = Completer<void>();
     final store = BenchmarkStore(storage: _GatedStorage(gate));
