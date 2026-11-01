@@ -21,6 +21,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CRISPASR_VERSION: v0.8.38
+
 jobs:
   baseline:
     name: Windows dev2 archive and controlled DLL repair
