@@ -333,10 +333,12 @@ jobs:
           }
           Stop-Process -Id $proc.Id -Force
       - name: Upload Windows runtime evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-runtime-evidence
           path: windows-loaded-modules.json
+          if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-bundle-manifest

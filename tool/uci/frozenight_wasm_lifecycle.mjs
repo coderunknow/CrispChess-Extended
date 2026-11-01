@@ -26,9 +26,9 @@ for (let i = 0; i < cycles; i++) {
   }
   globalThis.frozenightDispose();
   if (globalThis.frozenightIsLoaded()) throw new Error('module still loaded after dispose');
+  const mem = process.memoryUsage();
+  peak = Math.max(peak, mem.rss);
   if (i % 20 === 0) {
-    const mem = process.memoryUsage();
-    peak = Math.max(peak, mem.rss);
     console.log(JSON.stringify({ cycle: i, rss: mem.rss, heapUsed: mem.heapUsed, move }));
   }
 }

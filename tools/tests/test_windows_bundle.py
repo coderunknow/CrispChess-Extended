@@ -107,3 +107,28 @@ class WindowsBundleTests(unittest.TestCase):
                     z.writestr(name, 'x')
                 with self.assertRaisesRegex(ValueError, 'unsafe'):
                     wb.verify_zip(p)
+
+    def test_delay_imports_are_included_in_closure(self):
+        import sys
+        import types
+
+        class Entry:
+            def __init__(self, name):
+                self.dll = name.encode('ascii')
+
+        class FakePE:
+            class FILE_HEADER:
+                Machine = 0x8664
+            class OPTIONAL_HEADER:
+                Magic = 0x20B
+            DIRECTORY_ENTRY_EXPORT = None
+            DIRECTORY_ENTRY_IMPORT = [Entry('KERNEL32.dll')]
+            DIRECTORY_ENTRY_DELAY_IMPORT = [Entry('missing_delay.dll')]
+            def close(self):
+                pass
+
+        fake = types.SimpleNamespace(PE=lambda data: FakePE(), PEFormatError=Exception)
+        with patch.dict(sys.modules, {'pefile': fake}):
+            exports, imports = wb.pe_info(b'fake')
+        self.assertIn('kernel32.dll', imports)
+        self.assertIn('missing_delay.dll', imports)

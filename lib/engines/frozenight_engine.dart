@@ -295,7 +295,13 @@ class FrozenightEngine implements ChessEngine {
       if (_disposed || _stopped) break;
       if (d > 1 && !hasTimeForNextDepth(sw.elapsed, budget)) break;
       if (d > 1) await Future<void>.delayed(Duration.zero);
-      if (_searchBounded!(_handle!, d, 0) != 0) break;
+      final before = sw.elapsed;
+      final allowance = nodeAllowance(budget - before, _nodesPerMs);
+      if (_searchBounded!(_handle!, d, allowance) != 0) break;
+      if (_getNodes != null) {
+        _nodesPerMs = updatedRate(_nodesPerMs, _getNodes!(_handle!),
+            (sw.elapsed - before).inMilliseconds);
+      }
 
       final ptr = _getBestMove!(_handle!);
       final sideToMove = _getScore!(_handle!) / 100.0;

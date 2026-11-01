@@ -56,7 +56,14 @@ def pe_info(data: bytes):
         if pe.FILE_HEADER.Machine != 0x8664 or pe.OPTIONAL_HEADER.Magic != 0x20b:
             raise ValueError('not an x64 PE32+ image')
         exports = {e.name.decode('ascii') for e in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', []) if e.name}
-        imports = [e.dll.decode('ascii').lower() for e in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])]
+        imports = [
+            e.dll.decode('ascii').lower()
+            for directory in (
+                getattr(pe, 'DIRECTORY_ENTRY_IMPORT', []),
+                getattr(pe, 'DIRECTORY_ENTRY_DELAY_IMPORT', []),
+            )
+            for e in directory
+        ]
         return exports, imports
     finally:
         pe.close()

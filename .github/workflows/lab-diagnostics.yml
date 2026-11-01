@@ -125,13 +125,20 @@ jobs:
               except FileNotFoundError:
                   return "_no output: the step did not run_"
 
-          def section(text: str, patterns: list[str], limit: int = 12000) -> str:
-              """Keep matching lines plus assertion context, with a count banner."""
+          def section(text: str, patterns: list[str], limit: int = 12000, expand: list[str] | None = None) -> str:
+              """Keep matching lines plus assertion context, with a count banner.
+
+              Context expansion is limited to failure patterns so normal
+              expanded-reporter progress lines cannot consume the body budget.
+              """
               lines = text.splitlines()
               indexes = set()
+              expand_patterns = expand if expand is not None else patterns
               for i, line in enumerate(lines):
                   if any(re.search(p, line) for p in patterns):
-                      indexes.update(range(i, min(len(lines), i + 24)))
+                      indexes.add(i)
+                      if any(re.search(p, line) for p in expand_patterns):
+                          indexes.update(range(i, min(len(lines), i + 24)))
               kept = [lines[i] for i in sorted(indexes)]
               head = "_%d matching line(s) of %d_" % (sum(1 for line in lines if any(re.search(p, line) for p in patterns)), len(lines))
               body = "\n".join(kept)
@@ -163,7 +170,8 @@ jobs:
               "### test: failures",
               "",
               "```",
-              section(tests, [r"\[E\]", r"^\s*Expected:", r"^\s*Actual:", r"^Some tests failed", r"^\d+:\d+:\d+ \+.*-\d+"]),
+              section(tests, [r"\[E\]", r"^\s*Expected:", r"^\s*Actual:", r"^Some tests failed", r"^\d+:\d+:\d+ \+.*-\d+"],
+                        expand=[r"\[E\]", r"^\s*Expected:", r"^\s*Actual:", r"^Some tests failed"]),
               "```",
               "",
               "### test: tail",

@@ -437,3 +437,14 @@ parsing strips trailing architecture tags before extracting the numeric version;
 the Windows verifier suite gains negative tests for unbundled non-system imports
 and missing Frozenight exports. The final publication head is the commit that
 records this entry; its exact-head gates are tracked in PR #10's validation matrix.
+
+### Cycle 8 follow-up
+
+- iOS signing workflow checkouts now set `persist-credentials: false`.
+- Lab diagnostics expands context only for failure patterns, not normal progress.
+- Windows runtime evidence uploads with `if: always()` and warns if absent.
+- Frozenight analysis searches use the same node allowance as bestMove, bounding
+  each synchronous depth on the UI isolate.
+- WASM lifecycle soak samples RSS on every cycle, not only logged cycles.
+- Windows PE import closure now includes delay-import directories; a regression
+  test proves a delay-imported DLL enters the closure.
