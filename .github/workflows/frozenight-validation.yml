@@ -38,7 +38,7 @@ jobs:
           cache: true
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          toolchain: stable
+          toolchain: '1.99.1'
       - name: Record environment and source
         shell: bash
         run: |
@@ -87,6 +87,7 @@ jobs:
           Get-FileHash $runtime\frozenight_ffi.dll -Algorithm SHA256 | Format-List | Out-File validation-evidence\dll-hash.txt
           $env:PATH = "$runtime;$env:PATH"
           $env:CRISP_FROZENIGHT_EXPECT = 'ready'
+          $env:CRISP_FROZENIGHT_SOAK = '1'
           dart tool/native/frozenight_probe.dart (Join-Path $runtime 'frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\repaired-ffi.jsonl
           if ($LASTEXITCODE -ne 0) { throw 'Real native smoke test failed' }
           flutter test --no-pub --reporter expanded test/frozenight_release_repro_test.dart 2>&1 | Tee-Object validation-evidence\repaired-paths.log
@@ -106,6 +107,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
           flutter-version: '3.44.2'
@@ -113,7 +115,7 @@ jobs:
           cache: true
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
-          toolchain: stable
+          toolchain: '1.99.1'
       - run: flutter pub get
       - name: Build and package the candidate
         shell: bash
@@ -121,6 +123,9 @@ jobs:
           set -euo pipefail
           mkdir -p validation-evidence
           git rev-parse HEAD | tee validation-evidence/candidate-sha.txt
+          echo "pr_head=${{ github.event.pull_request.head.sha || github.sha }}" | tee validation-evidence/candidate-ref.txt
+          echo "merge_ref=${{ github.sha }}" | tee -a validation-evidence/candidate-ref.txt
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           flutter --version | tee validation-evidence/candidate-flutter.txt
           rustc --version -v | tee validation-evidence/candidate-rust.txt
           python -c 'import platform; print(platform.platform())' | tee validation-evidence/candidate-os.txt
@@ -152,7 +157,8 @@ jobs:
             Write-Output "Staged extracted DLL beside $($_.FullName)"
           }
           $env:CRISP_FROZENIGHT_EXPECT = 'ready'
-          dart tool/native/frozenight_probe.dart (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\candidate-ffi.jsonl
+          $env:CRISP_FROZENIGHT_SOAK = '1'
+          dart tool/native/frozenight_probe.dart (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') ready 200 2>&1 | Tee-Object validation-evidence\candidate-ffi.jsonl
           if ($LASTEXITCODE -ne 0) { throw 'Candidate native smoke failed' }
           flutter test --no-pub --reporter expanded test/frozenight_release_repro_test.dart 2>&1 | Tee-Object validation-evidence\candidate-paths.log
           if ($LASTEXITCODE -ne 0) { throw 'Candidate application paths failed' }
@@ -165,8 +171,79 @@ jobs:
             validation-evidence/
           if-no-files-found: error
           retention-days: 30
+  reproducibility:
+    name: Clean Windows rebuild ${{ matrix.attempt }}
+    runs-on: windows-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: '1.99.1'
+      - name: Independent clean build and hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p repro-evidence
+          git rev-parse HEAD > repro-evidence/source-sha.txt
+          flutter --version > repro-evidence/flutter-version.txt
+          rustc --version -v > repro-evidence/rust-version.txt
+          python -m pip install --require-hashes -r tools/requirements-windows.txt
+          cargo build --locked --release --manifest-path native/frozenight/Cargo.toml
+          flutter build windows --release
+          tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release
+          python tools/verify_windows_bundle.py build/windows/x64/runner/Release --manifest repro-evidence/bundle.json
+          sha256sum build/windows/x64/runner/Release/crispchess.exe \
+            build/windows/x64/runner/Release/flutter_windows.dll \
+            build/windows/x64/runner/Release/frozenight_ffi.dll | tee repro-evidence/hashes.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-repro-${{ matrix.attempt }}
+          path: repro-evidence/
+          retention-days: 30
+
+  reproducibility-compare:
+    name: Compare clean Windows rebuilds
+    needs: reproducibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: windows-repro-*
+          path: repro
+      - name: Record binary reproducibility result without hiding differences
+        run: |
+          set -euo pipefail
+          {
+            echo '# Clean Windows rebuild comparison'
+            echo 'Source and toolchain versions are pinned; hosted MSVC/PE timestamps may still differ.'
+            for f in repro/windows-repro-*/hashes.txt; do echo "## $f"; cat "$f"; done
+            if diff -u repro/windows-repro-1/hashes.txt repro/windows-repro-2/hashes.txt; then
+              echo 'RESULT: byte-identical for the three required Windows binaries.'
+            else
+              echo 'RESULT: NOT byte-identical. Functional verification is separate from binary reproducibility.'
+            fi
+          } | tee reproducibility.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-reproducibility-comparison
+          path: reproducibility.md
+          retention-days: 30
+
   evidence:
-    needs: [baseline, candidate]
+    needs: [baseline, candidate, reproducibility-compare]
     if: ${{ always() && !cancelled() && (github.event.pull_request.number || inputs.pr) }}
     runs-on: ubuntu-latest
     permissions:
@@ -183,6 +260,11 @@ jobs:
         with:
           name: crispchess-dev3-windows-candidate
           path: candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: windows-reproducibility-comparison
+          path: repro
       - name: Post evidence without exposing a write token to build code
         shell: bash
         env:
@@ -200,6 +282,7 @@ jobs:
             for f in candidate/validation-evidence/candidate-sha.txt candidate/validation-evidence/candidate-os.txt candidate/validation-evidence/candidate-ffi.jsonl evidence/source-sha.txt evidence/os.txt evidence/archive-hash.txt evidence/original-ffi.jsonl evidence/dll-hash.txt evidence/repaired-ffi.jsonl; do
               if [ -f "$f" ]; then echo "### $f"; echo '```'; head -c 14000 "$f"; echo; echo '```'; fi
             done
+            if [ -f repro/reproducibility.md ]; then echo '### Clean rebuild comparison'; echo '```'; cat repro/reproducibility.md; echo '```'; fi
             for f in candidate/validation-evidence/candidate-build.log evidence/baseline-build.log evidence/original-paths.log evidence/repaired-paths.log candidate/validation-evidence/candidate-paths.log; do
               if [ -f "$f" ]; then echo "### $f"; echo '```'; tail -n 30 "$f"; grep -E 'panicked|assertion|left:|right:|help:|consider|borrow|move occurs|FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|error\[|error:|Expected:|Actual:|FAILED|verified|test result:' "$f" | head -c 20000; echo; echo '```'; fi
             done

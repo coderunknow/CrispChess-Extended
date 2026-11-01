@@ -270,11 +270,6 @@ class BenchmarkService {
     }
 
     final all = await profiles();
-    if (anchors.isNotEmpty) {
-      for (final candidate in anchors.where((a) => a.isComplete)) {
-        if (engineIds.contains(candidate.engineIdHint) || engineIds.any((id) => engineLabelForId(id, all) == candidate.engineName)) { anchor = candidate; break; }
-      }
-    }
     final identities = <EngineIdentity>[];
     final slots = <String, BenchEngineSlot>{};
     final unavailable = <String>[];
@@ -296,6 +291,9 @@ class BenchmarkService {
           '${unavailable.join('; ')}');
     }
 
+    // Select only after the measured identities are known. A first matching
+    // label must not hide a later anchor with the right version and budget.
+    anchor ??= selectCompatibleAnchor(anchors, identities, config);
     final suite = openingSuiteById(config.openingSuiteId, extra: suites);
     final plan = buildPlan(
       config: config,
@@ -309,6 +307,7 @@ class BenchmarkService {
       slots: slots,
       environment: BenchmarkEnvironment.capture(appVersion: await appVersion()),
       anchor: anchor,
+      anchors: anchors,
       trigger: trigger,
       // Stored as the run goes: closing the app mid-benchmark keeps the games
       // already played, marked as a partial run rather than as a finished one.
@@ -353,6 +352,7 @@ class BenchmarkService {
       referenceEngineId: referenceEngineId,
       suites: suites,
       anchor: anchor,
+      anchors: anchors,
       trigger: trigger,
     );
     return runWithRunner(runner);
@@ -570,8 +570,8 @@ class BenchmarkService {
     final identity = decision.identity;
     final config = decision.config;
     if (!decision.shouldRun || identity == null || config == null) return null;
-    if (_active != null) {
-      debugPrint('[EngineLab] automatic run skipped: a benchmark is running');
+    if (_active != null || _creatingRunner) {
+      debugPrint('[EngineLab] automatic run skipped: a benchmark is running or being prepared');
       return null;
     }
     final engineIds = [identity.engineId, ...decision.opponents];

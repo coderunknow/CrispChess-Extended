@@ -37,6 +37,8 @@ jobs:
       # green CI — the check existed but could not fail.
       - name: Run tests
         run: flutter test
+      - name: Automated UI and engine lifecycle integration tests
+        run: flutter test integration_test/app_test.dart integration_test/engine_lifecycle_test.dart
 
   # Plays the engines against each other and fails on an illegal move, a throw
   # or a hang. Every engine bug this session cost a tournament to notice:
@@ -67,6 +69,8 @@ jobs:
           TOURNAMENT_PLY_CAP: "40"
           TOURNAMENT_HANG_SECONDS: "30"
         run: flutter test tool/perf/tournament.dart
+      - name: Real Frozenight WASM load/search/dispose soak
+        run: node tool/uci/frozenight_wasm_lifecycle.mjs 100
 
   # Build Frozenight native library for Linux
   frozenight-linux:
@@ -234,7 +238,10 @@ jobs:
         with:
           channel: stable
           cache: true
-      - run: flutter build ios --no-codesign --release
+      - name: Build iOS with numeric Darwin bundle version
+        run: |
+          read -r version build < <(python3 -c 'from tools.release_version import read_version; print(*read_version())')
+          flutter build ios --no-codesign --release --build-name "$version" --build-number "$build"
 
   build-macos:
     name: Build macOS

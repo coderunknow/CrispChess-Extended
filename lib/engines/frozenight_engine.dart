@@ -93,7 +93,8 @@ class FrozenightEngine implements ChessEngine {
   static bool get isAvailable {
     if (kIsWeb) return false;
     try {
-      if (Platform.isIOS) { DynamicLibrary.process(); } else { _openLib(); }
+      final lib = _openDefaultLibrary();
+      lib.lookup<Void>('frozenight_abi_version');
       return true;
     } catch (_) {
       return false;
@@ -115,8 +116,10 @@ class FrozenightEngine implements ChessEngine {
     String? symbol;
     _stateNotifier.value = EngineState.initializing;
     try {
-      _resolvedLibraryPath = _libraryPath ?? _defaultLibraryPath();
-      _library = DynamicLibrary.open(_resolvedLibraryPath!);
+      _resolvedLibraryPath = _libraryPath ?? (Platform.isIOS ? null : _defaultLibraryPath());
+      _library = _libraryPath != null
+          ? DynamicLibrary.open(_libraryPath!)
+          : _openDefaultLibrary();
       final lib = _library!;
       stage = 'check-abi';
       symbol = 'frozenight_abi_version';
@@ -370,7 +373,11 @@ class FrozenightEngine implements ChessEngine {
     }
   }
 
-  static DynamicLibrary _openLib() => DynamicLibrary.open(_defaultLibraryPath());
+  /// iOS links native engines into the process; opening the executable path
+  /// is not the same lookup. Keep availability and initialization on one path.
+  static DynamicLibrary _openDefaultLibrary() => Platform.isIOS
+      ? DynamicLibrary.process()
+      : DynamicLibrary.open(_defaultLibraryPath());
 
   static String _defaultLibraryPath() {
     if (Platform.isWindows) {
@@ -379,7 +386,6 @@ class FrozenightEngine implements ChessEngine {
           .resolve('frozenight_ffi.dll').toFilePath();
     }
     if (Platform.isAndroid || Platform.isLinux) return 'libfrozenight_ffi.so';
-    if (Platform.isIOS) return Platform.resolvedExecutable;
     if (Platform.isMacOS) return 'libfrozenight_ffi.dylib';
     throw UnsupportedError('Unsupported platform');
   }

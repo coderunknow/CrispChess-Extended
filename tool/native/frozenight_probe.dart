@@ -7,12 +7,14 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 
 void main(List<String> args) {
-  if (args.isEmpty || args.length > 2) {
-    stderr.writeln('Usage: frozenight_probe.dart LIBRARY [missing|ready]');
+  if (args.isEmpty || args.length > 3) {
+    stderr.writeln('Usage: frozenight_probe.dart LIBRARY [missing|ready] [cycles]');
     exitCode = 2;
     return;
   }
-  final expected = args.length == 2 ? args[1] : 'ready';
+  final expected = args.length >= 2 ? args[1] : 'ready';
+  final cycles = args.length == 3 ? int.parse(args[2]) : 3;
+  if (cycles < 1 || cycles > 10000) throw ArgumentError.value(cycles, 'cycles');
   final events = <Map<String, Object?>>[];
   final all = Stopwatch()..start();
   DynamicLibrary? lib;
@@ -53,7 +55,8 @@ void main(List<String> args) {
     Pointer<NativeType>? handle;
     dispose = () { final h = handle; if (h != null) { releaseHandle(h); handle = null; } };
 
-    for (var cycle = 0; cycle < 3; cycle++) {
+    var peakRss = 0;
+    for (var cycle = 0; cycle < cycles; cycle++) {
       final created = create(32);
       handle = created;
       final rc = created.address == 0 ? -1 : 0;
@@ -78,9 +81,14 @@ void main(List<String> args) {
       }
       dispose.call();
       record('disposed', {'cycle': cycle});
+      final rss = ProcessInfo.currentRss;
+      if (rss > peakRss) peakRss = rss;
+      if (cycle % 25 == 0 || cycle == cycles - 1) {
+        record('memory', {'cycle': cycle, 'rssBytes': rss, 'peakRssBytes': peakRss, 'maxRssBytes': ProcessInfo.maxRss});
+      }
     }
     dispose = null;
-    record('result', {'outcome': 'ready'});
+    record('result', {'outcome': 'ready', 'cycles': cycles, 'peakRssBytes': peakRss});
     if (expected != 'ready') exitCode = 1;
   } catch (error, stack) {
     record('original-error', {'type': error.runtimeType.toString(), 'message': '$error', 'stack': '$stack'});

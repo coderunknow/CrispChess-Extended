@@ -150,6 +150,9 @@ class BenchmarkRunner {
   /// The calibration anchor to apply, if the user declared one.
   final RatingAnchor? anchor;
 
+  /// Stored candidates, re-checked after UCI identities are refined.
+  final List<RatingAnchor> anchors;
+
   /// `manual`, `engine added`, `engine changed`, `quick after version change`.
   final String? trigger;
 
@@ -202,6 +205,7 @@ class BenchmarkRunner {
     required this.slots,
     required this.environment,
     this.anchor,
+    this.anchors = const [],
     this.trigger,
     this.onProgressSave,
     this.partialSaveInterval = 10,
@@ -729,7 +733,7 @@ class BenchmarkRunner {
         final complete = !inProgress && live.scheduledCompleted >= scheduled;
         status[identity.engineId] = EngineRunStatus(
           status: inProgress ? 'in progress' : complete ? 'completed' : 'partial',
-          reason: complete ? null : 'Finished ${live.scheduledCompleted} of $scheduled scheduled games.',
+          reason: complete ? null : (live.failureReason ?? 'Finished ${live.scheduledCompleted} of $scheduled scheduled games.'),
           gamesCompleted: live.gamesCompleted,
         );
       }
@@ -745,7 +749,7 @@ class BenchmarkRunner {
     );
     final calibration = calibrateElo(
       fit: ratings,
-      anchor: anchor,
+      anchor: anchor ?? selectCompatibleAnchor(anchors, identities, config),
       config: config,
       identities: identities,
     );

@@ -120,6 +120,7 @@ jobs:
             test/lab_rating_bar_test.dart \
             test/lab_opening_policy_test.dart \
             test/lab_prior_findings_test.dart \
+            test/lab_release_review_test.dart \
             test/rating_fit_test.dart \
             test/match_config_test.dart \
             test/match_result_test.dart 2>&1 | tee lab-tests.log

@@ -334,6 +334,11 @@ class GenericUciEngine
   /// Completed by the engine's `readyok`.
   Completer<void>? _readyOk;
 
+  /// Test-only access to the real stdout line parser.
+  @visibleForTesting
+  void debugHandleLine(String line, {bool handshake = false}) =>
+      _handleLine(line, handshake: handshake);
+
   void _handleLine(String line, {bool handshake = false}) {
     final t = line.trim();
 
@@ -353,7 +358,7 @@ class GenericUciEngine
         _detectedName = t.substring(8).trim();
         // UCI has no id-version field. Preserve a trailing numeric version
         // from `id name` (e.g. Stockfish 17.1); never invent one from a path.
-        final version = RegExp(r'\s(v?\d+(?:[.\-]\w+)+)\s*$').firstMatch(_detectedName);
+        final version = RegExp(r'\s(v?\d+(?:[.\-]\w+)*)\s*$').firstMatch(_detectedName);
         _detectedVersion = version == null ? '' : version.group(1)!;
       } else if (t.startsWith('id author ')) {
         _detectedAuthor = t.substring(10).trim();

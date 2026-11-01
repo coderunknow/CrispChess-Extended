@@ -134,4 +134,54 @@ void main() {
     match.dispose();
   }, skip: expected == null ? 'Opt-in: requires an actual extracted runtime on PATH' : false,
       timeout: const Timeout(Duration(minutes: 10)));
+
+  test('repeated real init/dispose and a bounded 100-game Lab soak', () async {
+    if (expected != 'ready' || Platform.environment['CRISP_FROZENIGHT_SOAK'] != '1') {
+      return;
+    }
+    final rss = <int>[];
+    for (var i = 0; i < 50; i++) {
+      final engine = createEngineForId('builtin:Frozenight', profiles: const []);
+      await engine.initialize();
+      expect(engine.state, EngineState.ready);
+      final move = await engine.bestMove('position startpos', depth: 2);
+      expect(move, matches(RegExp(r'^[a-h][1-8][a-h][1-8][qrbn]?$')));
+      engine.dispose();
+      expect(engine.state, EngineState.disposed);
+      if (i % 10 == 0) rss.add(ProcessInfo.currentRss);
+    }
+    final frozenight = createEngineForId('builtin:Frozenight', profiles: const []);
+    final opponent = createEngineForId('builtin:Built-in', profiles: const []);
+    final a = EngineIdentity.forBuiltIn(name: 'Frozenight', engineVersion: frozenight.version, appBuild: 'release-soak');
+    final b = EngineIdentity.forBuiltIn(name: 'Built-in', engineVersion: opponent.version, appBuild: 'release-soak');
+    final config = BenchmarkConfig.forPreset(BenchmarkPreset.quick).copyWith(
+      gamesPerPairing: 100, warmUpGames: 0, maxGames: () => 100,
+      adaptiveStopping: false, plyCap: 40, searchDepth: () => 2,
+    );
+    final runner = BenchmarkRunner(
+      plan: buildPlan(config: config, engines: [a, b]),
+      slots: {
+        a.engineId: BenchEngineSlot(identity: a, build: () => frozenight),
+        b.engineId: BenchEngineSlot(identity: b, build: () => opponent),
+      },
+      environment: BenchmarkEnvironment.capture(appVersion: 'release-soak'),
+    );
+    final run = await runner.run().timeout(const Duration(minutes: 8));
+    await runner.dispose();
+    // ignore: avoid_print
+    print('FROZENIGHT_SOAK ${jsonEncode({
+      'initDisposeCycles': 50, 'rssSamples': rss,
+      'games': run.games.length, 'stopReason': run.stopReason,
+      'ratedGames': run.ratings.ratedGames,
+      'components': run.ratings.components.length,
+      'calibrationAvailable': run.calibration.available,
+      'outcomes': run.games.map((g) => g.outcome.id).toSet().toList(),
+    })}');
+    expect(run.stopReason, 'completed');
+    expect(run.games.length, 100);
+    expect(run.ratings.components.length, 1);
+    expect(run.calibration.available, isFalse,
+        reason: 'A soak without a declared compatible anchor must not invent absolute Elo.');
+  }, skip: expected == null ? 'Opt-in: requires an actual extracted runtime on PATH' : false,
+      timeout: const Timeout(Duration(minutes: 10)));
 }
