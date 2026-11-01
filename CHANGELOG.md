@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.3.2-dev3 — Frozenight Windows runtime repair (candidate)
+
+- Windows releases now build and bundle the locked `frozenight_ffi.dll`; the
+  extracted ZIP must pass an x64/export/import-closure check before upload.
+  The dev2 Windows ZIP omitted this required runtime. Adding a DLL by hand was
+  a controlled experiment, not a repaired dev2 release.
+- Frozenight startup failures now retain the original cause, loader/native code,
+  stage, platform, library path and symbol. Gameplay, Engine Lab and Match
+  require actual `ready`; a failed start is never reported as success.
+- Frozenight ABI 2 gives each engine instance its own native state. Legacy
+  exports remain for the released dev2 executable. Initialization is shared,
+  disposal is idempotent and queued after searches; native handles are not freed
+  underneath a queued request.
+- Lab initialization cancellation/deadline is not mislabeled as engine failure;
+  healthy pairings continue when another engine fails, and unavailable pairings
+  are recorded as aborted rather than omitted. Unfinished schedules are partial.
+- Validation includes real native concurrency/reinitialization tests and an
+  extracted Windows candidate exercising gameplay, all four presets and Match.
+  Windows Server CI is not Windows 10 verification. This candidate is not a
+  published release; see `docs/audit/2026-11-01-frozenight-dev3.md` for gates.
+
 ## 2.3.2-dev2 — Engine Lab
 
 ### What to test

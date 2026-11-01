@@ -122,6 +122,7 @@ class _LiveEngine {
   /// Identity, refined after the handshake (options, self-reported name).
   EngineIdentity identity;
   bool failed = false;
+  bool started = false;
   String? failureReason;
   int initMillis = 0;
   int gamesCompleted = 0;
@@ -278,6 +279,11 @@ class BenchmarkRunner {
       try {
         await _untilStopped(live.engine.initialize());
         init.stop();
+        if (_cancelled || _timeCapReached) {
+          live.failureReason = _cancelled ? 'Initialization cancelled by user.' : 'Initialization stopped by wall-clock cap.';
+          continue;
+        }
+        live.started = true;
         live.initMillis = init.elapsedMilliseconds;
         if (live.engine.state != EngineState.ready) {
           throw StateError('initialize returned with state ${live.engine.state.name}');
@@ -290,6 +296,11 @@ class BenchmarkRunner {
       } catch (error) {
         init.stop();
         live.initMillis = init.elapsedMilliseconds;
+        if (_cancelled || _timeCapReached) {
+          live.failureReason = _cancelled ? 'Initialization cancelled by user.' : 'Initialization stopped by wall-clock cap.';
+          continue;
+        }
+        live.started = true;
         live.failed = true;
         live.failureReason = _describe(error);
         _events.add(BenchmarkEngineFailedEvent(
@@ -318,7 +329,10 @@ class BenchmarkRunner {
       final black = _live[planned.blackId];
       if (white == null || black == null) {
         _stopReason = 'engine failure';
-        break;
+        final missing = white == null ? plan.engines.firstWhere((e) => e.engineId == planned.whiteId) : plan.engines.firstWhere((e) => e.engineId == planned.blackId);
+        _warnings.add('${missing.label} has no runtime; this pairing was aborted, not omitted.');
+        _recordAbortedIds(planned, '${missing.label} has no runtime on this platform.');
+        continue;
       }
       if (white.failed || black.failed) {
         // Recorded rather than skipped, so the report says "this pairing could
@@ -329,10 +343,6 @@ class BenchmarkRunner {
         _stopReason = 'engine failure';
         _recordAborted(planned, white, black);
         continue;
-      }
-      if (_runningEngines < 2) {
-        _stopReason = 'engine failure';
-        break;
       }
 
       final opening = openingForGame(plan, planned);
@@ -618,6 +628,21 @@ class BenchmarkRunner {
     ));
   }
 
+  void _recordAbortedIds(PlannedGame planned, String reason) {
+    final game = BenchGame(index: planned.index,
+      whiteId: planned.whiteId, blackId: planned.blackId,
+      whiteLabel: labels[planned.whiteId] ?? planned.whiteId,
+      blackLabel: labels[planned.blackId] ?? planned.blackId,
+      openingId: plan.config.openingSuiteId,
+      openingName: openingForGame(plan, planned).name,
+      startFen: '', moves: const [], movetext: '',
+      outcome: GameOutcome.aborted, detail: reason, warmUp: planned.isWarmUp);
+    _games.add(game);
+    if (!planned.isWarmUp) _finished++;
+    _events.add(BenchmarkGameFinishedEvent(game: game,
+      gamesCompleted: _finished, totalGames: plan.recordedGames.length));
+  }
+
   bool _uncertaintyReached() {
     final config = plan.config;
     if (!config.adaptiveStopping) return false;
@@ -673,7 +698,12 @@ class BenchmarkRunner {
         );
         continue;
       }
-      if (live.failed) {
+      if (!live.started) {
+        status[identity.engineId] = EngineRunStatus(
+          status: inProgress ? 'pending' : (_cancelled || _timeCapReached ? 'skipped' : 'failed'),
+          reason: live.failureReason ?? 'Initialization did not run.',
+        );
+      } else if (live.failed) {
         status[identity.engineId] = EngineRunStatus(
           status: 'failed',
           reason: live.failureReason,
@@ -686,8 +716,12 @@ class BenchmarkRunner {
           gamesCompleted: live.gamesCompleted,
         );
       } else {
+        final scheduled = plan.games.where((g) => !g.isWarmUp &&
+          (g.whiteId == identity.engineId || g.blackId == identity.engineId)).length;
+        final complete = !inProgress && live.gamesCompleted >= scheduled;
         status[identity.engineId] = EngineRunStatus(
-          status: inProgress ? 'in progress' : 'completed',
+          status: inProgress ? 'in progress' : complete ? 'completed' : 'partial',
+          reason: complete ? null : 'Finished ${live.gamesCompleted} of $scheduled scheduled games.',
           gamesCompleted: live.gamesCompleted,
         );
       }

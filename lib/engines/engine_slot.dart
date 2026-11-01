@@ -12,6 +12,7 @@
 library;
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 
 /// Whether an engine in this state can still be asked for anything.
 ///
@@ -47,6 +48,7 @@ class EngineSlot {
     if (engine.state == EngineState.idle) {
       await engine.initialize();
     }
+    requireEngineReady(engine, platform: 'native');
     return engine;
   }
 

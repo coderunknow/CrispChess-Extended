@@ -30,6 +30,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+          ref: 5ef8a7ace24e92a714109646405f0b6ec2de706f # immutable reproduction harness; production is dev2
       - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
           flutter-version: '3.44.2'
@@ -43,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p validation-evidence
-          git rev-parse HEAD | tee validation-evidence/source-sha.txt
+          echo "harness=$(git rev-parse HEAD); application=5d2e8aecb83bd8c8bb0f9131375947545ec8220d" | tee validation-evidence/source-sha.txt
           flutter --version | tee validation-evidence/flutter-version.txt
           rustc --version -v | tee validation-evidence/rust-version.txt
           python3 -c 'import platform,sys; print(platform.platform()); print(sys.version)' | tee validation-evidence/os.txt
@@ -86,6 +87,8 @@ jobs:
           Copy-Item native\frozenight\target\release\frozenight_ffi.dll $runtime\
           Get-FileHash $runtime\frozenight_ffi.dll -Algorithm SHA256 | Format-List | Out-File validation-evidence\dll-hash.txt
           $env:PATH = "$runtime;$env:PATH"
+          # Exercise the production executable-relative loader, not a PATH override.
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') (Split-Path (Get-Command dart).Source)
           $env:CRISP_FROZENIGHT_EXPECT = 'ready'
           dart tool/native/frozenight_probe.dart (Join-Path $runtime 'frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\repaired-ffi.jsonl
           if ($LASTEXITCODE -ne 0) { throw 'Real native smoke test failed' }
@@ -98,9 +101,60 @@ jobs:
           path: validation-evidence/
           if-no-files-found: warn
           retention-days: 30
+  candidate:
+    name: Candidate Windows archive and real application paths
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: stable
+      - run: flutter pub get
+      - name: Build and package the candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p validation-evidence
+          git rev-parse HEAD | tee validation-evidence/candidate-sha.txt
+          flutter --version | tee validation-evidence/candidate-flutter.txt
+          rustc --version -v | tee validation-evidence/candidate-rust.txt
+          python -c 'import platform; print(platform.platform())' | tee validation-evidence/candidate-os.txt
+          cargo build --locked --release --manifest-path native/frozenight/Cargo.toml
+          cargo test --locked --manifest-path native/frozenight/Cargo.toml
+          flutter build windows --release
+          tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release
+          python tools/verify_windows_bundle.py build/windows/x64/runner/Release --manifest validation-evidence/candidate-bundle.json
+      - name: Package, extract, then test the delivered layout
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath CrispChess-windows-x64.zip
+          Expand-Archive CrispChess-windows-x64.zip -DestinationPath $env:RUNNER_TEMP\candidate -Force
+          python tools/verify_windows_bundle.py $env:RUNNER_TEMP\candidate --manifest validation-evidence\extracted-bundle.json
+          $env:CRISP_FROZENIGHT_EXPECT = 'ready'
+          dart tool/native/frozenight_probe.dart (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\candidate-ffi.jsonl
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate native smoke failed' }
+          flutter test --no-pub --reporter expanded test/frozenight_release_repro_test.dart 2>&1 | Tee-Object validation-evidence\candidate-paths.log
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate application paths failed' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: crispchess-dev3-windows-candidate
+          path: |
+            CrispChess-windows-x64.zip
+            validation-evidence/
+          if-no-files-found: error
+          retention-days: 30
   evidence:
-    needs: baseline
-    if: ${{ always() && (github.event.pull_request.number || inputs.pr) }}
+    needs: [baseline, candidate]
+    if: ${{ always() && !cancelled() && (github.event.pull_request.number || inputs.pr) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -111,13 +165,18 @@ jobs:
         with:
           name: frozenight-baseline-evidence
           path: evidence
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: crispchess-dev3-windows-candidate
+          path: candidate
       - name: Post evidence without exposing a write token to build code
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number || inputs.pr }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RESULT: ${{ needs.baseline.result }}
+          RESULT: baseline=${{ needs.baseline.result }}, candidate=${{ needs.candidate.result }}
         run: |
           set -euo pipefail
           [[ "$PR" =~ ^[0-9]+$ ]]
@@ -125,10 +184,10 @@ jobs:
             echo "## Frozenight baseline artifact investigation"
             echo "Workflow result: **$RESULT**. Run: $RUN_URL"
             echo 'This is Windows Server CI, not Windows 10. The controlled repair is an experiment, not a repaired release.'
-            for f in evidence/source-sha.txt evidence/os.txt evidence/archive-hash.txt evidence/original-ffi.jsonl evidence/dll-hash.txt evidence/repaired-ffi.jsonl; do
+            for f in candidate/validation-evidence/candidate-sha.txt candidate/validation-evidence/candidate-os.txt candidate/validation-evidence/candidate-ffi.jsonl evidence/source-sha.txt evidence/os.txt evidence/archive-hash.txt evidence/original-ffi.jsonl evidence/dll-hash.txt evidence/repaired-ffi.jsonl; do
               if [ -f "$f" ]; then echo "### $f"; echo '```'; head -c 14000 "$f"; echo; echo '```'; fi
             done
-            for f in evidence/original-paths.log evidence/repaired-paths.log; do
+            for f in evidence/original-paths.log evidence/repaired-paths.log candidate/validation-evidence/candidate-paths.log; do
               if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|Expected:|Actual:' "$f" | head -c 20000; echo; echo '```'; fi
             done
           } > evidence.md

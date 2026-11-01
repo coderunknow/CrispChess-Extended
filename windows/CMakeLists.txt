@@ -108,3 +108,14 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Optional local-development runtime. Release workflows build the locked Rust
+# source and invoke tool/bundle_frozenight_windows.sh, which verifies the output.
+# Never silently substitute a stale DLL from an unrelated build.
+if(DEFINED ENV{CRISP_FROZENIGHT_DLL})
+  set(FROZENIGHT_DLL "$ENV{CRISP_FROZENIGHT_DLL}")
+  if(NOT EXISTS "${FROZENIGHT_DLL}")
+    message(FATAL_ERROR "CRISP_FROZENIGHT_DLL does not exist: ${FROZENIGHT_DLL}")
+  endif()
+  install(FILES "${FROZENIGHT_DLL}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)
+endif()

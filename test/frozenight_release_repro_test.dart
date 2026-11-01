@@ -14,6 +14,7 @@ import 'package:crispchess/bench/benchmark_plan.dart';
 import 'package:crispchess/bench/benchmark_runner.dart';
 import 'package:crispchess/bench/engine_identity.dart';
 import 'package:crispchess/engines/chess_engine.dart';
+import 'package:crispchess/engines/engine_initialization.dart';
 import 'package:crispchess/engines/engine_registry.dart';
 import 'package:crispchess/services/engine_match_service.dart';
 import 'package:crispchess/services/engine_service.dart';
@@ -51,8 +52,11 @@ void main() {
     print('FROZENIGHT_EVIDENCE ${jsonEncode(report)}');
     expect(engine.state, missing ? EngineState.error : EngineState.ready);
     if (missing) {
-      // Baseline defect: the old initializer hides the original loader error.
-      expect(original, isNull);
+      expect(original, isA<EngineInitializationException>());
+      final failure = original as EngineInitializationException;
+      expect(failure.stage, 'load-library');
+      expect(failure.cause.toString(), contains('error code: 126'));
+      expect(failure.nativeCode, 126);
       engine.dispose();
       return;
     }

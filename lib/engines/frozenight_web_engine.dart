@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'search_pacing.dart';
 import 'uci_position.dart';
 
@@ -63,18 +64,34 @@ class FrozenightEngine implements ChessEngine {
   @override
   bool get canPonder => false;
 
+  Future<void>? _initializing;
+  bool _disposed = false;
+  EngineInitializationException? initializationError;
+
   @override
-  Future<void> initialize() async {
+  Future<void> initialize() {
+    if (_disposed) return Future.error(StateError('Frozenight is disposed'));
+    if (_loaded) return Future<void>.value();
+    final failure = initializationError;
+    if (failure != null) return Future.error(failure);
+    return _initializing ??= _initializeNow().whenComplete(() => _initializing = null);
+  }
+
+  Future<void> _initializeNow() async {
+    final watch = Stopwatch()..start();
     _stateNotifier.value = EngineState.initializing;
     try {
-      debugPrint('[FrozenightWASM] Loading...');
       await _frozenightLoad().toDart;
       _loaded = true;
       _stateNotifier.value = EngineState.ready;
-      debugPrint('[FrozenightWASM] Ready (~3226 ELO)');
-    } catch (e) {
-      debugPrint('[FrozenightWASM] Not available: $e');
+    } catch (error, stack) {
+      final failure = EngineInitializationException(
+        engine: name, version: version, stage: 'load-wasm', platform: 'web',
+        cause: error, causeStack: stack, elapsedMicros: watch.elapsedMicroseconds,
+      );
+      initializationError = failure;
       _stateNotifier.value = EngineState.error;
+      throw failure;
     }
   }
 
@@ -228,6 +245,8 @@ class FrozenightEngine implements ChessEngine {
 
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     if (_loaded) _frozenightDispose();
     _loaded = false;
     _stateNotifier.value = EngineState.disposed;

@@ -34,46 +34,48 @@ void main(List<String> args) {
   try {
     lib = DynamicLibrary.open(args[0]);
     record('library-loaded');
-    final names = [
-      'frozenight_init', 'frozenight_set_position', 'frozenight_search',
-      'frozenight_search_bounded', 'frozenight_get_nodes',
-      'frozenight_get_best_move', 'frozenight_get_score',
-      'frozenight_get_depth', 'frozenight_dispose',
-    ];
+    final abi = lib.lookupFunction<Uint32 Function(), int Function()>("frozenight_abi_version")();
+    record("abi", {"version": abi});
+    if (abi != 2) throw StateError("Expected ABI 2, found $abi");
+    final names = ["frozenight_create", "frozenight_set_position_v2",
+      "frozenight_search_bounded_v2", "frozenight_get_nodes_v2",
+      "frozenight_get_best_move_v2", "frozenight_get_score_v2",
+      "frozenight_get_depth_v2", "frozenight_destroy"];
     for (final name in names) {
-      record('symbol', {'name': name, 'address': lib.lookup<Void>(name).address});
+      record("symbol", {"name": name, "address": lib.lookup<Void>(name).address});
     }
-    final init = lib.lookupFunction<Int32 Function(Uint32), int Function(int)>('frozenight_init');
-    final position = lib.lookupFunction<
-        Int32 Function(Pointer<Utf8>, Pointer<Utf8>),
-        int Function(Pointer<Utf8>, Pointer<Utf8>)>('frozenight_set_position');
-    final search = lib.lookupFunction<Int32 Function(Int32, Uint64), int Function(int, int)>('frozenight_search_bounded');
-    final best = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('frozenight_get_best_move');
-    final nodes = lib.lookupFunction<Int64 Function(), int Function()>('frozenight_get_nodes');
-    dispose = lib.lookupFunction<Void Function(), void Function()>('frozenight_dispose');
-    final void Function() release = dispose!;
+    final create = lib.lookupFunction<Pointer<NativeType> Function(Uint32), Pointer<NativeType> Function(int)>("frozenight_create");
+    final position = lib.lookupFunction<Int32 Function(Pointer<NativeType>, Pointer<Utf8>, Pointer<Utf8>), int Function(Pointer<NativeType>, Pointer<Utf8>, Pointer<Utf8>)>("frozenight_set_position_v2");
+    final search = lib.lookupFunction<Int32 Function(Pointer<NativeType>, Int32, Uint64), int Function(Pointer<NativeType>, int, int)>("frozenight_search_bounded_v2");
+    final best = lib.lookupFunction<Pointer<Utf8> Function(Pointer<NativeType>), Pointer<Utf8> Function(Pointer<NativeType>)>("frozenight_get_best_move_v2");
+    final nodes = lib.lookupFunction<Int64 Function(Pointer<NativeType>), int Function(Pointer<NativeType>)>("frozenight_get_nodes_v2");
+    final releaseHandle = lib.lookupFunction<Void Function(Pointer<NativeType>), void Function(Pointer<NativeType>)>("frozenight_destroy");
+    Pointer<NativeType>? handle;
+    dispose = () { final h = handle; if (h != null) { releaseHandle(h); handle = null; } };
+
     for (var cycle = 0; cycle < 3; cycle++) {
-      final rc = init(32);
+      handle = create(32);
+      final rc = handle!.address == 0 ? -1 : 0;
       record('native-init', {'cycle': cycle, 'rc': rc});
       if (rc != 0) throw StateError('native init returned $rc');
       final fen = 'startpos'.toNativeUtf8();
       final moves = 'e2e4 e7e5'.toNativeUtf8();
       try {
-        final applied = position(fen, moves);
+        final applied = position(handle!, fen, moves);
         record('position', {'cycle': cycle, 'rc': applied});
         if (applied != 0) throw StateError('set_position returned $applied');
       } finally {
         malloc.free(fen);
         malloc.free(moves);
       }
-      final searched = search(3, 5000);
-      final ptr = best();
+      final searched = search(handle!, 3, 5000);
+      final ptr = best(handle!);
       final move = ptr.address == 0 ? null : ptr.toDartString();
-      record('search', {'cycle': cycle, 'rc': searched, 'move': move, 'nodes': nodes(), 'nodeLimit': 5000});
+      record('search', {'cycle': cycle, 'rc': searched, 'move': move, 'nodes': nodes(handle!), 'nodeLimit': 5000});
       if (searched != 0 || move == null || move == '0000') {
         throw StateError('search failed: $searched / $move');
       }
-      release();
+      dispose!();
       record('disposed', {'cycle': cycle});
     }
     dispose = null;
