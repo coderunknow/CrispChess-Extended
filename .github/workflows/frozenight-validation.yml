@@ -100,7 +100,7 @@ jobs:
           retention-days: 30
   evidence:
     needs: baseline
-    if: ${{ always() && inputs.pr != '' }}
+    if: ${{ always() && (github.event.pull_request.number || inputs.pr) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -115,7 +115,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR: ${{ inputs.pr }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RESULT: ${{ needs.baseline.result }}
         run: |
@@ -129,7 +129,7 @@ jobs:
               if [ -f "$f" ]; then echo "### $f"; echo '```'; head -c 14000 "$f"; echo; echo '```'; fi
             done
             for f in evidence/original-paths.log evidence/repaired-paths.log; do
-              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]' "$f" | head -c 20000; echo; echo '```'; fi
+              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|Expected:|Actual:' "$f" | head -c 20000; echo; echo '```'; fi
             done
           } > evidence.md
           gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file evidence.md
