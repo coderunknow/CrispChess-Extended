@@ -118,7 +118,7 @@ class FrozenightEngine implements ChessEngine {
     try {
       _resolvedLibraryPath = _libraryPath ?? (Platform.isIOS ? null : _defaultLibraryPath());
       _library = _libraryPath != null
-          ? DynamicLibrary.open(_libraryPath!)
+          ? DynamicLibrary.open(_libraryPath)
           : _openDefaultLibrary();
       final lib = _library!;
       stage = 'check-abi';

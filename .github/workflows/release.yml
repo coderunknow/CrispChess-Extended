@@ -15,6 +15,7 @@ concurrency:
 # Build jobs are read-only. Only the tag-only publication job may write releases.
 permissions:
   contents: read
+  pull-requests: write
 
 env:
   # Prebuilt CrispASR library for voice moves (tool/bundle_crispasr.sh).
@@ -70,6 +71,13 @@ jobs:
         with:
           name: linux-build-log-${{ github.job }}
           path: linux-build.log
+      - name: Post Linux build failure log to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '### Linux build failure (${{ github.job }})'; echo '```'; tail -c 60000 linux-build.log; echo '```'; } > linux-failure-comment.md
+          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file linux-failure-comment.md
       # package:onnxruntime bundles its native library for Android, iOS, macOS
       # and Windows, and expects the system to provide it on Linux — where
       # almost nobody has it. The Lc0 engine then falls back to the pure-Dart
@@ -122,6 +130,13 @@ jobs:
         with:
           name: linux-build-log-${{ github.job }}
           path: linux-build.log
+      - name: Post Linux build failure log to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '### Linux build failure (${{ github.job }})'; echo '```'; tail -c 60000 linux-build.log; echo '```'; } > linux-failure-comment.md
+          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file linux-failure-comment.md
       # package:onnxruntime bundles its native library for Android, iOS, macOS
       # and Windows, and expects the system to provide it on Linux — where
       # almost nobody has it. The Lc0 engine then falls back to the pure-Dart

@@ -8,7 +8,6 @@ import 'package:crispchess/bench/benchmark_service.dart';
 import 'package:crispchess/bench/benchmark_storage_base.dart';
 import 'package:crispchess/bench/benchmark_store.dart';
 import 'package:crispchess/bench/calibration.dart';
-import 'package:crispchess/bench/engine_identity.dart';
 import 'package:crispchess/engines/generic_uci_engine.dart';
 import 'package:crispchess/services/engine_profile_store.dart';
 import 'package:flutter_test/flutter_test.dart';
