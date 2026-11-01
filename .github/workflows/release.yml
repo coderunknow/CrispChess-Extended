@@ -287,6 +287,7 @@ jobs:
           if-no-files-found: warn
       - name: Post Windows build failure log to PR
         if: failure() && github.event_name == 'pull_request'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
