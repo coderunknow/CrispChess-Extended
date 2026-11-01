@@ -47,8 +47,9 @@ class AutoBenchmarkSettings {
   BenchmarkConfig toConfig({int seed = 1}) => BenchmarkConfig.quick.copyWith(
         // `copyWith` takes a factory for the nullable fields so it can clear
         // them; passing the value itself does not compile.
-        maxGames: () => maxGames,
-        maxDuration: () => maxDuration,
+        maxGames: () => maxGames.clamp(2, 24).toInt(),
+        maxDuration: () => maxDuration > const Duration(minutes: 10)
+            ? const Duration(minutes: 10) : maxDuration,
         warmUpGames: 0,
         seed: seed,
         adaptiveStopping: true,
@@ -85,9 +86,9 @@ class AutoBenchmarkSettings {
       afterVersionChange: json['afterVersionChange'] is bool
           ? json['afterVersionChange'] as bool
           : true,
-      maxGames: maxGames is num ? maxGames.toInt().clamp(2, 400).toInt() : 24,
+      maxGames: maxGames is num ? maxGames.toInt().clamp(2, 24).toInt() : 24,
       maxDuration: maxMinutes is num
-          ? Duration(minutes: maxMinutes.toInt().clamp(1, 240).toInt())
+          ? Duration(minutes: maxMinutes.toInt().clamp(1, 10).toInt())
           : const Duration(minutes: 10),
     );
   }

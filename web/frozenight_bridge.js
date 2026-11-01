@@ -5,12 +5,13 @@
 let frozenightModule = null;
 let frozenightLoaded = false;
 
-async function frozenightLoad() {
+async function frozenightLoad(moduleOrPath) {
   if (frozenightLoaded) return;
   try {
-    // Load the wasm-bindgen generated JS + WASM
+    // Load the wasm-bindgen generated JS + WASM. Browsers omit the argument;
+    // Node callers may pass bytes because the web target cannot fetch file URLs.
     const module = await import('./frozenight_wasm.js');
-    await module.default(); // Initialize WASM
+    await module.default(moduleOrPath); // Initialize WASM
     module.init(16); // 16MB hash table
     frozenightModule = module;
     frozenightLoaded = true;

@@ -24,8 +24,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install hash-pinned release verifier dependencies
+        run: python3 -m pip install --require-hashes -r tools/requirements-windows.txt
       - name: Test release tooling
         run: python3 -m unittest discover -s tools/tests -v
+      - name: Critical workflow actions are pinned to immutable commits
+        run: python3 tool/dev/check_action_pins.py
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -37,6 +44,46 @@ jobs:
       # green CI — the check existed but could not fail.
       - name: Run tests
         run: flutter test
+      - name: Install Linux desktop integration-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev xvfb xauth libgl1-mesa-dri
+      - name: Automated UI and engine lifecycle integration tests
+        run: |
+          set -o pipefail
+          flutter config --enable-linux-desktop
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" flutter test integration_test/app_test.dart -d linux --timeout 120s 2>&1 | tee integration-tests.log
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" flutter test integration_test/engine_lifecycle_test.dart -d linux --timeout 120s 2>&1 | tee -a integration-tests.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: integration-tests-log
+          path: integration-tests.log
+          if-no-files-found: warn
+
+  post-integration-failure:
+    name: Post integration failure log
+    needs: [analyze]
+    if: failure() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: integration-tests-log
+          path: integration-log
+      - name: Comment on the PR without exposing a write token to test code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f integration-log/integration-tests.log ]; then
+            echo 'No integration log artifact was uploaded.'
+            exit 0
+          fi
+          { echo '### CI integration test failure'; echo '```'; tail -c 60000 integration-log/integration-tests.log; echo '```'; } > integration-comment.md
+          gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file integration-comment.md
 
   # Plays the engines against each other and fails on an illegal move, a throw
   # or a hang. Every engine bug this session cost a tournament to notice:
@@ -67,6 +114,8 @@ jobs:
           TOURNAMENT_PLY_CAP: "40"
           TOURNAMENT_HANG_SECONDS: "30"
         run: flutter test tool/perf/tournament.dart
+      - name: Real Frozenight WASM load/search/dispose soak
+        run: node tool/uci/frozenight_wasm_lifecycle.mjs 100
 
   # Build Frozenight native library for Linux
   frozenight-linux:
@@ -234,7 +283,10 @@ jobs:
         with:
           channel: stable
           cache: true
-      - run: flutter build ios --no-codesign --release
+      - name: Build iOS with numeric Darwin bundle version
+        run: |
+          read -r version build < <(python3 -c 'from tools.release_version import read_version; print(*read_version())')
+          flutter build ios --no-codesign --release --build-name "$version" --build-number "$build"
 
   build-macos:
     name: Build macOS
@@ -274,7 +326,7 @@ jobs:
       - name: Install Linux deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev xvfb xauth libgl1-mesa-dri
       - run: flutter build linux --release
       - name: Package
         run: |

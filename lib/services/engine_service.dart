@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../chess/opening_book.dart';
 import '../engines/chess_engine.dart';
+import '../engines/engine_initialization.dart';
 import '../engines/uci_position.dart';
 
 /// Events emitted by the engine service.
@@ -168,7 +169,9 @@ class EngineService {
       // Not throwing is not the same as working: an initializer can catch its
       // own failure and settle in `error` instead of rethrowing, and reporting
       // that as a successful switch is how a dead engine looked ready.
-      return !_disposed && _engine.state != EngineState.error;
+      if (_disposed) return false;
+      requireEngineReady(_engine, platform: 'application');
+      return true;
     } catch (e) {
       if (!_disposed) {
         _eventController.add(

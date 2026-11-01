@@ -4,56 +4,46 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'search_pacing.dart';
 import 'uci_position.dart';
 
-// Native function types
-typedef _InitC = Int32 Function(Uint32 hashMb);
-typedef _InitDart = int Function(int hashMb);
-
-typedef _SetPositionC = Int32 Function(Pointer<Utf8> fen, Pointer<Utf8> moves);
-typedef _SetPositionDart = int Function(Pointer<Utf8> fen, Pointer<Utf8> moves);
-
-typedef _SearchC = Int32 Function(Int32 depth);
-typedef _SearchDart = int Function(int depth);
-
-typedef _SearchBoundedC = Int32 Function(Int32 depth, Uint64 maxNodes);
-typedef _SearchBoundedDart = int Function(int depth, int maxNodes);
-
-typedef _GetNodesC = Int64 Function();
-typedef _GetNodesDart = int Function();
-
-typedef _GetBestMoveC = Pointer<Utf8> Function();
-typedef _GetBestMoveDart = Pointer<Utf8> Function();
-
-typedef _GetScoreC = Int32 Function();
-typedef _GetScoreDart = int Function();
-
-typedef _GetDepthC = Int32 Function();
-typedef _GetDepthDart = int Function();
-
-typedef _DisposeC = Void Function();
-typedef _DisposeDart = void Function();
+typedef _Handle = Pointer<NativeType>;
+typedef _Create = Pointer<NativeType> Function(Uint32);
+typedef _SetPosition = Int32 Function(_Handle, Pointer<Utf8>, Pointer<Utf8>);
+typedef _Search = Int32 Function(_Handle, Int32, Uint64);
+typedef _GetMove = Pointer<Utf8> Function(_Handle);
+typedef _GetInt = Int64 Function(_Handle);
+typedef _GetScore = Int32 Function(_Handle);
+typedef _Destroy = Void Function(_Handle);
 
 /// Chess engine using Frozenight (Rust, MIT/Apache-2.0, ~2960 ELO).
 ///
 /// Requires the native `frozenight_ffi` shared library to be available
 /// at runtime. See `native/frozenight/` for the Rust FFI wrapper.
 class FrozenightEngine implements ChessEngine {
-  _InitDart? _init;
-  _SetPositionDart? _setPosition;
-  _SearchDart? _search;
-  _SearchBoundedDart? _searchBounded;
-  _GetNodesDart? _getNodes;
+  FrozenightEngine({String? libraryPath}) : _libraryPath = libraryPath;
+  final String? _libraryPath;
+  DynamicLibrary? _library;
+  Pointer<NativeType>? _handle;
+  Pointer<NativeType> Function(int)? _create;
+  int Function(Pointer<NativeType>, Pointer<Utf8>, Pointer<Utf8>)? _setPosition;
+  int Function(Pointer<NativeType>, int, int)? _searchBounded;
+  int Function(Pointer<NativeType>)? _getNodes;
+  Pointer<Utf8> Function(Pointer<NativeType>)? _getBestMove;
+  int Function(Pointer<NativeType>)? _getScore;
+  int Function(Pointer<NativeType>)? _getDepth;
+  void Function(Pointer<NativeType>)? _disposeNative;
+  Future<void>? _initializing;
+  EngineInitializationException? _initializationError;
+  String? _resolvedLibraryPath;
+  String? get resolvedLibraryPath => _resolvedLibraryPath;
+  EngineInitializationException? get initializationError => _initializationError;
 
   /// Nodes per millisecond, measured as play goes on. Only the initial value
   /// is a guess, and it is deliberately low: guessing high on the first search
   /// of a session is the one case that cannot be corrected afterwards.
   double _nodesPerMs = 200;
-  _GetBestMoveDart? _getBestMove;
-  _GetScoreDart? _getScore;
-  _GetDepthDart? _getDepth;
-  _DisposeDart? _disposeNative;
 
   bool _disposed = false;
   bool _available = false;
@@ -65,11 +55,12 @@ class FrozenightEngine implements ChessEngine {
   /// in a position where the search returns instantly.
   static const int _fullStrengthDepth = 64;
 
-  /// One search at a time. The FFI engine holds a single global position, so
+  /// One search at a time. Each FFI handle owns its position, so
   /// two overlapping searches would clobber each other's board between
   /// iterations (the deepening loop yields to the event loop, so another call
   /// really can land in the middle of one).
   Future<void> _searchLock = Future<void>.value();
+  Future<void> _analysisLock = Future<void>.value();
 
   Future<T> _serialized<T>(Future<T> Function() body) {
     final result = _searchLock.then((_) => body());
@@ -102,7 +93,8 @@ class FrozenightEngine implements ChessEngine {
   static bool get isAvailable {
     if (kIsWeb) return false;
     try {
-      _openLib();
+      final lib = _openDefaultLibrary();
+      lib.lookup<Void>('frozenight_abi_version');
       return true;
     } catch (_) {
       return false;
@@ -110,43 +102,67 @@ class FrozenightEngine implements ChessEngine {
   }
 
   @override
-  Future<void> initialize() async {
+  Future<void> initialize() {
+    if (_disposed) return Future.error(StateError('Frozenight is disposed'));
+    if (state == EngineState.ready) return Future<void>.value();
+    final failure = _initializationError;
+    if (failure != null) return Future.error(failure);
+    return _initializing ??= _initializeNow().whenComplete(() => _initializing = null);
+  }
+
+  Future<void> _initializeNow() async {
+    final watch = Stopwatch()..start();
+    var stage = 'load-library';
+    String? symbol;
     _stateNotifier.value = EngineState.initializing;
     try {
-      final lib = _openLib();
-      _init = lib.lookupFunction<_InitC, _InitDart>('frozenight_init');
-      _setPosition = lib.lookupFunction<_SetPositionC, _SetPositionDart>(
-          'frozenight_set_position');
-      _search = lib.lookupFunction<_SearchC, _SearchDart>('frozenight_search');
-      // Added later than the rest; a library built before it still loads and
-      // simply searches without a node bound.
-      try {
-        _searchBounded = lib.lookupFunction<_SearchBoundedC, _SearchBoundedDart>(
-            'frozenight_search_bounded');
-        _getNodes =
-            lib.lookupFunction<_GetNodesC, _GetNodesDart>('frozenight_get_nodes');
-      } on ArgumentError {
-        debugPrint('[Frozenight] library predates the node bound');
+      _resolvedLibraryPath = _libraryPath ?? (Platform.isIOS ? null : _defaultLibraryPath());
+      _library = _libraryPath != null
+          ? DynamicLibrary.open(_libraryPath)
+          : _openDefaultLibrary();
+      final lib = _library!;
+      stage = 'check-abi';
+      symbol = 'frozenight_abi_version';
+      final abi = lib.lookupFunction<Uint32 Function(), int Function()>(symbol)();
+      if (abi != 2) throw UnsupportedError('Expected Frozenight ABI 2, found $abi');
+      stage = 'resolve-symbols';
+      symbol = 'frozenight_create';
+      _create = lib.lookupFunction<_Create, Pointer<NativeType> Function(int)>(symbol);
+      symbol = 'frozenight_set_position_v2';
+      _setPosition = lib.lookupFunction<_SetPosition, int Function(Pointer<NativeType>, Pointer<Utf8>, Pointer<Utf8>)>(symbol);
+      symbol = 'frozenight_search_bounded_v2';
+      _searchBounded = lib.lookupFunction<_Search, int Function(Pointer<NativeType>, int, int)>(symbol);
+      symbol = 'frozenight_get_nodes_v2';
+      _getNodes = lib.lookupFunction<_GetInt, int Function(Pointer<NativeType>)>(symbol);
+      symbol = 'frozenight_get_best_move_v2';
+      _getBestMove = lib.lookupFunction<_GetMove, Pointer<Utf8> Function(Pointer<NativeType>)>(symbol);
+      symbol = 'frozenight_get_score_v2';
+      _getScore = lib.lookupFunction<_GetScore, int Function(Pointer<NativeType>)>(symbol);
+      symbol = 'frozenight_get_depth_v2';
+      _getDepth = lib.lookupFunction<_GetScore, int Function(Pointer<NativeType>)>(symbol);
+      symbol = 'frozenight_destroy';
+      _disposeNative = lib.lookupFunction<_Destroy, void Function(Pointer<NativeType>)>(symbol);
+      stage = 'native-create';
+      _handle = _create!(32);
+      if (_handle == null || _handle!.address == 0) {
+        throw StateError('frozenight_create returned a null handle');
       }
-      _getBestMove = lib.lookupFunction<_GetBestMoveC, _GetBestMoveDart>(
-          'frozenight_get_best_move');
-      _getScore =
-          lib.lookupFunction<_GetScoreC, _GetScoreDart>('frozenight_get_score');
-      _getDepth =
-          lib.lookupFunction<_GetDepthC, _GetDepthDart>('frozenight_get_depth');
-      _disposeNative =
-          lib.lookupFunction<_DisposeC, _DisposeDart>('frozenight_dispose');
-
-      final result = _init!(32);
-      if (result != 0) {
-        _stateNotifier.value = EngineState.error;
-        return;
-      }
+      stage = 'verify-ready';
       _available = true;
+      _initializationError = null;
       _stateNotifier.value = EngineState.ready;
-    } catch (e) {
-      debugPrint('Frozenight unavailable: $e');
+    } catch (error, stack) {
+      _releaseHandle();
+      _available = false;
+      final failure = EngineInitializationException(
+        engine: name, version: version, stage: stage,
+        platform: Platform.operatingSystem, cause: error, causeStack: stack,
+        libraryPath: _resolvedLibraryPath, symbol: symbol,
+        nativeCode: windowsLoaderCode(error), elapsedMicros: watch.elapsedMicroseconds,
+      );
+      _initializationError = failure;
       _stateNotifier.value = EngineState.error;
+      throw failure;
     }
   }
 
@@ -158,8 +174,7 @@ class FrozenightEngine implements ChessEngine {
     int? skillLevel,
   }) async {
     if (_disposed || !_available) throw StateError('Engine not ready');
-    _stateNotifier.value = EngineState.thinking;
-
+    if (_disposed || state == EngineState.disposed) throw StateError('Engine disposed');
     // The depth ceiling is the difficulty knob: a weaker setting is a
     // shallower search. At full strength it should not be a knob at all — the
     // clock should be what stops the search — and 14 was low enough to stop it
@@ -180,6 +195,9 @@ class FrozenightEngine implements ChessEngine {
     // fraction of the next, so stopping before starting one keeps the overshoot
     // bounded.
     return _serialized(() async {
+      if (_disposed || !_available) throw StateError('Engine disposed');
+      _stateNotifier.value = EngineState.thinking;
+      try {
       _applyPosition(positionCommand);
       final sw = Stopwatch()..start();
       String? best;
@@ -203,26 +221,28 @@ class FrozenightEngine implements ChessEngine {
         final before = sw.elapsed;
         final int status;
         if (_searchBounded != null) {
-          status = _searchBounded!(d, nodeAllowance(remaining, _nodesPerMs));
+          status = _searchBounded!(_handle!, d, nodeAllowance(remaining, _nodesPerMs));
         } else {
-          status = _search!(d);
+          throw StateError("Frozenight ABI 2 requires bounded search");
         }
-        if (status != 0) break;
+        if (status != 0) {
+          throw StateError('Frozenight native search failed at depth $d (code $status)');
+        }
 
         if (_getNodes != null) {
-          final nodes = _getNodes!();
+          final nodes = _getNodes!(_handle!);
           final spent = (sw.elapsed - before).inMilliseconds;
           _nodesPerMs = updatedRate(_nodesPerMs, nodes, spent);
         }
 
-        final ptr = _getBestMove!();
+        final ptr = _getBestMove!(_handle!);
         if (ptr.address != 0) {
           best = ptr.toDartString();
           reached = d;
         }
       }
 
-      _stateNotifier.value = EngineState.ready;
+      if (!_disposed) _stateNotifier.value = EngineState.ready;
 
       // Nothing came back because the budget ran out before even depth one
       // finished, which is a timeout and not a broken engine. The type is what
@@ -235,12 +255,26 @@ class FrozenightEngine implements ChessEngine {
       debugPrint('[Frozenight] $best depth=$reached/$maxDepth '
           '${sw.elapsedMilliseconds}ms (budget ${budget.inMilliseconds}ms)');
       return best;
+      } finally {
+        if (!_disposed) _stateNotifier.value = EngineState.ready;
+      }
     });
   }
 
   @override
   Stream<EvalInfo> analyze(String positionCommand, {int? depth, bool infinite = false}) async* {
     if (_disposed || !_available) return;
+    // Reserve the queue synchronously before the first await. Otherwise a
+    // bestMove queued while analysis waits can be lost from the disposal chain.
+    final previousSearch = _searchLock;
+    final previousAnalysis = _analysisLock;
+    final gate = Completer<void>();
+    _analysisLock = gate.future;
+    _searchLock = gate.future;
+    await previousSearch;
+    await previousAnalysis;
+    if (_disposed || !_available) { gate.complete(); return; }
+    try {
     _stateNotifier.value = EngineState.thinking;
     _stopped = false;
     _applyPosition(positionCommand);
@@ -261,17 +295,27 @@ class FrozenightEngine implements ChessEngine {
       if (_disposed || _stopped) break;
       if (d > 1 && !hasTimeForNextDepth(sw.elapsed, budget)) break;
       if (d > 1) await Future<void>.delayed(Duration.zero);
-      if (_search!(d) != 0) break;
+      final before = sw.elapsed;
+      final allowance = nodeAllowance(budget - before, _nodesPerMs);
+      if (_searchBounded!(_handle!, d, allowance) != 0) break;
+      if (_getNodes != null) {
+        _nodesPerMs = updatedRate(_nodesPerMs, _getNodes!(_handle!),
+            (sw.elapsed - before).inMilliseconds);
+      }
 
-      final ptr = _getBestMove!();
-      final sideToMove = _getScore!() / 100.0;
+      final ptr = _getBestMove!(_handle!);
+      final sideToMove = _getScore!(_handle!) / 100.0;
       yield EvalInfo(
         score: whiteToMove ? sideToMove : -sideToMove,
-        depth: _getDepth!(),
+        depth: _getDepth!(_handle!),
         bestMove: ptr.address != 0 ? ptr.toDartString() : null,
       );
     }
     if (!_disposed) _stateNotifier.value = EngineState.ready;
+    } finally {
+      if (!_disposed) _stateNotifier.value = EngineState.ready;
+      gate.complete();
+    }
   }
 
   @override
@@ -289,9 +333,22 @@ class FrozenightEngine implements ChessEngine {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
-    _disposeNative?.call();
+    _stopped = true;
+    _available = false;
+    // FFI calls are synchronous. Queue cleanup after the last queued request;
+    // never free a handle while a request can still use it.
+    final cleanup = _searchLock.then((_) => _analysisLock)
+        .then((_) => _releaseHandle(), onError: (_) => _releaseHandle());
+    _searchLock = cleanup;
     _stateNotifier.value = EngineState.disposed;
+  }
+
+  void _releaseHandle() {
+    final handle = _handle;
+    _handle = null;
+    if (handle != null && handle.address != 0) _disposeNative?.call(handle);
   }
 
   void _applyPosition(String positionCommand) {
@@ -310,7 +367,7 @@ class FrozenightEngine implements ChessEngine {
 
     final fenPtr = fen.toNativeUtf8();
     final movesPtr = moves.isEmpty ? nullptr.cast<Utf8>() : moves.toNativeUtf8();
-    final rc = _setPosition!(fenPtr, movesPtr);
+    final rc = _setPosition!(_handle!, fenPtr, movesPtr);
     malloc.free(fenPtr);
     if (moves.isNotEmpty) malloc.free(movesPtr);
     // Ignoring this return code is how a broken position went unnoticed: the
@@ -322,12 +379,20 @@ class FrozenightEngine implements ChessEngine {
     }
   }
 
-  static DynamicLibrary _openLib() {
-    if (Platform.isAndroid) return DynamicLibrary.open('libfrozenight_ffi.so');
-    if (Platform.isIOS) return DynamicLibrary.process();
-    if (Platform.isMacOS) return DynamicLibrary.open('libfrozenight_ffi.dylib');
-    if (Platform.isLinux) return DynamicLibrary.open('libfrozenight_ffi.so');
-    if (Platform.isWindows) return DynamicLibrary.open('frozenight_ffi.dll');
+  /// iOS links native engines into the process; opening the executable path
+  /// is not the same lookup. Keep availability and initialization on one path.
+  static DynamicLibrary _openDefaultLibrary() => Platform.isIOS
+      ? DynamicLibrary.process()
+      : DynamicLibrary.open(_defaultLibraryPath());
+
+  static String _defaultLibraryPath() {
+    if (Platform.isWindows) {
+      // Resolve beside the executable, not the process working directory.
+      return File(Platform.resolvedExecutable).parent.uri
+          .resolve('frozenight_ffi.dll').toFilePath();
+    }
+    if (Platform.isAndroid || Platform.isLinux) return 'libfrozenight_ffi.so';
+    if (Platform.isMacOS) return 'libfrozenight_ffi.dylib';
     throw UnsupportedError('Unsupported platform');
   }
 }

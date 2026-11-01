@@ -123,6 +123,44 @@ void main() {
     expect(run.stopReason, 'time cap');
   });
 
+  test('cancellation during initialization is not an engine failure', () async {
+    final alpha = ScriptedEngine('Alpha')..initGate = Completer<void>();
+    final beta = ScriptedEngine('Beta');
+    final runner = _runner(_config(), white: alpha, black: beta);
+    addTearDown(runner.dispose);
+    final pending = runner.run();
+    await Future<void>.delayed(Duration.zero);
+    runner.cancel(); alpha.initGate!.complete();
+    final run = await pending;
+    expect(run.stopReason, 'cancelled');
+    expect(run.engineStatus.values.every((s) => s.status == 'skipped'), isTrue);
+    expect(beta.initialised, isEmpty);
+    expect(alpha.disposed, isTrue);
+  });
+
+  test('one failed engine does not erase a healthy pairing or claim completion', () async {
+    final identities = [testIdentity('Broken'), testIdentity('Beta'), testIdentity('Gamma')];
+    final broken = ScriptedEngine('Broken')..initFailure = StateError('missing runtime');
+    final engines = [broken, ScriptedEngine('Beta'), ScriptedEngine('Gamma')];
+    final config = _config();
+    final runner = BenchmarkRunner(
+      plan: buildPlan(config: config, engines: identities),
+      slots: {for (var i = 0; i < 3; i++) identities[i].engineId:
+        BenchEngineSlot(identity: identities[i], build: () => engines[i])},
+      environment: BenchmarkEnvironment.unknown,
+    );
+    addTearDown(runner.dispose);
+    final run = await runner.run();
+    expect(run.stopReason, 'engine failure');
+    expect(run.games.length, 6);
+    expect(run.games.where((g) => g.moves.isNotEmpty).length, 2);
+    expect(run.engineStatus[identities[0].engineId]!.status, 'failed');
+    expect(run.engineStatus[identities[1].engineId]!.status, 'partial');
+    expect(run.engineStatus[identities[2].engineId]!.status, 'partial');
+    expect(run.ratings.ratedGames, lessThanOrEqualTo(2));
+    expect(engines.every((e) => e.disposed), isTrue);
+  });
+
   group('a normal run', () {
     test('deadline-induced search errors are aborted, not forfeits', () async {
       final alpha = ScriptedEngine('Alpha');
@@ -201,6 +239,24 @@ void main() {
       expect(run.games.where((g) => g.warmUp).length, 1);
       expect(run.gamesPlayed, 2, reason: 'warm-ups are not counted as games');
       expect(run.gamesCompleted, 2);
+    });
+
+    test('warm-ups cannot make an interrupted schedule look completed', () async {
+      final alpha = ScriptedEngine('Alpha');
+      final beta = ScriptedEngine('Beta');
+      final runner = _runner(_config(warmUpGames: 1, maxGames: 2),
+          white: alpha, black: beta);
+      final sub = runner.events.listen((event) {
+        if (event is BenchmarkGameStartedEvent && event.gameNumber == 1) {
+          runner.cancel();
+        }
+      });
+      addTearDown(sub.cancel);
+      addTearDown(runner.dispose);
+      final run = await runner.run();
+      expect(run.stopReason, 'cancelled');
+      expect(run.engineStatus.values.every((s) => s.status == 'partial'), isTrue);
+      expect(run.engineStatus.values.every((s) => s.gamesCompleted == 1), isTrue);
     });
 
     test('a repetition is a second sample of the schedule', () async {

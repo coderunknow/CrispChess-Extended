@@ -468,6 +468,7 @@ class EngineCapabilities {
 BenchmarkValidation validateConfig(
   BenchmarkConfig config, {
   required int engineCount,
+  int? pairings,
 }) {
   final errors = <String>[];
   final warnings = <String>[];
@@ -555,7 +556,7 @@ BenchmarkValidation validateConfig(
     }
   }
   if (config.maxGames != null && engineCount >= 2) {
-    final mandatory = mandatoryGames(engineCount, config);
+    final mandatory = mandatoryGames(engineCount, config, pairings: pairings);
     final warmUps = effectiveWarmUpGames(config);
     if (warmUps < config.warmUpGames) {
       warnings.add(

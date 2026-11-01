@@ -11,6 +11,8 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../engines/engine_registry.dart';
+import '../engines/frozenight_engine.dart' if (dart.library.js_interop) '../engines/frozenight_web_engine.dart';
+import 'benchmark_fingerprint.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
 import 'benchmark_config.dart';
@@ -116,6 +118,7 @@ class BenchmarkService {
   static void resetShared() => _shared = null;
 
   BenchmarkRunner? _active;
+  bool _creatingRunner = false;
   Future<String>? _appVersion;
 
   bool get isRunning => _active != null;
@@ -164,6 +167,8 @@ class BenchmarkService {
         engineId: builtInEngineId(name),
         label: name,
         isCustom: false,
+        available: name != 'Lynx' || lynxAvailable,
+        unavailableReason: name == 'Lynx' && !lynxAvailable ? 'Lynx is not available on this platform.' : null,
       ));
     }
     for (final profile in await profiles()) {
@@ -213,10 +218,22 @@ class BenchmarkService {
     }
     final engine = createEngineForId(engineId, profiles: const []);
     try {
+      String? nativeHash;
+      if (!kIsWeb && engine is FrozenightEngine) {
+        try {
+          await engine.initialize();
+          final path = engine.resolvedLibraryPath;
+          if (path != null) nativeHash = await sha256OfFile(path);
+        } catch (_) {
+          // The runner reports the typed startup failure. Identity remains
+          // build-based rather than preventing healthy engines from running.
+        }
+      }
       return EngineIdentity.forBuiltIn(
         name: name,
         engineVersion: engine.version,
         appBuild: await appVersion(),
+        nativeBinarySha256: nativeHash,
       );
     } finally {
       engine.dispose();
@@ -235,15 +252,19 @@ class BenchmarkService {
     String? referenceEngineId,
     Map<String, OpeningSuite> suites = const {},
     RatingAnchor? anchor,
+    List<RatingAnchor> anchors = const [],
     String? trigger,
   }) async {
-    if (_active != null) {
-      throw StateError('A benchmark is already running.');
+    if (_active != null || _creatingRunner) {
+      throw StateError('A benchmark is already running or being prepared.');
     }
+    _creatingRunner = true;
+    try {
     if (engineIds.length < 2) {
       throw ArgumentError('A benchmark needs at least two engines.');
     }
-    final validation = validateConfig(config, engineCount: engineIds.length);
+    final pairings = format == TournamentFormat.gauntlet ? engineIds.length - 1 : engineIds.length * (engineIds.length - 1) ~/ 2;
+    final validation = validateConfig(config, engineCount: engineIds.length, pairings: pairings);
     if (!validation.isValid) {
       throw ArgumentError(validation.errors.join(' '));
     }
@@ -270,6 +291,9 @@ class BenchmarkService {
           '${unavailable.join('; ')}');
     }
 
+    // Select only after the measured identities are known. A first matching
+    // label must not hide a later anchor with the right version and budget.
+    anchor ??= selectCompatibleAnchor(anchors, identities, config);
     final suite = openingSuiteById(config.openingSuiteId, extra: suites);
     final plan = buildPlan(
       config: config,
@@ -283,6 +307,7 @@ class BenchmarkService {
       slots: slots,
       environment: BenchmarkEnvironment.capture(appVersion: await appVersion()),
       anchor: anchor,
+      anchors: anchors,
       trigger: trigger,
       // Stored as the run goes: closing the app mid-benchmark keeps the games
       // already played, marked as a partial run rather than as a finished one.
@@ -290,13 +315,14 @@ class BenchmarkService {
       validationWarnings: [...validation.warnings, ...unavailable],
     );
     return runner;
+    } finally { _creatingRunner = false; }
   }
 
   /// Runs [runner] to completion, saving it, and releases the "running" flag.
   Future<BenchmarkRun> runWithRunner(BenchmarkRunner runner) async {
     // createRunner awaits profile/fingerprint IO, so two callers may both
     // finish construction before either reserves the shared service.
-    if (_active != null) throw StateError('A benchmark is already running.');
+    if (_active != null || _creatingRunner) throw StateError('A benchmark is already running or being prepared.');
     _active = runner;
     try {
       final run = await runner.run();
@@ -317,6 +343,7 @@ class BenchmarkService {
     String? referenceEngineId,
     Map<String, OpeningSuite> suites = const {},
     RatingAnchor? anchor,
+    List<RatingAnchor> anchors = const [],
     String? trigger,
   }) async {
     final runner = await createRunner(
@@ -326,6 +353,7 @@ class BenchmarkService {
       referenceEngineId: referenceEngineId,
       suites: suites,
       anchor: anchor,
+      anchors: anchors,
       trigger: trigger,
     );
     return runWithRunner(runner);
@@ -543,8 +571,8 @@ class BenchmarkService {
     final identity = decision.identity;
     final config = decision.config;
     if (!decision.shouldRun || identity == null || config == null) return null;
-    if (_active != null) {
-      debugPrint('[EngineLab] automatic run skipped: a benchmark is running');
+    if (_active != null || _creatingRunner) {
+      debugPrint('[EngineLab] automatic run skipped: a benchmark is running or being prepared');
       return null;
     }
     final engineIds = [identity.engineId, ...decision.opponents];

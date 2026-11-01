@@ -1,21 +1,18 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
 
 use cozy_chess::{Board, File, Move, Piece, Square};
 use frozenight::{Eval, MtFrozenight, SearchInfo, TimeConstraint};
 
 struct EngineState {
     engine: MtFrozenight,
+    result: Option<SearchResult>,
 }
 
-static STATE: Mutex<Option<EngineState>> = Mutex::new(None);
-static RESULT: Mutex<Option<SearchResult>> = Mutex::new(None);
-/// The position the current search is running on. The search callbacks arrive
-/// on worker threads and need it to spell castling moves in ordinary UCI.
-static SEARCH_BOARD: Mutex<Option<Board>> = Mutex::new(None);
-static SEARCH_DONE: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+/// ABI 2 owns one engine per handle. The old global entry points remain below
+/// solely so an already-released dev2 executable can load a repaired DLL.
+pub struct FrozenightHandle(Mutex<EngineState>);
 
 struct SearchResult {
     nodes: u64,
@@ -25,189 +22,148 @@ struct SearchResult {
 }
 
 fn eval_to_cp(eval: Eval) -> i32 {
-    // Eval is #[repr(transparent)] over i16 and derives Pod.
-    // Extract the raw i16 value via bytemuck.
-    let raw: i16 = bytemuck::cast(eval);
-    raw as i32
+    bytemuck::cast::<Eval, i16>(eval) as i32
 }
 
 #[no_mangle]
-pub extern "C" fn frozenight_init(hash_mb: u32) -> i32 {
-    let engine = MtFrozenight::new(hash_mb as usize);
-    *STATE.lock().unwrap() = Some(EngineState { engine });
+pub extern "C" fn frozenight_abi_version() -> u32 { 2 }
+
+#[no_mangle]
+pub extern "C" fn frozenight_create(hash_mb: u32) -> *mut FrozenightHandle {
+    Box::into_raw(Box::new(FrozenightHandle(Mutex::new(EngineState {
+        engine: MtFrozenight::new(hash_mb as usize), result: None,
+    }))))
+}
+
+unsafe fn state<'a>(handle: *mut FrozenightHandle) -> Option<std::sync::MutexGuard<'a, EngineState>> {
+    handle.as_ref().map(|h| h.0.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn frozenight_set_position_v2(
+    handle: *mut FrozenightHandle, fen: *const c_char, moves: *const c_char,
+) -> i32 {
+    let mut guard = match state(handle) { Some(s) => s, None => return -2 };
+    let fen_str = if fen.is_null() { return -1; } else {
+        match CStr::from_ptr(fen).to_str() { Ok(s) => s, Err(_) => return -1 }
+    };
+    let board = if fen_str == "startpos" { Board::default() } else {
+        match fen_str.parse::<Board>() { Ok(b) => b, Err(_) => return -1 }
+    };
+    let mut current = board.clone();
+    let mut move_list = Vec::new();
+    if !moves.is_null() {
+        let text = match CStr::from_ptr(moves).to_str() { Ok(s) => s, Err(_) => return -1 };
+        for uci in text.split_whitespace() {
+            let mv = match parse_uci_move(&current, uci) { Some(m) => m, None => return -3 };
+            current.play(mv);
+            move_list.push(mv);
+        }
+    }
+    guard.engine.set_position(board, move_list.into_iter());
+    guard.result = None;
     0
 }
 
 #[no_mangle]
-pub extern "C" fn frozenight_set_position(fen: *const c_char, moves: *const c_char) -> i32 {
-    let fen_str = unsafe {
-        if fen.is_null() { return -1; }
-        match CStr::from_ptr(fen).to_str() {
-            Ok(s) => s,
-            Err(_) => return -1,
-        }
+pub unsafe extern "C" fn frozenight_search_bounded_v2(
+    handle: *mut FrozenightHandle, depth: i32, max_nodes: u64,
+) -> i32 {
+    let mut guard = match state(handle) { Some(s) => s, None => return -1 };
+    if !(1..=64).contains(&depth) { return -4; }
+    let board = guard.engine.board().clone();
+    let done = Arc::new((Mutex::new(false), Condvar::new()));
+    let info_done = done.clone();
+    let finish_done = done.clone();
+    let holder = Arc::new(Mutex::new(None));
+    let info_result = holder.clone();
+    let finish_result = holder.clone();
+    let info_board = board.clone();
+    let finish_board = board.clone();
+    let info_result = move |info: &SearchInfo| {
+        let r = SearchResult {
+            nodes: info.nodes,
+            best_move: CString::new(move_to_uci(&info_board, info.best_move)).unwrap_or_default(),
+            score_cp: eval_to_cp(info.eval), depth: info.depth as i32,
+        };
+        *info_result.lock().unwrap() = Some(r);
     };
-
-    let board = if fen_str == "startpos" {
-        Board::default()
-    } else {
-        match fen_str.parse::<Board>() {
-            Ok(b) => b,
-            Err(_) => return -1,
-        }
+    let finish_result = move |info: &SearchInfo| {
+        let r = SearchResult {
+            nodes: info.nodes,
+            best_move: CString::new(move_to_uci(&finish_board, info.best_move)).unwrap_or_default(),
+            score_cp: eval_to_cp(info.eval), depth: info.depth as i32,
+        };
+        *finish_result.lock().unwrap() = Some(r);
+        *info_done.0.lock().unwrap() = true;
+        info_done.1.notify_all();
     };
-
-    let mut move_list = Vec::new();
-    let mut current = board.clone();
-
-    if !moves.is_null() {
-        let moves_str = unsafe {
-            match CStr::from_ptr(moves).to_str() {
-                Ok(s) => s,
-                Err(_) => "",
-            }
-        };
-        for uci in moves_str.split_whitespace() {
-            match parse_uci_move(&current, uci) {
-                Some(mv) => {
-                    current.play(mv);
-                    move_list.push(mv);
-                }
-                // Silently skipping an unparseable move left the engine on an
-                // earlier position while the caller believed it had been moved
-                // on — it then answered with a move for the wrong side. Fail
-                // loudly instead.
-                None => return -3,
-            }
-        }
-    }
-
-    let mut state = STATE.lock().unwrap();
-    if let Some(s) = state.as_mut() {
-        s.engine.set_position(board, move_list.into_iter());
-        *SEARCH_BOARD.lock().unwrap() = Some(s.engine.board().clone());
-        0
-    } else {
-        -2
-    }
+    guard.engine.search(TimeConstraint {
+        depth: depth as i16, nodes: if max_nodes == 0 { u64::MAX } else { max_nodes },
+        ..TimeConstraint::INFINITE
+    }, info_result, finish_result);
+    let mut finished = finish_done.0.lock().unwrap();
+    while !*finished { finished = finish_done.1.wait(finished).unwrap(); }
+    guard.result = holder.lock().unwrap().take();
+    if guard.result.is_some() { 0 } else { -5 }
 }
 
 #[no_mangle]
-pub extern "C" fn frozenight_search(depth: i32) -> i32 {
-    frozenight_search_bounded(depth, 0)
+pub unsafe extern "C" fn frozenight_get_best_move_v2(handle: *mut FrozenightHandle) -> *const c_char {
+    state(handle).and_then(|s| s.result.as_ref().map(|r| r.best_move.as_ptr())).unwrap_or(std::ptr::null())
 }
-
-/// One search, bounded by a node count as well as a depth.
-///
-/// A search call cannot be interrupted once it starts, so the caller has had
-/// to decide *before* each depth whether that depth would fit in the time
-/// left, guessing that an iteration costs about 2.5x the search so far. When
-/// the guess is wrong the overshoot has no bound — this engine was measured
-/// taking 1111ms of a 300ms budget — and raising the depth ceiling, which the
-/// clock should be setting rather than a constant, makes a bad guess more
-/// likely rather than less.
-///
-/// `frozenight` checks its node limit on every node, so a node budget is a
-/// bound it can actually honour mid-iteration. A `max_nodes` of zero means
-/// no node bound.
 #[no_mangle]
-pub extern "C" fn frozenight_search_bounded(depth: i32, max_nodes: u64) -> i32 {
-    {
-        let mut done = SEARCH_DONE.0.lock().unwrap();
-        *done = false;
-    }
-
-    let result_holder: Arc<Mutex<Option<SearchResult>>> = Arc::new(Mutex::new(None));
-    let result_for_info = result_holder.clone();
-    let result_for_finish = result_holder.clone();
-
-    {
-        let mut state = STATE.lock().unwrap();
-        let s = match state.as_mut() {
-            Some(s) => s,
-            None => return -1,
-        };
-
-        let tc = TimeConstraint {
-            depth: depth as i16,
-            nodes: if max_nodes > 0 { max_nodes } else { u64::MAX },
-            ..TimeConstraint::INFINITE
-        };
-
-        s.engine.search(
-            tc,
-            move |info: &SearchInfo| {
-                let full_uci = uci_for_current_position(info.best_move);
-                let score = eval_to_cp(info.eval);
-                *result_for_info.lock().unwrap() = Some(SearchResult {
-                    nodes: info.nodes,
-                    best_move: CString::new(full_uci).unwrap_or_default(),
-                    score_cp: score,
-                    depth: info.depth as i32,
-                });
-            },
-            move |info: &SearchInfo| {
-                let full_uci = uci_for_current_position(info.best_move);
-                let score = eval_to_cp(info.eval);
-                *result_for_finish.lock().unwrap() = Some(SearchResult {
-                    nodes: info.nodes,
-                    best_move: CString::new(full_uci).unwrap_or_default(),
-                    score_cp: score,
-                    depth: info.depth as i32,
-                });
-                let mut done = SEARCH_DONE.0.lock().unwrap();
-                *done = true;
-                SEARCH_DONE.1.notify_all();
-            },
-        );
-    }
-
-    let mut done = SEARCH_DONE.0.lock().unwrap();
-    while !*done {
-        done = SEARCH_DONE.1.wait(done).unwrap();
-    }
-
-    let final_result = result_holder.lock().unwrap().take();
-    *RESULT.lock().unwrap() = final_result;
-
-    if RESULT.lock().unwrap().is_some() { 0 } else { -1 }
+pub unsafe extern "C" fn frozenight_get_nodes_v2(handle: *mut FrozenightHandle) -> i64 {
+    state(handle).and_then(|s| s.result.as_ref().map(|r| r.nodes.min(i64::MAX as u64) as i64)).unwrap_or(0)
 }
-
 #[no_mangle]
-pub extern "C" fn frozenight_get_best_move() -> *const c_char {
-    let guard = RESULT.lock().unwrap();
-    match guard.as_ref() {
-        Some(r) => r.best_move.as_ptr(),
-        None => std::ptr::null(),
-    }
+pub unsafe extern "C" fn frozenight_get_score_v2(handle: *mut FrozenightHandle) -> i32 {
+    state(handle).and_then(|s| s.result.as_ref().map(|r| r.score_cp)).unwrap_or(0)
 }
-
 #[no_mangle]
-pub extern "C" fn frozenight_get_score() -> i32 {
-    RESULT.lock().unwrap().as_ref().map(|r| r.score_cp).unwrap_or(0)
+pub unsafe extern "C" fn frozenight_get_depth_v2(handle: *mut FrozenightHandle) -> i32 {
+    state(handle).and_then(|s| s.result.as_ref().map(|r| r.depth)).unwrap_or(0)
 }
-
-/// Nodes searched by the last call, so the caller can turn the time it has
-/// left into the next call's node budget from measured throughput.
+/// # Safety
+/// Call exactly once, after all searches using this handle have returned.
 #[no_mangle]
-pub extern "C" fn frozenight_get_nodes() -> i64 {
-    RESULT
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|r| r.nodes.min(i64::MAX as u64) as i64)
-        .unwrap_or(0)
+pub unsafe extern "C" fn frozenight_destroy(handle: *mut FrozenightHandle) {
+    if !handle.is_null() { drop(Box::from_raw(handle)); }
 }
 
+struct LegacyHandle(*mut FrozenightHandle);
+unsafe impl Send for LegacyHandle {}
+static LEGACY: Mutex<LegacyHandle> = Mutex::new(LegacyHandle(std::ptr::null_mut()));
 #[no_mangle]
-pub extern "C" fn frozenight_get_depth() -> i32 {
-    RESULT.lock().unwrap().as_ref().map(|r| r.depth).unwrap_or(0)
+pub extern "C" fn frozenight_init(hash_mb: u32) -> i32 {
+    let mut legacy = LEGACY.lock().unwrap();
+    if !legacy.0.is_null() { unsafe { frozenight_destroy(legacy.0); } }
+    legacy.0 = frozenight_create(hash_mb);
+    if legacy.0.is_null() { -1 } else { 0 }
 }
-
+#[no_mangle]
+pub unsafe extern "C" fn frozenight_set_position(fen: *const c_char, moves: *const c_char) -> i32 {
+    frozenight_set_position_v2(LEGACY.lock().unwrap().0, fen, moves)
+}
+#[no_mangle]
+pub unsafe extern "C" fn frozenight_search(depth: i32) -> i32 { frozenight_search_bounded(depth, 0) }
+#[no_mangle]
+pub unsafe extern "C" fn frozenight_search_bounded(depth: i32, nodes: u64) -> i32 {
+    frozenight_search_bounded_v2(LEGACY.lock().unwrap().0, depth, nodes)
+}
+#[no_mangle]
+pub unsafe extern "C" fn frozenight_get_best_move() -> *const c_char { frozenight_get_best_move_v2(LEGACY.lock().unwrap().0) }
+#[no_mangle]
+pub unsafe extern "C" fn frozenight_get_nodes() -> i64 { frozenight_get_nodes_v2(LEGACY.lock().unwrap().0) }
+#[no_mangle]
+pub unsafe extern "C" fn frozenight_get_score() -> i32 { frozenight_get_score_v2(LEGACY.lock().unwrap().0) }
+#[no_mangle]
+pub unsafe extern "C" fn frozenight_get_depth() -> i32 { frozenight_get_depth_v2(LEGACY.lock().unwrap().0) }
 #[no_mangle]
 pub extern "C" fn frozenight_dispose() {
-    *STATE.lock().unwrap() = None;
-    *RESULT.lock().unwrap() = None;
+    let mut legacy = LEGACY.lock().unwrap();
+    unsafe { frozenight_destroy(legacy.0); }
+    legacy.0 = std::ptr::null_mut();
 }
 
 
@@ -237,13 +193,6 @@ fn move_to_uci(board: &Board, mv: Move) -> String {
     format!("{}{}{}", mv.from, to, promo)
 }
 
-/// [move_to_uci] against the position the current search is running on.
-fn uci_for_current_position(mv: Move) -> String {
-    match SEARCH_BOARD.lock().unwrap().as_ref() {
-        Some(board) => move_to_uci(board, mv),
-        None => format!("{}{}", mv.from, mv.to),
-    }
-}
 
 fn parse_uci_move(board: &Board, uci: &str) -> Option<Move> {
     if uci.len() < 4 { return None; }
@@ -293,4 +242,53 @@ fn parse_uci_move(board: &Board, uci: &str) -> Option<Move> {
         result.is_some()
     });
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn independent_handles_do_not_share_position_or_results() {
+        unsafe {
+            let a = frozenight_create(1);
+            let b = frozenight_create(1);
+            assert!(!a.is_null() && !b.is_null() && a != b);
+            let start = CString::new("startpos").unwrap();
+            let black = CString::new("e2e4").unwrap();
+            let invalid = CString::new("e2e4 e2e4").unwrap();
+            let empty = CString::new("").unwrap();
+            assert_eq!(frozenight_set_position_v2(a, start.as_ptr(), empty.as_ptr()), 0);
+            assert_eq!(frozenight_set_position_v2(b, start.as_ptr(), black.as_ptr()), 0);
+            let workers: Vec<_> = [(a as usize, 1100), (b as usize, 2300)].into_iter().map(|(address, nodes)| {
+                std::thread::spawn(move || {
+                    let h = address as *mut FrozenightHandle;
+                    assert_eq!(frozenight_search_bounded_v2(h, 3, nodes), 0);
+                    let mv = CStr::from_ptr(frozenight_get_best_move_v2(h)).to_str().unwrap().to_owned();
+                    (mv, frozenight_get_nodes_v2(h))
+                })
+            }).collect();
+            let results: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+            eprintln!("native concurrency results: {results:?}");
+            assert!(results.iter().all(|(m, n)| m.len() >= 4 && *n > 0));
+            assert_eq!(frozenight_set_position_v2(a, start.as_ptr(), invalid.as_ptr()), -3);
+            assert_eq!(frozenight_set_position_v2(b, start.as_ptr(), empty.as_ptr()), 0);
+            frozenight_destroy(a);
+            frozenight_destroy(b);
+        }
+    }
+
+    #[test]
+    fn invalid_handles_and_arguments_fail_without_success() {
+        unsafe {
+            assert_eq!(frozenight_search_bounded_v2(std::ptr::null_mut(), 2, 100), -1);
+            assert_eq!(frozenight_get_nodes_v2(std::ptr::null_mut()), 0);
+            assert!(frozenight_get_best_move_v2(std::ptr::null_mut()).is_null());
+            let h = frozenight_create(1);
+            assert_eq!(frozenight_search_bounded_v2(h, 0, 100), -4);
+            assert_eq!(frozenight_search_bounded_v2(h, 65, 100), -4);
+            frozenight_destroy(h);
+        }
+    }
 }

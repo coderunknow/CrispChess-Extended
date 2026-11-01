@@ -9,6 +9,7 @@
 library;
 
 import 'dart:math' as math;
+import 'package:chess/chess.dart' as chess;
 
 /// One starting position, optionally preceded by moves.
 class Opening {
@@ -158,8 +159,45 @@ class OpeningSuite {
     // A cheap stable mix rather than Random: the result depends only on the
     // inputs, not on how many games were played before this one.
     final mixed = (seed ^ (pairingIndex * 0x9E3779B1)) & 0x7fffffff;
-    final offset = (mixed + pairedGame * 7) % openings.length;
+    // A stride sharing a factor with the suite length cycles through only a
+    // subset (notably suites of length 7/14). Choose the nearest odd coprime.
+    var stride = 7;
+    while (BigInt.from(stride).gcd(BigInt.from(openings.length)) != BigInt.one) { stride += 2; }
+    final offset = (mixed + pairedGame * stride) % openings.length;
     return openings[offset];
+  }
+
+  /// Validate before scheduling, not after an engine has been blamed for an
+  /// illegal opening. Returns one actionable error per invalid entry.
+  List<String> validationErrors() {
+    final errors = <String>[];
+    final ids = <String>{};
+    for (final opening in openings) {
+      if (opening.id.isEmpty || !ids.add(opening.id)) {
+        errors.add('Opening ids must be nonempty and unique: ${opening.id}');
+      }
+      final board = chess.Chess();
+      if (opening.fen != null && !board.load(opening.fen!)) {
+        errors.add('${opening.id}: invalid FEN');
+        continue;
+      }
+      for (var i = 0; i < opening.moves.length; i++) {
+        final uci = opening.moves[i];
+        final syntax = RegExp(r'^[a-h][1-8][a-h][1-8][qrbn]?$').hasMatch(uci);
+        final from = syntax ? board.get(uci.substring(0, 2)) : null;
+        final promotionValid = !syntax || uci.length == 4 ||
+            (from?.type == chess.PieceType.PAWN &&
+             (uci[3] == (board.turn == chess.Color.WHITE ? '8' : '1')));
+        final ok = syntax && promotionValid && board.move({'from': uci.substring(0, 2),
+          'to': uci.substring(2, 4),
+          if (uci.length > 4) 'promotion': uci.substring(4, 5)});
+        if (ok != true) {
+          errors.add('${opening.id}: illegal move ${i + 1} ($uci)');
+          break;
+        }
+      }
+    }
+    return errors;
   }
 }
 

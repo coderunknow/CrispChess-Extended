@@ -36,6 +36,7 @@ class GenericUciEngine
   /// Engine identity parsed from the UCI handshake.
   String _detectedName = '';
   String _detectedAuthor = '';
+  String _detectedVersion = '';
 
   /// Author, as reported by the engine's `id author` line.
   String get engineAuthor => _detectedAuthor;
@@ -100,15 +101,19 @@ class GenericUciEngine
   /// seconds; the default is what the app uses.
   final Duration handshakeTimeout;
 
+  /// Options may rebuild tables; allow a longer bounded wait than the handshake.
+  final Duration readinessTimeout;
+
   GenericUciEngine(
     this.profile, {
     this.handshakeTimeout = const Duration(seconds: 10),
+    this.readinessTimeout = const Duration(seconds: 30),
   });
 
   @override
   String get name => profile.displayName;
   @override
-  String get version => '';
+  String get version => _detectedVersion;
   @override
   String get license => 'Unknown';
   @override
@@ -182,6 +187,7 @@ class GenericUciEngine
       options.clear();
       _detectedName = '';
       _detectedAuthor = '';
+      _detectedVersion = '';
 
       _stdoutSub = _process!.stdout
           .transform(utf8.decoder)
@@ -306,7 +312,7 @@ class GenericUciEngine
     _readyOk = ack;
     try {
       _send('isready');
-      await ack.future.timeout(const Duration(seconds: 2));
+      await ack.future.timeout(readinessTimeout);
       if (_isDisposed || processGone) {
         throw StateError('Engine lost during readiness synchronization');
       }
@@ -328,6 +334,11 @@ class GenericUciEngine
   /// Completed by the engine's `readyok`.
   Completer<void>? _readyOk;
 
+  /// Test-only access to the real stdout line parser.
+  @visibleForTesting
+  void debugHandleLine(String line, {bool handshake = false}) =>
+      _handleLine(line, handshake: handshake);
+
   void _handleLine(String line, {bool handshake = false}) {
     final t = line.trim();
 
@@ -345,6 +356,14 @@ class GenericUciEngine
     if (handshake) {
       if (t.startsWith('id name ')) {
         _detectedName = t.substring(8).trim();
+        // UCI has no id-version field. Preserve a trailing numeric version
+        // from `id name` (e.g. Stockfish 17.1); never invent one from a path.
+        // Strip a trailing architecture tag first so `Komodo 14.1 64-bit`
+        // yields 14.1, not 64-bit.
+        final base = _detectedName.replaceFirst(
+            RegExp(r'\s+(?:x86[-_]?)?(?:32|64)[-\s]?bit\s*$', caseSensitive: false), '');
+        final version = RegExp(r'\s(v?\d+(?:[.\-]\w+)*)\s*$').firstMatch(base);
+        _detectedVersion = version == null ? '' : version.group(1)!;
       } else if (t.startsWith('id author ')) {
         _detectedAuthor = t.substring(10).trim();
       } else if (t.startsWith('option name ')) {

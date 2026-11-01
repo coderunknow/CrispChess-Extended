@@ -67,6 +67,8 @@ jobs:
           python-version: '3.12'
       # Unittest discovery is here as well as in ci.yml because this script is
       # the thing that made the release tooling's tests relevant to the Lab.
+      - name: Install hash-pinned release verifier dependencies
+        run: python3 -m pip install --require-hashes -r tools/requirements-windows.txt
       - name: Release tooling
         run: python3 -m unittest discover -s tools/tests -v
       - name: Rating maths
@@ -118,6 +120,9 @@ jobs:
             test/bench*_test.dart \
             test/generic_uci_*_test.dart \
             test/lab_rating_bar_test.dart \
+            test/lab_opening_policy_test.dart \
+            test/lab_prior_findings_test.dart \
+            test/lab_release_review_test.dart \
             test/rating_fit_test.dart \
             test/match_config_test.dart \
             test/match_result_test.dart 2>&1 | tee lab-tests.log

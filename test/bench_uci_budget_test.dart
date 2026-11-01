@@ -72,7 +72,8 @@ while IFS= read -r line; do
 done
 ''');
     Process.runSync('chmod', ['+x', script.path]);
-    final engine = GenericUciEngine(EngineProfile(name: 'test', path: script.path));
+    final engine = GenericUciEngine(EngineProfile(name: 'test', path: script.path),
+        readinessTimeout: const Duration(seconds: 2));
     await engine.initialize();
     await expectLater(engine.synchronizeOptions(), throwsA(isA<TimeoutException>()));
     await expectLater(engine.synchronizeOptions(), throwsStateError);

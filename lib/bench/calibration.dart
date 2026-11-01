@@ -239,6 +239,51 @@ class CalibrationOutcome {
   }
 }
 
+
+/// Whether [anchor] names this measured identity. An explicit id hint always
+/// wins over a display label, so a renamed profile cannot borrow another
+/// engine's published rating.
+bool anchorIdentityMatches(RatingAnchor anchor, EngineIdentity identity) {
+  final hint = anchor.engineIdHint?.trim();
+  if (hint != null && hint.isNotEmpty) return hint == identity.engineId;
+  final wanted = anchor.engineName.trim().toLowerCase();
+  return wanted == identity.engineName.trim().toLowerCase() ||
+      wanted == identity.displayName.trim().toLowerCase();
+}
+
+/// The non-statistical gates that can be checked before a run is fitted.
+/// Statistical uncertainty and graph connectivity are still checked by
+/// [calibrateElo] after games have actually been played.
+bool anchorCompatibleWithRun(
+  RatingAnchor anchor,
+  List<EngineIdentity> identities,
+  BenchmarkConfig config,
+) {
+  if (!anchor.isComplete || anchor.engineVersion.trim().isEmpty) return false;
+  final matches = identities.where((id) => anchorIdentityMatches(anchor, id)).toList();
+  if (matches.length != 1) return false;
+  if (matches.single.engineVersion.trim() != anchor.engineVersion.trim()) return false;
+  if (!config.isTimeBased) return false;
+  final budget = anchor.timePerMoveMs;
+  if (budget == null || budget <= 0 ||
+      anchor.tolerancePercent < 0 || anchor.tolerancePercent > 100) return false;
+  final deviation = (config.timePerMove.inMilliseconds - budget).abs() * 100 / budget;
+  if (deviation > anchor.tolerancePercent) return false;
+  return identities.map((id) => id.cohortKey).toSet().length == 1;
+}
+
+/// First declared anchor that can actually calibrate this run, in user order.
+RatingAnchor? selectCompatibleAnchor(
+  List<RatingAnchor> anchors,
+  List<EngineIdentity> identities,
+  BenchmarkConfig config,
+) {
+  for (final anchor in anchors) {
+    if (anchorCompatibleWithRun(anchor, identities, config)) return anchor;
+  }
+  return null;
+}
+
 /// Re-expresses [fit] on the scale of [anchor].
 ///
 /// [identities] is the set of engines that took part; it is used to decide
@@ -259,11 +304,16 @@ CalibrationOutcome calibrateElo({
         '${anchor.missingFields.join(', ')}).');
   }
 
-  final anchorRating = _findAnchorRating(fit, anchor);
+  final anchorRating = _findAnchorRating(fit, anchor, identities);
   if (anchorRating == null) {
     return CalibrationOutcome.unavailable(
         '"${anchor.engineName}" did not take part in this benchmark, so there '
         'is no bridge from the relative scale to ${anchor.scale}.');
+  }
+  final measured = identities.where((id) => id.engineId == anchorRating.engineId).toList();
+  if (measured.length != 1 || !anchorIdentityMatches(anchor, measured.single)) {
+    return CalibrationOutcome.unavailable(
+        'The calibration anchor does not match the measured engine identity.');
   }
   if (anchorRating.stdErr.isInfinite || anchorRating.stdErr > 100) {
     return CalibrationOutcome.unavailable(
@@ -341,13 +391,12 @@ CalibrationOutcome calibrateElo({
   );
 }
 
-EloRating? _findAnchorRating(EloFit fit, RatingAnchor anchor) {
-  final hint = anchor.engineIdHint;
-  if (hint != null && hint.isNotEmpty) return fit.ratingFor(hint);
-  final wanted = anchor.engineName.trim().toLowerCase();
-  final matches = fit.ratings.where((rating) =>
-      rating.label.trim().toLowerCase() == wanted).toList();
-  return matches.length == 1 ? matches.single : null;
+EloRating? _findAnchorRating(
+    EloFit fit, RatingAnchor anchor, List<EngineIdentity> identities) {
+  final matches =
+      identities.where((identity) => anchorIdentityMatches(anchor, identity)).toList();
+  if (matches.length != 1) return null;
+  return fit.ratingFor(matches.single.engineId);
 }
 
 /// Documentation shown next to the calibration form: what makes an anchor

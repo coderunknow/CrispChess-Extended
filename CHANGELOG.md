@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.3.2-dev3 — Frozenight Windows runtime repair
+
+- Windows releases now build and bundle the locked `frozenight_ffi.dll`; the
+  extracted ZIP must pass an x64/export/import-closure check before upload.
+  The dev2 Windows ZIP omitted this required runtime. Adding a DLL by hand was
+  a controlled experiment, not a repaired dev2 release.
+- Frozenight startup failures now retain the original cause, loader/native code,
+  stage, platform, library path and symbol. Gameplay, Engine Lab and Match
+  require actual `ready`; a failed start is never reported as success.
+- Frozenight ABI 2 gives each engine instance its own native state. Legacy
+  exports remain for the released dev2 executable. Initialization is shared,
+  disposal is idempotent and queued after searches; native handles are not freed
+  underneath a queued request.
+- Lab initialization cancellation/deadline is not mislabeled as engine failure;
+  healthy pairings continue when another engine fails, and unavailable pairings
+  are recorded as aborted rather than omitted. Unfinished schedules are partial.
+- Lab also validates opening legality/promotion syntax, uses a coprime opening
+  stride, enforces automatic caps, records native runtime hashes, and keeps
+  rating uncertainty/exclusion/anchor reporting consistent. The singleton WASM
+  backend is leased and serialized across Dart instances.
+- Windows bundles now include the app-local Visual C++ CRT and OpenMP runtime,
+  exclude the unnecessary JNI Windows helper, and fail closed on unbundled
+  non-system imports. The Windows bundle manifest is published as the ninth
+  release asset.
+- Release engineering pins critical actions to immutable SHAs, checks PowerShell
+  native exit codes, verifies all nine assets before publication, and uses a
+  numeric Darwin bundle version (`2.3.2` / `19`) while pubspec remains
+  `2.3.2-dev3+19`.
+- Validation includes real native concurrency/reinitialization tests, clean
+  Windows rebuild comparison, and an extracted Windows candidate exercising
+  gameplay, all four presets and Match. CI runs Linux desktop integration tests
+  under xvfb. Windows Server CI is not Windows 10 verification; see
+  `docs/audit/2026-11-01-frozenight-dev3.md` for gates and limitations.
+
 ## 2.3.2-dev2 — Engine Lab
 
 ### What to test

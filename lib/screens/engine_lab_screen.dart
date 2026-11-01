@@ -272,7 +272,8 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _snack(l?.engineLabPickTwo ?? 'Select at least two engines.', error: true);
       return;
     }
-    final validation = validateConfig(_config, engineCount: _selected.length);
+    final validationPairings = _format == TournamentFormat.gauntlet ? _selected.length - 1 : _selected.length * (_selected.length - 1) ~/ 2;
+    final validation = validateConfig(_config, engineCount: _selected.length, pairings: validationPairings);
     if (!validation.isValid) {
       _snack(validation.errors.join(' '), error: true);
       return;
@@ -323,7 +324,8 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         referenceEngineId:
             _format == TournamentFormat.gauntlet ? _referenceId : null,
         suites: _userSuites,
-        anchor: _anchors.isEmpty ? null : _anchors.first,
+        anchor: null,
+        anchors: _anchors,
         trigger: 'manual',
       );
       _attachRunner(runner);
@@ -703,7 +705,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         for (final notice in _liveNotices.take(6))
-                          Text('• $notice',
+                          SelectableText('• $notice',
                               style: TextStyle(
                                   fontSize: 12,
                                   color: Theme.of(context).colorScheme.error)),
@@ -863,15 +865,14 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                     : engineLabelForId(engineId!, _profiles),
                 engineIdHint: engineId,
                 engineVersion: controllers['version']!.text.trim(),
-                rating: double.tryParse(controllers['rating']!.text.trim()) ?? 0,
+                rating: double.tryParse(controllers['rating']!.text.trim()) ?? double.nan,
                 scale: controllers['scale']!.text.trim(),
                 source: controllers['source']!.text.trim(),
                 publishedDate: controllers['date']!.text.trim(),
                 hardware: controllers['hardware']!.text.trim(),
                 timeControl: controllers['timeControl']!.text.trim(),
-                // Null rather than 0 when the budget is not stated: the
-                // calibration then warns that it cannot check the budget,
-                // instead of dividing by zero.
+                // A missing budget is rejected before saving: calibration
+                // cannot compare an unknown time control.
                 timePerMoveMs: budget != null && budget > 0 ? budget : null,
               );
 
@@ -956,6 +957,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                       error = '${l?.engineLabAnchorMissing ?? 'Missing'}: '
                           '${anchor.missingFields.join(', ')}';
                     });
+                    return;
+                  }
+                  if (anchor.timePerMoveMs == null) {
+                    setDialogState(() => error = 'A positive move budget (ms) is required for calibration.');
                     return;
                   }
                   if (!RegExp(r'^\d{4}-\d{2}-\d{2}$')
@@ -1441,6 +1446,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                   final depth = value ?? 0;
                   _config = _config.copyWith(
                     searchDepth: () => depth <= 0 ? null : depth,
+                    nodeLimit: () => depth > 0 ? null : _config.nodeLimit,
                     preset: BenchmarkPreset.custom,
                   );
                 }),
@@ -1455,7 +1461,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           onChanged: (value) => setState(() {
             _config = _config.copyWith(
               nodeLimit: () => value == null || value <= 0 ? null : value,
-              searchDepth: () => null,
+              searchDepth: () => value != null && value > 0 ? null : _config.searchDepth,
               preset: BenchmarkPreset.custom,
             );
           }),

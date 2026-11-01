@@ -400,8 +400,8 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
     debugPrint('[CrispChess] Initializing engine...');
     _eventSubscription?.cancel();
     _eventSubscription = _engineService.events.listen(_onEngineEvent);
-    _engineService.initialize().then((_) {
-      _applyEngineOptions();
+    _engineService.initialize().then((started) {
+      if (started && mounted) _applyEngineOptions();
     });
   }
 
@@ -571,6 +571,17 @@ class _ChessGameScreenState extends State<ChessGameScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis),
+              action: kind == EngineFailure.startup ? SnackBarAction(
+                label: 'Details', textColor: Colors.white,
+                onPressed: () => showDialog<void>(context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Engine startup diagnostic'),
+                    content: SizedBox(width: 600, child: SingleChildScrollView(
+                      child: SelectableText(message))),
+                    actions: [TextButton(onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'))],
+                  )),
+              ) : null,
               backgroundColor: colour,
               duration: Duration(seconds: recovering ? 2 : 5),
             ),

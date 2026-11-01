@@ -59,6 +59,11 @@ set(include_crispchess_tests TRUE)
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# package:jni is an Android-only transitive FFI plugin. Its Windows helper
+# imports jvm.dll, but the Windows app never loads JNI. Do not ship a dead,
+# JVM-dependent helper in the release archive.
+list(REMOVE_ITEM PLUGIN_BUNDLED_LIBRARIES "$<TARGET_FILE:jni>")
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
@@ -108,3 +113,18 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# The release workflow bundles the MSVC runtime app-locally with vswhere and
+# verifies the extracted ZIP. Local development builds may use the installed
+# Visual C++ runtime; release packaging must not depend on it being present.
+
+# Optional local-development runtime. Release workflows build the locked Rust
+# source and invoke tool/bundle_frozenight_windows.sh, which verifies the output.
+# Never silently substitute a stale DLL from an unrelated build.
+if(DEFINED ENV{CRISP_FROZENIGHT_DLL})
+  set(FROZENIGHT_DLL "$ENV{CRISP_FROZENIGHT_DLL}")
+  if(NOT EXISTS "${FROZENIGHT_DLL}")
+    message(FATAL_ERROR "CRISP_FROZENIGHT_DLL does not exist: ${FROZENIGHT_DLL}")
+  endif()
+  install(FILES "${FROZENIGHT_DLL}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
+endif()

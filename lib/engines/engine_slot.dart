@@ -12,6 +12,7 @@
 library;
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 
 /// Whether an engine in this state can still be asked for anything.
 ///
@@ -46,6 +47,12 @@ class EngineSlot {
     final engine = _current ??= _build();
     if (engine.state == EngineState.idle) {
       await engine.initialize();
+    }
+    // A cached thinking engine may still be finishing a prior search. It is
+    // already initialized, and the engine serializes the next request. Do not
+    // skip the check for initializing/error/disposed: those are not usable.
+    if (engine.state != EngineState.thinking) {
+      requireEngineReady(engine, platform: 'native');
     }
     return engine;
   }
