@@ -408,3 +408,14 @@ loads from the extracted archive; stored automatic benchmark budgets are clamped
 to the effective 24-game/10-minute caps on load; and the WASM soak validates the
 first UCI token while retaining the compatibility fallback. The local 3-cycle
 WASM soak passed after the change.
+
+### Cycle 6 follow-up and adaptive-stop semantics
+
+CodeRabbit full review 5727796933 on `8ab8920` posted two inline Minor findings
+and one unverified adaptive-stop observation. The inline findings were verified
+and fixed: release build-job checkouts no longer persist credentials, and the
+opt-in native soak is explicitly skipped rather than returning early as a pass.
+The adaptive-stop observation was also verified against `_stopReason`: a normal
+`uncertainty target` stop is a successful completion by design, so engine status
+is now `completed` for that stop reason while cancellation, time cap and engine
+failure remain partial/failed. The soak asserts all engine statuses are completed.

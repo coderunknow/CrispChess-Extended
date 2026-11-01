@@ -730,7 +730,11 @@ class BenchmarkRunner {
       } else {
         final scheduled = plan.games.where((g) => !g.isWarmUp &&
           (g.whiteId == identity.engineId || g.blackId == identity.engineId)).length;
-        final complete = !inProgress && live.scheduledCompleted >= scheduled;
+        // An adaptive uncertainty-target stop is a successful completion by
+        // design, not a partial schedule. Cancellation/time cap/failure remain
+        // partial through _stopReason and the branches above.
+        final complete = !inProgress &&
+          (_stopReason == 'uncertainty target' || live.scheduledCompleted >= scheduled);
         status[identity.engineId] = EngineRunStatus(
           status: inProgress ? 'in progress' : complete ? 'completed' : 'partial',
           reason: complete ? null : (live.failureReason ?? 'Finished ${live.scheduledCompleted} of $scheduled scheduled games.'),

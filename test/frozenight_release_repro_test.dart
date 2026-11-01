@@ -110,6 +110,8 @@ void main() {
         'outcomes': run.games.map((g) => g.outcome.id).toList(),
       })}');
       expect(run.stopReason, 'completed');
+    expect(run.engineStatus.values.every((s) => s.status == 'completed'), isTrue,
+        reason: 'A normal adaptive uncertainty-target stop is completed, not partial.');
       expect(run.games.length, 2);
       expect(run.games.every((g) => g.moves.isNotEmpty), isTrue);
       expect(frozenight.state, EngineState.disposed);
@@ -135,10 +137,9 @@ void main() {
   }, skip: expected == null ? 'Opt-in: requires an actual extracted runtime on PATH' : false,
       timeout: const Timeout(Duration(minutes: 10)));
 
+  final soakEnabled = expected == 'ready' &&
+      Platform.environment['CRISP_FROZENIGHT_SOAK'] == '1';
   test('repeated real init/dispose and a bounded 100-game Lab soak', () async {
-    if (expected != 'ready' || Platform.environment['CRISP_FROZENIGHT_SOAK'] != '1') {
-      return;
-    }
     final rss = <int>[];
     for (var i = 0; i < 50; i++) {
       final engine = createEngineForId('builtin:Frozenight', profiles: const []);
@@ -178,10 +179,12 @@ void main() {
       'outcomes': run.games.map((g) => g.outcome.id).toSet().toList(),
     })}');
     expect(run.stopReason, 'completed');
+    expect(run.engineStatus.values.every((s) => s.status == 'completed'), isTrue,
+        reason: 'A normal adaptive uncertainty-target stop is completed, not partial.');
     expect(run.games.length, 100);
     expect(run.ratings.components.length, 1);
     expect(run.calibration.available, isFalse,
         reason: 'A soak without a declared compatible anchor must not invent absolute Elo.');
-  }, skip: expected == null ? 'Opt-in: requires an actual extracted runtime on PATH' : false,
+  }, skip: soakEnabled ? false : 'Opt-in: requires CRISP_FROZENIGHT_EXPECT=ready and CRISP_FROZENIGHT_SOAK=1',
       timeout: const Timeout(Duration(minutes: 10)));
 }
