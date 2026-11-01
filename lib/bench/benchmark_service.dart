@@ -222,7 +222,7 @@ class BenchmarkService {
       if (!kIsWeb && engine is FrozenightEngine) {
         try {
           await engine.initialize();
-          final path = (engine as FrozenightEngine).resolvedLibraryPath;
+          final path = engine.resolvedLibraryPath;
           if (path != null) nativeHash = await sha256OfFile(path);
         } catch (_) {
           // The runner reports the typed startup failure. Identity remains
