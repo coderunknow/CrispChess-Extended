@@ -53,7 +53,8 @@ jobs:
         run: |
           set -o pipefail
           flutter config --enable-linux-desktop
-          xvfb-run -a --server-args="-screen 0 1280x1024x24" flutter test integration_test/app_test.dart integration_test/engine_lifecycle_test.dart -d linux 2>&1 | tee integration-tests.log
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" flutter test integration_test/app_test.dart -d linux --timeout 120s 2>&1 | tee integration-tests.log
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" flutter test integration_test/engine_lifecycle_test.dart -d linux --timeout 120s 2>&1 | tee -a integration-tests.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:

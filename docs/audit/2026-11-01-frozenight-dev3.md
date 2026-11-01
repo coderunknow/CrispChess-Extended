@@ -335,3 +335,14 @@ other-commit reviews are not counted.
   absolute Elo is claimed without a compatible declared anchor.
 - The iOS IPA is unsigned; no App Store/TestFlight submission or external
   signing is performed.
+
+### Headless integration follow-up
+
+The first xvfb run (CI 41280180792, PR comment 6554377531) proved the Linux app
+could start, but the smoke assertion looked for a literal `CrispChess` Text
+widget. `CrispChess` is the MaterialApp/window title, not a visible Text widget;
+the visible root is `ChessGameScreen`. The smoke test now asserts the real game
+screen and no framework exception. The two integration files are also run in
+separate xvfb/flutter-test invocations because the second file failed to obtain a
+debug connection after the first file's failed assertion. The EngineService and
+20-move self-play assertions are unchanged.
