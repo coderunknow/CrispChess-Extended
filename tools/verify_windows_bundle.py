@@ -24,7 +24,7 @@ SYSTEM = {
     'ole32.dll', 'oleaut32.dll', 'uuid.dll', 'secur32.dll', 'winmm.dll',
     'dbghelp.dll', 'dwmapi.dll', 'version.dll', 'gdi32.dll', 'comdlg32.dll',
     'comctl32.dll', 'shlwapi.dll', 'setupapi.dll', 'wintrust.dll', 'psapi.dll',
-    'iphlpapi.dll', 'cryptbase.dll', 'sspcli.dll', 'normaliz.dll', 'powrprof.dll',
+    'iphlpapi.dll', 'cryptbase.dll', 'sspcli.dll', 'normaliz.dll', 'powrprof.dll', 'bcryptprimitives.dll',
     'api-ms-win-crt-runtime-l1-1-0.dll', 'vcruntime140.dll', 'vcruntime140_1.dll',
     'msvcp140.dll', 'ucrtbase.dll', 'msvcrt.dll', 'winhttp.dll', 'wininet.dll',
 }
@@ -58,7 +58,8 @@ def verify(root: Path):
     missing = EXPORTS-exports
     if missing: raise ValueError(f'missing Frozenight exports: {sorted(missing)}')
     # Flutter distributes its own UCRT/VC runtime beside the executable.
-    unresolved = sorted(set(imports)-SYSTEM-set(files))
+    system = SYSTEM | {n for n in imports if n.startswith('api-ms-win-') or n.startswith('ext-ms-win-')}
+    unresolved = sorted(set(imports)-system-set(files))
     if unresolved: raise ValueError(f'unbundled non-system DLL imports: {unresolved}')
     return {
         'schema': 1, 'architecture': 'x64',

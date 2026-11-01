@@ -1,7 +1,6 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
 
 use cozy_chess::{Board, File, Move, Piece, Square};
 use frozenight::{Eval, MtFrozenight, SearchInfo, TimeConstraint};
