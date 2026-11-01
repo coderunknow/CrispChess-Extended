@@ -343,6 +343,7 @@ class BenchmarkService {
     String? referenceEngineId,
     Map<String, OpeningSuite> suites = const {},
     RatingAnchor? anchor,
+    List<RatingAnchor> anchors = const [],
     String? trigger,
   }) async {
     final runner = await createRunner(
