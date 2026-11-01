@@ -51,6 +51,7 @@ void main(List<String> args) {
     final best = lib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('frozenight_get_best_move');
     final nodes = lib.lookupFunction<Int64 Function(), int Function()>('frozenight_get_nodes');
     dispose = lib.lookupFunction<Void Function(), void Function()>('frozenight_dispose');
+    final void Function() release = dispose!;
     for (var cycle = 0; cycle < 3; cycle++) {
       final rc = init(32);
       record('native-init', {'cycle': cycle, 'rc': rc});
@@ -72,11 +73,10 @@ void main(List<String> args) {
       if (searched != 0 || move == null || move == '0000') {
         throw StateError('search failed: $searched / $move');
       }
-      final void Function() release = dispose!;
       release();
-      dispose = null;
       record('disposed', {'cycle': cycle});
     }
+    dispose = null;
     record('result', {'outcome': 'ready'});
     if (expected != 'ready') exitCode = 1;
   } catch (error, stack) {
