@@ -127,11 +127,14 @@ jobs:
           flutter --version | tee validation-evidence/candidate-flutter.txt
           rustc --version -v | tee validation-evidence/candidate-rust.txt
           python -c 'import platform; print(platform.platform())' | tee validation-evidence/candidate-os.txt
-          cargo build --locked --release --manifest-path native/frozenight/Cargo.toml
-          cargo test --locked --manifest-path native/frozenight/Cargo.toml
-          flutter build windows --release
-          tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release
-          python tools/verify_windows_bundle.py build/windows/x64/runner/Release --manifest validation-evidence/candidate-bundle.json
+          {
+            cargo build --locked --release --manifest-path native/frozenight/Cargo.toml &&
+            cargo test --locked --manifest-path native/frozenight/Cargo.toml &&
+            flutter build windows --release &&
+            tool/bundle_frozenight_windows.sh build/windows/x64/runner/Release &&
+            python tools/verify_windows_bundle.py build/windows/x64/runner/Release --manifest validation-evidence/candidate-bundle.json
+          } 2>&1 | tee validation-evidence/candidate-build.log
+
       - name: Package, extract, then test the delivered layout
         shell: pwsh
         run: |
@@ -187,8 +190,8 @@ jobs:
             for f in candidate/validation-evidence/candidate-sha.txt candidate/validation-evidence/candidate-os.txt candidate/validation-evidence/candidate-ffi.jsonl evidence/source-sha.txt evidence/os.txt evidence/archive-hash.txt evidence/original-ffi.jsonl evidence/dll-hash.txt evidence/repaired-ffi.jsonl; do
               if [ -f "$f" ]; then echo "### $f"; echo '```'; head -c 14000 "$f"; echo; echo '```'; fi
             done
-            for f in evidence/original-paths.log evidence/repaired-paths.log candidate/validation-evidence/candidate-paths.log; do
-              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|Expected:|Actual:' "$f" | head -c 20000; echo; echo '```'; fi
+            for f in candidate/validation-evidence/candidate-build.log evidence/original-paths.log evidence/repaired-paths.log candidate/validation-evidence/candidate-paths.log; do
+              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|error\[|error:|Expected:|Actual:|FAILED|verified|test result:' "$f" | head -c 20000; echo; echo '```'; fi
             done
           } > evidence.md
           gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file evidence.md

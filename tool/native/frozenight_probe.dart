@@ -54,8 +54,9 @@ void main(List<String> args) {
     dispose = () { final h = handle; if (h != null) { releaseHandle(h); handle = null; } };
 
     for (var cycle = 0; cycle < 3; cycle++) {
-      handle = create(32);
-      final rc = handle.address == 0 ? -1 : 0;
+      final created = create(32);
+      handle = created;
+      final rc = created.address == 0 ? -1 : 0;
       record('native-init', {'cycle': cycle, 'rc': rc});
       if (rc != 0) throw StateError('native init returned $rc');
       final fen = 'startpos'.toNativeUtf8();
@@ -75,7 +76,7 @@ void main(List<String> args) {
       if (searched != 0 || move == null || move == '0000') {
         throw StateError('search failed: $searched / $move');
       }
-      dispose!();
+      dispose?.call();
       record('disposed', {'cycle': cycle});
     }
     dispose = null;
