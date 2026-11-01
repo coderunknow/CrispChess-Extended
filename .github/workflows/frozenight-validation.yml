@@ -191,7 +191,7 @@ jobs:
               if [ -f "$f" ]; then echo "### $f"; echo '```'; head -c 14000 "$f"; echo; echo '```'; fi
             done
             for f in candidate/validation-evidence/candidate-build.log evidence/original-paths.log evidence/repaired-paths.log candidate/validation-evidence/candidate-paths.log; do
-              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|error\[|error:|Expected:|Actual:|FAILED|verified|test result:' "$f" | head -c 20000; echo; echo '```'; fi
+              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'help:|consider|borrow|move occurs|FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|error\[|error:|Expected:|Actual:|FAILED|verified|test result:' "$f" | head -c 20000; echo; echo '```'; fi
             done
           } > evidence.md
           gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file evidence.md

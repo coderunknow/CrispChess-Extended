@@ -37,7 +37,7 @@ pub extern "C" fn frozenight_create(hash_mb: u32) -> *mut FrozenightHandle {
 }
 
 unsafe fn state<'a>(handle: *mut FrozenightHandle) -> Option<std::sync::MutexGuard<'a, EngineState>> {
-    handle.as_ref().map(|h| h.lock().unwrap_or_else(|e| e.into_inner()))
+    handle.as_ref().map(|h| h.0.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 #[no_mangle]
@@ -79,19 +79,22 @@ pub unsafe extern "C" fn frozenight_search_bounded_v2(
     let holder = Arc::new(Mutex::new(None));
     let info_result = holder.clone();
     let finish_result = holder.clone();
-    let result = |mv: Move, info: &SearchInfo| SearchResult {
-        nodes: info.nodes,
-        best_move: CString::new(move_to_uci(&board, mv)).unwrap_or_default(),
-        score_cp: eval_to_cp(info.eval), depth: info.depth as i32,
-    };
     let info_board = board.clone();
     let finish_board = board.clone();
     let info_result = move |info: &SearchInfo| {
-        let r = SearchResult { best_move: CString::new(move_to_uci(&info_board, info.best_move)).unwrap_or_default(), ..result(info.best_move, info) };
+        let r = SearchResult {
+            nodes: info.nodes,
+            best_move: CString::new(move_to_uci(&info_board, info.best_move)).unwrap_or_default(),
+            score_cp: eval_to_cp(info.eval), depth: info.depth as i32,
+        };
         *info_result.lock().unwrap() = Some(r);
     };
     let finish_result = move |info: &SearchInfo| {
-        let r = SearchResult { best_move: CString::new(move_to_uci(&finish_board, info.best_move)).unwrap_or_default(), ..result(info.best_move, info) };
+        let r = SearchResult {
+            nodes: info.nodes,
+            best_move: CString::new(move_to_uci(&finish_board, info.best_move)).unwrap_or_default(),
+            score_cp: eval_to_cp(info.eval), depth: info.depth as i32,
+        };
         *finish_result.lock().unwrap() = Some(r);
         *info_done.0.lock().unwrap() = true;
         info_done.1.notify_all();
