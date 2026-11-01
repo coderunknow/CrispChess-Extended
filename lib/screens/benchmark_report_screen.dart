@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../bench/benchmark_run.dart';
+import '../bench/elo.dart';
 import '../bench/benchmark_service.dart';
 import '../bench/benchmark_store.dart';
 import '../bench/game_record.dart';
@@ -55,6 +56,8 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
       });
     }
   }
+
+  String _uncertainty(double? se) => se == null || !se.isFinite ? '—' : (kZ95 * se).toStringAsFixed(0);
 
   Future<void> _copy(String text, String what) async {
     await Clipboard.setData(ClipboardData(text: text));
@@ -250,11 +253,7 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
                             ?.rating
                             .toStringAsFixed(0) ??
                         '—')),
-                    DataCell(Text(run.ratings
-                            .ratingFor(standings[index].engineId)
-                            ?.stdErr
-                            .toStringAsFixed(0) ??
-                        '—')),
+                    DataCell(Text(_uncertainty(run.ratings.ratingFor(standings[index].engineId)?.stdErr))),
                     DataCell(Text(run.calibration
                             .ratingFor(standings[index].engineId)
                             ?.toStringAsFixed(0) ??
@@ -411,13 +410,11 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
         LabSection(
           title: l?.engineLabMethod ?? 'Method',
           child: Text(
-            l?.engineLabMethodBody ??
-                'Bradley–Terry maximum likelihood over every rated game, '
-                    'centred on ${run.ratings.anchor.toStringAsFixed(0)}. The '
-                    '95% interval is rating ± 1.96 × standard error, from the '
-                    'Fisher information of the fit. Adjudicated, aborted, '
-                    'cancelled and forfeited games are counted but not rated: a '
-                    'game that did not finish is not a draw.',
+            'Bradley–Terry maximum likelihood over every rated game, '
+                'centred on ${run.ratings.anchor.toStringAsFixed(0)}. The '
+                '95% interval is rating ± 1.96 × standard error. '
+                '${run.config.countAdjudicatedAsDraws ? 'Adjudicated games are fitted as draws; this is an explicit experimental setting, not a natural result.' : 'Adjudicated games are counted but not rated.'} '
+                'Aborted, cancelled and forfeited games are never rated.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),

@@ -28,6 +28,7 @@ import '../services/engine_profile_store.dart';
 import 'chess_engine.dart';
 import 'chess_lm_engine.dart' show availableChessLmNames;
 import 'engine_factory.dart';
+import 'lynx_engine.dart' if (dart.library.js_interop) 'lynx_web_engine.dart';
 import 'searchless_engine.dart' show availableSearchlessSizes;
 import 'generic_uci_engine_stub.dart';
 
@@ -50,6 +51,8 @@ const String kFallbackEngineName = 'Built-in';
 /// Lynx is included because [createEngineOrNull] can construct it: an engine
 /// the app can play is an engine the Lab must be able to measure, and leaving
 /// it out silently made the strongest bundled MCTS engine unbenchmarkable.
+bool get lynxAvailable => LynxEngine.isAvailable;
+
 List<String> get builtInMatchEngines => [
       'Built-in',
       'Frozenight',

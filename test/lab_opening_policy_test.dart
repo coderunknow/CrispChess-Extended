@@ -13,6 +13,11 @@ void main() {
       openings: [Opening(id: 'bad-line', name: 'bad', category: 'test', moves: ['e2e5'])]);
     expect(suite.validationErrors().single, contains('bad-line: illegal move 1'));
   });
+  test('promotion suffix on an ordinary move is rejected', () {
+    const suite = OpeningSuite(id: 'bad-promotion', name: 'bad', description: '',
+      openings: [Opening(id: 'line', name: 'bad', category: 'test', moves: ['e2e4q'])]);
+    expect(suite.validationErrors().single, contains('illegal move 1 (e2e4q)'));
+  });
   test('suite length sharing seven does not repeat a subset', () {
     final suite = OpeningSuite(id: 'seven', name: 'seven', description: '',
       openings: [for (var i = 0; i < 7; i++) Opening(id: '$i', name: '$i', category: 'test')]);

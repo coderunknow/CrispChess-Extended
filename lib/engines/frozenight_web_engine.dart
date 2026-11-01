@@ -82,6 +82,10 @@ class FrozenightEngine implements ChessEngine {
     _stateNotifier.value = EngineState.initializing;
     try {
       await _frozenightLoad().toDart;
+      if (_disposed) {
+        _frozenightDispose();
+        throw StateError('Frozenight was disposed while loading');
+      }
       _loaded = true;
       _stateNotifier.value = EngineState.ready;
     } catch (error, stack) {

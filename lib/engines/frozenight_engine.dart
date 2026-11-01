@@ -172,8 +172,6 @@ class FrozenightEngine implements ChessEngine {
   }) async {
     if (_disposed || !_available) throw StateError('Engine not ready');
     if (_disposed || state == EngineState.disposed) throw StateError('Engine disposed');
-    _stateNotifier.value = EngineState.thinking;
-
     // The depth ceiling is the difficulty knob: a weaker setting is a
     // shallower search. At full strength it should not be a knob at all — the
     // clock should be what stops the search — and 14 was low enough to stop it
@@ -194,6 +192,9 @@ class FrozenightEngine implements ChessEngine {
     // fraction of the next, so stopping before starting one keeps the overshoot
     // bounded.
     return _serialized(() async {
+      if (_disposed || !_available) throw StateError('Engine disposed');
+      _stateNotifier.value = EngineState.thinking;
+      try {
       _applyPosition(positionCommand);
       final sw = Stopwatch()..start();
       String? best;
@@ -251,18 +252,25 @@ class FrozenightEngine implements ChessEngine {
       debugPrint('[Frozenight] $best depth=$reached/$maxDepth '
           '${sw.elapsedMilliseconds}ms (budget ${budget.inMilliseconds}ms)');
       return best;
+      } finally {
+        if (!_disposed) _stateNotifier.value = EngineState.ready;
+      }
     });
   }
 
   @override
   Stream<EvalInfo> analyze(String positionCommand, {int? depth, bool infinite = false}) async* {
     if (_disposed || !_available) return;
-    await _searchLock;
-    await _analysisLock;
-    if (_disposed || !_available) return;
+    // Reserve the queue synchronously before the first await. Otherwise a
+    // bestMove queued while analysis waits can be lost from the disposal chain.
+    final previousSearch = _searchLock;
+    final previousAnalysis = _analysisLock;
     final gate = Completer<void>();
     _analysisLock = gate.future;
     _searchLock = gate.future;
+    await previousSearch;
+    await previousAnalysis;
+    if (_disposed || !_available) { gate.complete(); return; }
     try {
     _stateNotifier.value = EngineState.thinking;
     _stopped = false;
@@ -296,6 +304,7 @@ class FrozenightEngine implements ChessEngine {
     }
     if (!_disposed) _stateNotifier.value = EngineState.ready;
     } finally {
+      if (!_disposed) _stateNotifier.value = EngineState.ready;
       gate.complete();
     }
   }
@@ -321,7 +330,8 @@ class FrozenightEngine implements ChessEngine {
     _available = false;
     // FFI calls are synchronous. Queue cleanup after the last queued request;
     // never free a handle while a request can still use it.
-    final cleanup = _searchLock.then((_) => _analysisLock).then((_) => _releaseHandle());
+    final cleanup = _searchLock.then((_) => _analysisLock)
+        .then((_) => _releaseHandle(), onError: (_) => _releaseHandle());
     _searchLock = cleanup;
     _stateNotifier.value = EngineState.disposed;
   }

@@ -241,6 +241,24 @@ void main() {
       expect(run.gamesCompleted, 2);
     });
 
+    test('warm-ups cannot make an interrupted schedule look completed', () async {
+      final alpha = ScriptedEngine('Alpha');
+      final beta = ScriptedEngine('Beta');
+      final runner = _runner(_config(warmUpGames: 1, maxGames: 2),
+          white: alpha, black: beta);
+      final sub = runner.events.listen((event) {
+        if (event is BenchmarkGameStartedEvent && event.gameNumber == 1) {
+          runner.cancel();
+        }
+      });
+      addTearDown(sub.cancel);
+      addTearDown(runner.dispose);
+      final run = await runner.run();
+      expect(run.stopReason, 'cancelled');
+      expect(run.engineStatus.values.every((s) => s.status == 'partial'), isTrue);
+      expect(run.engineStatus.values.every((s) => s.gamesCompleted == 1), isTrue);
+    });
+
     test('a repetition is a second sample of the schedule', () async {
       final alpha = ScriptedEngine('Alpha');
       final beta = ScriptedEngine('Beta');

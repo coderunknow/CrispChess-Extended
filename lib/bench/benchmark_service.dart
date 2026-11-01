@@ -164,6 +164,8 @@ class BenchmarkService {
         engineId: builtInEngineId(name),
         label: name,
         isCustom: false,
+        available: name != 'Lynx' || lynxAvailable,
+        unavailableReason: name == 'Lynx' && !lynxAvailable ? 'Lynx is not available on this platform.' : null,
       ));
     }
     for (final profile in await profiles()) {
@@ -235,6 +237,7 @@ class BenchmarkService {
     String? referenceEngineId,
     Map<String, OpeningSuite> suites = const {},
     RatingAnchor? anchor,
+    List<RatingAnchor> anchors = const [],
     String? trigger,
   }) async {
     if (_active != null) {
@@ -243,12 +246,18 @@ class BenchmarkService {
     if (engineIds.length < 2) {
       throw ArgumentError('A benchmark needs at least two engines.');
     }
-    final validation = validateConfig(config, engineCount: engineIds.length);
+    final pairings = format == TournamentFormat.gauntlet ? engineIds.length - 1 : engineIds.length * (engineIds.length - 1) ~/ 2;
+    final validation = validateConfig(config, engineCount: engineIds.length, pairings: pairings);
     if (!validation.isValid) {
       throw ArgumentError(validation.errors.join(' '));
     }
 
     final all = await profiles();
+    if (anchors.isNotEmpty) {
+      for (final candidate in anchors.where((a) => a.isComplete)) {
+        if (engineIds.contains(candidate.engineIdHint) || engineIds.any((id) => engineLabelForId(id, all) == candidate.engineName)) { anchor = candidate; break; }
+      }
+    }
     final identities = <EngineIdentity>[];
     final slots = <String, BenchEngineSlot>{};
     final unavailable = <String>[];

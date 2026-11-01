@@ -126,6 +126,7 @@ class _LiveEngine {
   String? failureReason;
   int initMillis = 0;
   int gamesCompleted = 0;
+  int scheduledCompleted = 0;
   int forfeitLosses = 0;
   int consecutiveForfeits = 0;
   final Map<String, String> appliedOptions = {};
@@ -382,6 +383,11 @@ class BenchmarkRunner {
         },
       );
       _games.add(game);
+      if (!planned.isWarmUp && !_cancelled && !_timeCapReached &&
+          game.outcome != GameOutcome.cancelled && game.outcome != GameOutcome.aborted) {
+        white.scheduledCompleted++;
+        black.scheduledCompleted++;
+      }
       white.gamesCompleted++;
       black.gamesCompleted++;
       _noteOutcome(white, game, white.engineId);
@@ -569,6 +575,9 @@ class BenchmarkRunner {
     final aware = engine is UciOptionAware ? engine as UciOptionAware : null;
     final options = aware?.advertisedOptionNames ?? const <String>[];
     live.identity = live.identity.withAdvertisedOptions(options);
+    if (live.identity.kind == 'custom' && engine.version.isNotEmpty) {
+      live.identity = live.identity.withReportedIdentity(name: null, version: engine.version);
+    }
     if (options.isEmpty) {
       live.warnings.add('${live.label} advertised no UCI options; the report '
           'records that rather than assuming defaults.');
@@ -717,10 +726,10 @@ class BenchmarkRunner {
       } else {
         final scheduled = plan.games.where((g) => !g.isWarmUp &&
           (g.whiteId == identity.engineId || g.blackId == identity.engineId)).length;
-        final complete = !inProgress && live.gamesCompleted >= scheduled;
+        final complete = !inProgress && live.scheduledCompleted >= scheduled;
         status[identity.engineId] = EngineRunStatus(
           status: inProgress ? 'in progress' : complete ? 'completed' : 'partial',
-          reason: complete ? null : 'Finished ${live.gamesCompleted} of $scheduled scheduled games.',
+          reason: complete ? null : 'Finished ${live.scheduledCompleted} of $scheduled scheduled games.',
           gamesCompleted: live.gamesCompleted,
         );
       }

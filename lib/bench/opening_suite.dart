@@ -183,7 +183,12 @@ class OpeningSuite {
       }
       for (var i = 0; i < opening.moves.length; i++) {
         final uci = opening.moves[i];
-        final ok = uci.length >= 4 && board.move({'from': uci.substring(0, 2),
+        final syntax = RegExp(r'^[a-h][1-8][a-h][1-8][qrbn]?$').hasMatch(uci);
+        final from = syntax ? board.get(uci.substring(0, 2)) : null;
+        final promotionValid = !syntax || uci.length == 4 ||
+            (from?.type == chess.PieceType.PAWN &&
+             (uci[3] == (board.turn == chess.Color.WHITE ? '8' : '1')));
+        final ok = syntax && promotionValid && board.move({'from': uci.substring(0, 2),
           'to': uci.substring(2, 4),
           if (uci.length > 4) 'promotion': uci.substring(4, 5)});
         if (ok != true) {

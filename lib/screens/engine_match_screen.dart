@@ -55,7 +55,7 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
 
   /// Built-in engines offered by the match screen, from the shared list in
   /// `engine_registry.dart` so the Engine Lab benchmarks exactly these.
-  static final _builtInNames = builtInMatchEngines;
+  static final _builtInNames = builtInMatchEngines.where((name) => name != 'Lynx' || lynxAvailable).toList();
 
   /// Everything selectable here: the built-ins above plus user-added engines.
   List<({String id, String label})> get _engineChoices =>
@@ -674,7 +674,7 @@ class _EngineMatchScreenState extends State<EngineMatchScreen> {
                   Text(p.label, style: const TextStyle(fontSize: 12)),
                   Text(
                       p.stdErr.isFinite
-                          ? '${p.rating.round()} ± ${p.stdErr.round()}'
+                          ? '${p.rating.round()} ± ${(kZ95 * p.stdErr).round()}'
                           : '${p.rating.round()}',
                       style: const TextStyle(fontSize: 12)),
                   Text('${p.wins} / ${p.draws} / ${p.losses}',

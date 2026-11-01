@@ -475,11 +475,7 @@ class BenchmarkRun {
   }
 
   String _excludedSummary() {
-    final counts = <String, int>{};
-    for (final game in games) {
-      if (game.warmUp || game.outcome.isRatingEligible) continue;
-      counts[game.outcome.id] = (counts[game.outcome.id] ?? 0) + 1;
-    }
+    final counts = ratings.excludedByOutcome;
     if (counts.isEmpty) return 'none were excluded.';
     return counts.entries.map((e) => '${e.value} ${e.key}').join(', ') + '.';
   }

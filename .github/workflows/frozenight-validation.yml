@@ -86,8 +86,6 @@ jobs:
           Copy-Item native\frozenight\target\release\frozenight_ffi.dll $runtime\
           Get-FileHash $runtime\frozenight_ffi.dll -Algorithm SHA256 | Format-List | Out-File validation-evidence\dll-hash.txt
           $env:PATH = "$runtime;$env:PATH"
-          # Exercise the production executable-relative loader, not a PATH override.
-          Copy-Item (Join-Path $runtime 'frozenight_ffi.dll') (Split-Path (Get-Command dart).Source)
           $env:CRISP_FROZENIGHT_EXPECT = 'ready'
           dart tool/native/frozenight_probe.dart (Join-Path $runtime 'frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\repaired-ffi.jsonl
           if ($LASTEXITCODE -ne 0) { throw 'Real native smoke test failed' }
@@ -141,8 +139,18 @@ jobs:
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath CrispChess-windows-x64.zip
           Expand-Archive CrispChess-windows-x64.zip -DestinationPath $env:RUNNER_TEMP\candidate -Force
           python tools/verify_windows_bundle.py CrispChess-windows-x64.zip --manifest validation-evidence\zip-bundle.json
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate ZIP verification failed' }
           python tools/verify_windows_bundle.py $env:RUNNER_TEMP\candidate --manifest validation-evidence\extracted-bundle.json
-          Copy-Item (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') (Split-Path (Get-Command dart).Source)
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted candidate verification failed' }
+          # flutter test runs in flutter_tester.exe, not dart.exe. Stage the
+          # exact extracted DLL beside both hosts; the probe uses its absolute path.
+          $cache = Join-Path (Split-Path (Split-Path (Get-Command flutter).Source)) 'bin\cache\artifacts\engine'
+          $hosts = Get-ChildItem $cache -Recurse -File | Where-Object { $_.Name -in @('flutter_tester.exe','dart.exe') }
+          if (-not $hosts) { throw 'No Windows test host found' }
+          $hosts | ForEach-Object {
+            Copy-Item (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') $_.DirectoryName -Force
+            Write-Output "Staged extracted DLL beside $($_.FullName)"
+          }
           $env:CRISP_FROZENIGHT_EXPECT = 'ready'
           dart tool/native/frozenight_probe.dart (Join-Path $env:RUNNER_TEMP 'candidate\frozenight_ffi.dll') ready 2>&1 | Tee-Object validation-evidence\candidate-ffi.jsonl
           if ($LASTEXITCODE -ne 0) { throw 'Candidate native smoke failed' }
