@@ -4,6 +4,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -65,7 +66,7 @@ void main() {
     expect(await service.initialize(), isTrue);
     final serviceMove = Completer<String>();
     final subscription = service.events.listen((event) {
-      if (event is EngineMoveEvent && !serviceMove.isCompleted) {
+      if (event is BestMoveEvent && !serviceMove.isCompleted) {
         serviceMove.complete(event.move);
       }
     });
