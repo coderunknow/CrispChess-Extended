@@ -126,10 +126,14 @@ jobs:
                   return "_no output: the step did not run_"
 
           def section(text: str, patterns: list[str], limit: int = 12000) -> str:
-              """Keep only the lines that matter, with a count banner."""
+              """Keep matching lines plus assertion context, with a count banner."""
               lines = text.splitlines()
-              kept = [line for line in lines if any(re.search(p, line) for p in patterns)]
-              head = "_%d matching line(s) of %d_" % (len(kept), len(lines))
+              indexes = set()
+              for i, line in enumerate(lines):
+                  if any(re.search(p, line) for p in patterns):
+                      indexes.update(range(i, min(len(lines), i + 24)))
+              kept = [lines[i] for i in sorted(indexes)]
+              head = "_%d matching line(s) of %d_" % (sum(1 for line in lines if any(re.search(p, line) for p in patterns)), len(lines))
               body = "\n".join(kept)
               if len(body) > limit:
                   body = "_first %d characters_\n" % limit + body[:limit]
