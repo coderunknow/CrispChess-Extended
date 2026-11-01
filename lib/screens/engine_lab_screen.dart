@@ -703,7 +703,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         for (final notice in _liveNotices.take(6))
-                          Text('• $notice',
+                          SelectableText('• $notice',
                               style: TextStyle(
                                   fontSize: 12,
                                   color: Theme.of(context).colorScheme.error)),

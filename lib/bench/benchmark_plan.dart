@@ -162,6 +162,10 @@ BenchmarkPlan buildPlan({
     }
   }
   final openingSuite = suite ?? openingSuiteById(config.openingSuiteId);
+  final openingErrors = openingSuite.validationErrors();
+  if (openingErrors.isNotEmpty) {
+    throw ArgumentError(openingErrors.join("; "));
+  }
 
   // Pairings, in a deterministic order.
   final pairings = <List<String>>[];

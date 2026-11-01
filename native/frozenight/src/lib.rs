@@ -258,6 +258,7 @@ mod tests {
             assert!(!a.is_null() && !b.is_null() && a != b);
             let start = CString::new("startpos").unwrap();
             let black = CString::new("e2e4").unwrap();
+            let invalid = CString::new("e2e4 e2e4").unwrap();
             let empty = CString::new("").unwrap();
             assert_eq!(frozenight_set_position_v2(a, start.as_ptr(), empty.as_ptr()), 0);
             assert_eq!(frozenight_set_position_v2(b, start.as_ptr(), black.as_ptr()), 0);
@@ -272,7 +273,7 @@ mod tests {
             let results: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
             eprintln!("native concurrency results: {results:?}");
             assert!(results.iter().all(|(m, n)| m.len() >= 4 && *n > 0));
-            assert_eq!(frozenight_set_position_v2(a, start.as_ptr(), black.as_ptr()), -3);
+            assert_eq!(frozenight_set_position_v2(a, start.as_ptr(), invalid.as_ptr()), -3);
             assert_eq!(frozenight_set_position_v2(b, start.as_ptr(), empty.as_ptr()), 0);
             frozenight_destroy(a);
             frozenight_destroy(b);

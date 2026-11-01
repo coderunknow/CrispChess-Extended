@@ -47,8 +47,9 @@ class AutoBenchmarkSettings {
   BenchmarkConfig toConfig({int seed = 1}) => BenchmarkConfig.quick.copyWith(
         // `copyWith` takes a factory for the nullable fields so it can clear
         // them; passing the value itself does not compile.
-        maxGames: () => maxGames,
-        maxDuration: () => maxDuration,
+        maxGames: () => maxGames.clamp(2, 24).toInt(),
+        maxDuration: () => maxDuration > const Duration(minutes: 10)
+            ? const Duration(minutes: 10) : maxDuration,
         warmUpGames: 0,
         seed: seed,
         adaptiveStopping: true,
