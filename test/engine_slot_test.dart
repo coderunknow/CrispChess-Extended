@@ -139,7 +139,6 @@ void main() {
       expect(engineNeedsRebuild(ok), isFalse, reason: '$ok is usable');
     }
   });
-}
 
   test('a cached thinking engine is reused without a readiness throw', () async {
     final slot = _slot();
@@ -157,3 +156,5 @@ void main() {
     await expectLater(slot.get(), throwsA(isA<Exception>()));
     expect(_Stub.built, 1);
   });
+
+}
