@@ -370,3 +370,31 @@ build; `EngineSlot` reuses a cached `thinking` engine but still rejects
 file is absent and loading failed; and the Windows JNI exclusion removes the
 exact `$<TARGET_FILE:jni>` generator expression instead of scanning ancestor
 paths. Regression tests cover the cached thinking/initializing slot states.
+
+## 2026-11-01 — Final exact-head gates on 760db1f
+
+Final candidate head: **760db1f892ae06bab5f82c48a5aa6abbdd6fdac1**.
+
+- CI run **41292823104**: SUCCESS. Analyze & Test passed Python tooling
+  (**36 tests**), action-pin YAML gate, Flutter analyze, unit/widget tests,
+  Linux desktop integration under xvfb, all six Frozenight platform builds and
+  the engine-gate. The isolated PR-log posting job was correctly skipped on green.
+- Release run **41292823103**: SUCCESS. Android, iOS, Linux, Linux+Frozenight,
+  macOS, Windows, Web, Frozenight native libraries and **Verify all release
+  assets** passed. The tag-only GitHub Release job was correctly skipped on PR.
+- Frozenight release validation run **41292823072**: SUCCESS. Baseline,
+  candidate, clean rebuild 1, clean rebuild 2, comparison and evidence passed.
+- Engine Lab run **41292823089**: SUCCESS. Engine latency **41292823065**:
+  SUCCESS. Secret scans **41292823117** and **41292818538**: SUCCESS.
+- Lab diagnostics run **41292823070**, comment 6556080731: analyze exit 0,
+  test exit 0, **786 passed / 26 skipped**.
+
+Review follow-through: cycle 1 5725910525 (`d7dd854`, 10 findings), cycle 2
+5726314400 (`97ffe04`, 9 findings), cycle 3 5726775509 (`e755d7f`, 4 findings),
+cycle 4 5727330079 (`c830edb`, 5 findings). All were verified and addressed;
+all review threads are resolved. The final exact-head full review is requested
+after the CodeRabbit fair-usage cooldown; rate-limited attempts are not counted.
+
+The remaining limitations are unchanged: Windows 10 is not verified; byte-for-byte
+reproducibility is not guaranteed; smoke/short soak is not long-duration rating
+calibration; the iOS IPA is unsigned and no store submission is performed.
