@@ -172,6 +172,7 @@ class EngineIdentity {
     required String engineVersion,
     required String appBuild,
     Map<String, String> configuration = const {},
+    String? nativeBinarySha256,
   }) {
     final platform = platformLabel();
     final backend = backendForBuiltIn(name);
@@ -183,8 +184,8 @@ class EngineIdentity {
       kind: 'builtin',
       platform: platform,
       backend: backend,
-      fingerprint: 'builtin:$name@$appBuild+$engineVersion',
-      fingerprintKind: 'builtin-build',
+      fingerprint: nativeBinarySha256 == null ? 'builtin:$name@$appBuild+$engineVersion' : 'sha256:$nativeBinarySha256',
+      fingerprintKind: nativeBinarySha256 == null ? 'builtin-build' : 'sha256',
       sourceConfigurationDigest: digestOf(const <String>[]),
       configurationDigest: digestOf(
           configuration.entries.map((e) => '${e.key}=${e.value}').toList()

@@ -11,7 +11,7 @@ void main() {
   test('non-finite uncertainty survives JSON export', () {
     const rating = EloRating(engineId: 'x', label: 'x', rating: 0,
       stdErr: double.infinity, ciLow: double.negativeInfinity,
-      ciHigh: double.infinity, games: 0);
+      ciHigh: double.infinity, opponents: 0);
     final json = jsonDecode(jsonEncode(rating.toJson())) as Map<String, dynamic>;
     expect(json['stdErr'], isNull);
     expect(EloRating.fromJson(json).stdErr, double.infinity);

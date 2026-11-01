@@ -272,8 +272,8 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _snack(l?.engineLabPickTwo ?? 'Select at least two engines.', error: true);
       return;
     }
-    final pairings = _format == TournamentFormat.gauntlet ? _selected.length - 1 : _selected.length * (_selected.length - 1) ~/ 2;
-    final validation = validateConfig(_config, engineCount: _selected.length, pairings: pairings);
+    final validationPairings = _format == TournamentFormat.gauntlet ? _selected.length - 1 : _selected.length * (_selected.length - 1) ~/ 2;
+    final validation = validateConfig(_config, engineCount: _selected.length, pairings: validationPairings);
     if (!validation.isValid) {
       _snack(validation.errors.join(' '), error: true);
       return;

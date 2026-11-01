@@ -39,6 +39,16 @@ class FrozenightEngine implements ChessEngine {
   /// value is a guess, and it is deliberately low: guessing high on the first
   /// search of a session is the one case that cannot be corrected afterwards.
   double _nodesPerMs = 50;
+  // The generated WASM module has one global board/result. Lease it across
+  // Dart instances and serialize every operation, including disposal.
+  static Future<void> _sharedQueue = Future<void>.value();
+  static bool _moduleLoaded = false;
+  static int _leases = 0;
+  static Future<T> _enqueue<T>(Future<T> Function() body) {
+    final result = _sharedQueue.then((_) => body());
+    _sharedQueue = result.then((_) {}, onError: (_) {});
+    return result;
+  }
 
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   bool _loaded = false;
@@ -67,6 +77,7 @@ class FrozenightEngine implements ChessEngine {
   Future<void>? _initializing;
   bool _disposed = false;
   EngineInitializationException? initializationError;
+  String? get resolvedLibraryPath => null;
 
   @override
   Future<void> initialize() {
@@ -74,18 +85,16 @@ class FrozenightEngine implements ChessEngine {
     if (_loaded) return Future<void>.value();
     final failure = initializationError;
     if (failure != null) return Future.error(failure);
-    return _initializing ??= _initializeNow().whenComplete(() => _initializing = null);
+    return _initializing ??= _enqueue(_initializeNow).whenComplete(() => _initializing = null);
   }
 
   Future<void> _initializeNow() async {
     final watch = Stopwatch()..start();
     _stateNotifier.value = EngineState.initializing;
     try {
-      await _frozenightLoad().toDart;
-      if (_disposed) {
-        _frozenightDispose();
-        throw StateError('Frozenight was disposed while loading');
-      }
+      if (!_moduleLoaded) { await _frozenightLoad().toDart; _moduleLoaded = true; }
+      if (_disposed) { _stateNotifier.value = EngineState.disposed; throw StateError('Frozenight was disposed while loading'); }
+      _leases++;
       _loaded = true;
       _stateNotifier.value = EngineState.ready;
     } catch (error, stack) {
@@ -94,7 +103,7 @@ class FrozenightEngine implements ChessEngine {
         cause: error, causeStack: stack, elapsedMicros: watch.elapsedMicroseconds,
       );
       initializationError = failure;
-      _stateNotifier.value = EngineState.error;
+      _stateNotifier.value = _disposed ? EngineState.disposed : EngineState.error;
       throw failure;
     }
   }
@@ -106,7 +115,13 @@ class FrozenightEngine implements ChessEngine {
     Duration? moveTime,
     int? skillLevel,
   }) async {
-    if (!_loaded) throw StateError('Not initialized');
+    if (!_loaded || _disposed) throw StateError('Not initialized');
+    return _enqueue(() => _bestMoveNow(positionCommand, depth: depth, moveTime: moveTime, skillLevel: skillLevel));
+  }
+
+  Future<String> _bestMoveNow(String positionCommand, {int? depth, Duration? moveTime, int? skillLevel}) async {
+    if (!_loaded || _disposed) throw StateError('Engine disposed');
+    try {
     _stateNotifier.value = EngineState.thinking;
 
     _applyPosition(positionCommand);
@@ -177,11 +192,18 @@ class FrozenightEngine implements ChessEngine {
 
     if (bestMove == null || bestMove == '0000') throw StateError('No move');
     return bestMove;
+    } finally { if (!_disposed) _stateNotifier.value = EngineState.ready; }
   }
 
   @override
   Stream<EvalInfo> analyze(String positionCommand, {int? depth, bool infinite = false}) async* {
-    if (!_loaded) return;
+    if (!_loaded || _disposed) return;
+    final previous = _sharedQueue;
+    final gate = Completer<void>();
+    _sharedQueue = gate.future;
+    await previous;
+    if (!_loaded || _disposed) { gate.complete(); return; }
+    try {
     _stateNotifier.value = EngineState.thinking;
     _stopped = false;
     _applyPosition(positionCommand);
@@ -232,7 +254,7 @@ class FrozenightEngine implements ChessEngine {
       );
     }
 
-    _stateNotifier.value = EngineState.ready;
+    } finally { if (!_disposed) _stateNotifier.value = EngineState.ready; gate.complete(); }
   }
 
   @override
@@ -251,9 +273,13 @@ class FrozenightEngine implements ChessEngine {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    if (_loaded) _frozenightDispose();
+    final wasLoaded = _loaded;
     _loaded = false;
     _stateNotifier.value = EngineState.disposed;
+    if (wasLoaded) _enqueue(() async {
+      _leases--;
+      if (_leases == 0) { _frozenightDispose(); _moduleLoaded = false; }
+    });
   }
 
   void _applyPosition(String positionCommand) {
