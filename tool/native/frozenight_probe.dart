@@ -72,7 +72,8 @@ void main(List<String> args) {
       if (searched != 0 || move == null || move == '0000') {
         throw StateError('search failed: $searched / $move');
       }
-      dispose();
+      final release = dispose;
+      release();
       dispose = null;
       record('disposed', {'cycle': cycle});
     }
