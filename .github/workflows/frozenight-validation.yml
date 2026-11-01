@@ -77,8 +77,7 @@ jobs:
       - name: Build the exact locked native source
         shell: bash
         run: |
-          cargo build --locked --release
-          cargo test --locked
+          { cargo build --locked --release && cargo test --locked; } 2>&1 | tee validation-evidence/baseline-build.log
         working-directory: native/frozenight
       - name: Controlled repair, same extracted archive plus its missing DLL
         shell: pwsh
@@ -190,8 +189,8 @@ jobs:
             for f in candidate/validation-evidence/candidate-sha.txt candidate/validation-evidence/candidate-os.txt candidate/validation-evidence/candidate-ffi.jsonl evidence/source-sha.txt evidence/os.txt evidence/archive-hash.txt evidence/original-ffi.jsonl evidence/dll-hash.txt evidence/repaired-ffi.jsonl; do
               if [ -f "$f" ]; then echo "### $f"; echo '```'; head -c 14000 "$f"; echo; echo '```'; fi
             done
-            for f in candidate/validation-evidence/candidate-build.log evidence/original-paths.log evidence/repaired-paths.log candidate/validation-evidence/candidate-paths.log; do
-              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'help:|consider|borrow|move occurs|FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|error\[|error:|Expected:|Actual:|FAILED|verified|test result:' "$f" | head -c 20000; echo; echo '```'; fi
+            for f in candidate/validation-evidence/candidate-build.log evidence/baseline-build.log evidence/original-paths.log evidence/repaired-paths.log candidate/validation-evidence/candidate-paths.log; do
+              if [ -f "$f" ]; then echo "### $f"; echo '```'; grep -E 'panicked|assertion|left:|right:|help:|consider|borrow|move occurs|FROZENIGHT_EVIDENCE|All tests passed|Some tests failed|\[E\]|Error:|error\[|error:|Expected:|Actual:|FAILED|verified|test result:' "$f" | head -c 20000; echo; echo '```'; fi
             done
           } > evidence.md
           gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file evidence.md
