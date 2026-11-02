@@ -305,6 +305,13 @@ Review 5740207229 on the exact head a68368d: no Major findings, three Minor. CI 
 | A second tap on "Start benchmark" while admission is computed or a dialog is open started a second preparation (and Preflight); an admission error escaped `_start` unhandled | Minor | Fixed: a `_starting` flag guards re-entry and disables both buttons until the attempt ends; preparation errors are shown. Verified by analyzer and build only (no Engine Lab widget test exists) |
 | The start button was squeezed by `Expanded` next to a long localized "Check engines" | Minor | Fixed: `OverflowBar` (side by side when they fit, stacked otherwise). Analyzer and build only |
 
+CI on 13e184d failed (runs 41487234619, 41487234719): the new
+`runWithRunner` test built its runner with the harness default of 5 ms per move,
+which `createRunner` correctly rejects (minimum 10 ms) — a test-fixture error,
+not a product defect (875 and 279 other tests passed). The fixture now uses
+50 ms. "Build iOS" in the same run was cancelled again for lack of a hosted
+macOS runner; no step ran.
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned

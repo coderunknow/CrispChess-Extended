@@ -183,9 +183,13 @@ void main() {
     quit) exit 0 ;;''');
     final service = await _service(
         [EngineProfile(id: 'slow', name: 'Slow', path: slow)]);
-    // Prepared first, while nothing else is going on.
+    // Prepared first, while nothing else is going on. (createRunner validates
+    // the configuration; the harness default of 5 ms per move is below the
+    // 10 ms minimum a real run accepts.)
     final runner = await service.createRunner(
-        engineIds: [builtIn, 'custom:slow'], config: benchConfig());
+        engineIds: [builtIn, 'custom:slow'],
+        config: benchConfig()
+            .copyWith(timePerMove: const Duration(milliseconds: 50)));
     addTearDown(runner.dispose);
     final checking = service.preflight(
       engineIds: ['custom:slow'],
