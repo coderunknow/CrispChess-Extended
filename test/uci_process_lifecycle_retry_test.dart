@@ -2,8 +2,7 @@
 // afterwards (it was killed, or it was already dying), and that exit must not
 // be recorded against the new process: dev3 could report "the engine exited
 // with code -9" for a healthy second attempt.
-@TestOn('vm')
-@TestOn('!windows')
+@TestOn('vm && !windows')
 library;
 
 import 'dart:io';

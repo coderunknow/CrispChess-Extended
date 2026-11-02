@@ -2,8 +2,7 @@
 // engines (the built-in Dart engine and user-added UCI scripts), results
 // recorded in the gate, engines never omitted, and no preflight while a
 // benchmark is being prepared (or the other way round).
-@TestOn('vm')
-@TestOn('!windows')
+@TestOn('vm && !windows')
 library;
 
 import 'dart:async';

@@ -8,8 +8,7 @@
 // adapter against small shell scripts (no Stockfish binary is needed or
 // faked as real) and assert that every failure is thrown, structured and
 // classified, and that a successful start reports what actually started.
-@TestOn('vm')
-@TestOn('!windows')
+@TestOn('vm && !windows')
 library;
 
 import 'dart:io';
