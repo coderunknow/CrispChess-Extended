@@ -17,6 +17,11 @@ def escape(text: str) -> str:
 
 
 def main(argv):
+    # The Dart reporter writes UTF-8 and the runner reads workflow commands as
+    # UTF-8; a Windows runner's default (cp1252) would garble the text or, for
+    # a character it cannot encode, crash a script that must always exit 0.
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     args = [a for a in argv[1:] if not a.startswith('--')]
     if not args:
         return 0
@@ -30,7 +35,7 @@ def main(argv):
     results = []
     prints = {}
     suites = {}
-    for line in path.read_text(errors='replace').splitlines():
+    for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
         try:
             event = json.loads(line)
         except ValueError:

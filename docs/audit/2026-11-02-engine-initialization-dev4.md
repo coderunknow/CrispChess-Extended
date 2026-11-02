@@ -261,6 +261,25 @@ requests only build and verify; `create-release` is tag-only.
 | `EngineInitCoordinator.run` trusted a shared `ready` state. Several adapters' `stop()` set `ready` unconditionally, so `EngineService.stop()` after a failed start could make the next `initialize()` skip the start and return success with no model or runtime | Major | Fixed: the coordinator takes the ready shortcut only after a successful attempt (flag cleared when a new attempt begins). `stop()` in Lc0, Lc0 web, Maia3, Stockfish iOS, Stockfish web and Frozenight web now returns to `ready` only from `thinking`, as Lynx already did. Two contract tests |
 | `runAutomatic` threw (via `createRunner`) while Engine Preflight ran, despite "never throws for a refusal" | Minor | Fixed: it also refuses quietly while Preflight runs; test |
 
+### Eighth full review (0ac8a5f)
+
+Review 5738440495 on the exact head 0ac8a5f: no Major findings, one Minor.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| `annotate_test_failures.py` read the UTF-8 test report with the OS default encoding (cp1252 on Windows) | Minor | Fixed: explicit UTF-8 on read, and stdout reconfigured to UTF-8. Reproduced first: under cp1252 the old script crashed (`UnicodeEncodeError`, exit 1) on a test name with `→`, breaking its always-exit-0 promise on the Windows RCA job; the new one exits 0 with the text intact |
+
+Independent re-check of 0ac8a5f, before the fix above:
+
+- All 48 changed Dart files parse; no file deleted; no binary committed.
+- `AGENTS_LOG.md` and `DESIGN_LOG.md`: additions only. Version `2.3.2-dev4+20`.
+- English and German ARB files have the same keys and placeholders, and every key exists in the generated code; all 228 key references in the Engine Lab, Preflight and report screens resolve.
+- Absolute paths in the diff appear only in test fixtures that assert redaction.
+- All workflow files parse; the iOS release guard test passes (10 tests).
+- On 0ac8a5f: real Stockfish 16 11/11 (job 125314391606); RCA baseline still `Bad state: initialize returned with state error` on Linux and Windows, candidate `runtimeMissing` with install guidance on both.
+- The one analyzer warning in a changed file (`chess_lm_engine.dart:255`) is on a line unchanged since the base commit 5ee20cd.
+- The "Kilo Code Review" check reports `action_required` on every head because the account has insufficient credits; it is not a review and is not counted as one.
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned
