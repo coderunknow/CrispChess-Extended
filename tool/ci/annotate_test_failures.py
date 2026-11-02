@@ -54,7 +54,9 @@ def main(argv):
             results.append((event['testID'], outcome))
             if event.get('result') in ('failure', 'error'):
                 failed.append(event['testID'])
-    for test_id in failed[:30]:
+    # In --summary mode the failures are already annotated by the failure
+    # step; the summary notice lists them, so don't repeat them here.
+    for test_id in ([] if summary else failed[:30]):
         parts = []
         for error, stack in errors.get(test_id, []):
             parts.append(error.strip())

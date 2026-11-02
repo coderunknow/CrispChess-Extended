@@ -1798,7 +1798,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enginePreflightContinue => 'Continue with passed engines';
 
   @override
-  String get enginePreflightReviewed => 'I have reviewed the results; engines that did not pass are left out of this run.';
+  String get enginePreflightReviewed => 'I have reviewed the results; the engines marked as left out will not take part in this run.';
 
   @override
   String get enginePreflightAcceptWarnings => 'Accept warnings for this engine';

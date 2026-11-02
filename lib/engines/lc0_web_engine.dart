@@ -20,6 +20,7 @@ import 'lc0_dart/encoding.dart';
 import 'lc0_dart/mcts.dart';
 import 'lc0_dart/policy_map.dart' as policy;
 import 'lc0_dart/variants.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
 // JS bridge functions (defined in web/lc0_onnx_bridge.js)
@@ -34,7 +35,8 @@ external JSPromise<JSFloat32Array> _jsLc0Infer(JSFloat32Array inputPlanes);
 external JSPromise<JSAny?> _jsLc0Close();
 
 /// Lc0 engine for web — MCTS + neural network via ONNX Runtime Web.
-class Lc0Engine implements ChessEngine, EngineRuntimeReport {
+class Lc0Engine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final String variantId;
 
@@ -107,6 +109,19 @@ class Lc0Engine implements ChessEngine, EngineRuntimeReport {
           } catch (_) {}
         },
       );
+
+  /// The network download [initialize] would start; asked by Engine
+  /// Preflight before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async {
+    final variant = getLc0Variant(variantId);
+    return pendingModelDownload(
+      description: 'Lc0 ${variant.displayName} network (about '
+          '${(variant.sizeBytes / 1e6).toStringAsFixed(1)} MB)',
+      files: [(variant.url, '${variant.id}.onnx')],
+      license: license,
+    );
+  }
 
   Future<void> _start(EngineInitScope scope) async {
     final variant = getLc0Variant(variantId);

@@ -35,6 +35,26 @@ def tag_triggers(patterns, tag):
     return matched
 
 
+class _Null:
+    """A missing input (e.g. `inputs.dry_run` on a push) as GitHub sees it.
+
+    It is falsy, and `==` coerces both sides to numbers when the types differ:
+    null, false and '' all become 0, so `inputs.dry_run == false` is TRUE on a
+    push. Python's `None == False` is false, which would hide exactly that.
+    """
+
+    def __bool__(self):
+        return False
+
+    def __eq__(self, other):
+        return isinstance(other, _Null) or other in (None, False, 0, '')
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    __hash__ = None
+
+
 def evaluate(expression, event, ref_name, inputs):
     """Evaluates the small subset of GitHub expressions used in the guards."""
     expr = expression.strip()
@@ -43,11 +63,19 @@ def evaluate(expression, event, ref_name, inputs):
     expr = re.sub(r"contains\(github\.ref_name, '([^']*)'\)",
                   lambda m: repr(m.group(1) in ref_name), expr)
     expr = expr.replace("github.event_name", repr(event))
-    expr = re.sub(r"inputs\.(\w+)", lambda m: repr(inputs.get(m.group(1))), expr)
+    names = {}
+
+    def bind(match):
+        key = match.group(1)
+        value = inputs.get(key)
+        names[f'input_{key}'] = _Null() if value is None else value
+        return f'input_{key}'
+
+    expr = re.sub(r"inputs\.(\w+)", bind, expr)
     expr = expr.replace('&&', ' and ').replace('||', ' or ')
     expr = re.sub(r'!(?!=)', ' not ', expr)
     expr = expr.replace('false', 'False').replace('true', 'True')
-    return bool(eval(expr, {'__builtins__': {}}, {}))  # noqa: S307 - fixed text
+    return bool(eval(expr, {'__builtins__': {}}, names))  # noqa: S307 - fixed text
 
 
 class IosReleaseGuardTests(unittest.TestCase):
@@ -82,6 +110,26 @@ class IosReleaseGuardTests(unittest.TestCase):
         # dev tag skips the job and both App Store steps.
         for name in ['Upload to App Store Connect', 'Submit to external TestFlight']:
             self.assertFalse(self.guarded(name, 'push', 'v2.3.2-dev4'), name)
+
+    def test_step_guards_alone_stop_a_dev_tag_push(self):
+        # Without relying on the job guard: on a push every input is null.
+        for name in ['Upload to App Store Connect', 'Submit to external TestFlight']:
+            step_if = self.steps[name]['if']
+            self.assertFalse(evaluate(step_if, 'push', 'v2.3.2-dev4', {}), name)
+
+    def test_evaluator_coerces_a_missing_input_like_github(self):
+        # The pitfall the step guards must avoid.
+        self.assertTrue(evaluate('${{ inputs.dry_run == false }}',
+                                 'push', 'v2.3.2-dev4', {}))
+        self.assertTrue(evaluate('${{ !inputs.dry_run }}',
+                                 'push', 'v2.3.2-dev4', {}))
+
+    def test_manual_submit_only_still_submits(self):
+        inputs = {'dry_run': True, 'submit_only': True, 'status_only': False}
+        self.assertTrue(self.guarded('Submit to external TestFlight',
+                                     'workflow_dispatch', 'main', inputs))
+        self.assertFalse(self.guarded('Upload to App Store Connect',
+                                      'workflow_dispatch', 'main', inputs))
 
     def test_upload_and_submit_run_for_a_stable_tag_push(self):
         for name in ['Upload to App Store Connect', 'Submit to external TestFlight']:

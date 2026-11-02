@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
 import 'engine_initialization.dart';
 import 'maia3_dart/onnx/model_fetch.dart';
+import 'model_download.dart';
 import 'searchless/model.dart';
 import 'searchless/native_model_stub.dart'
     if (dart.library.ffi) 'searchless/native_model.dart';
@@ -43,7 +44,8 @@ enum SearchlessSize {
   String get engineName => 'Searchless $label';
 }
 
-class SearchlessEngine implements ChessEngine, EngineRuntimeReport {
+class SearchlessEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final SearchlessSize size;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final math.Random _random;
@@ -120,7 +122,7 @@ class SearchlessEngine implements ChessEngine, EngineRuntimeReport {
     scope.stage = EngineInitStage.loadBackend;
     _fallbackNote = null;
     final (model, actions, buckets) =
-        loader != null ? await loader!() : await _load();
+        loader != null ? await loader!() : await _load(scope);
     _model = model;
     _actionOf = {for (var i = 0; i < actions.length; i++) actions[i]: i};
     _buckets = buckets;
@@ -129,8 +131,26 @@ class SearchlessEngine implements ChessEngine, EngineRuntimeReport {
     debugPrint('[Searchless] ${size.label} ready ($backendName)');
   }
 
-  Future<(SearchlessModel, List<String>, List<double>)> _load() async {
+  /// The model download [initialize] would start; asked by Engine Preflight
+  /// before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async => loader != null
+      ? null
+      : pendingModelDownload(
+          description: '${size.engineName} model',
+          files: [
+            ('$_base/actions.json', 'searchless_actions.json'),
+            ('$_base/bucket_values.json', 'searchless_bucket_values.json'),
+            ('$_base/${size.file}',
+                'searchless_${size.label}_${size.file.split('/').last}'),
+          ],
+          license: license,
+        );
+
+  Future<(SearchlessModel, List<String>, List<double>)> _load(
+      EngineInitScope scope) async {
     List<T> json<T>(Uint8List b) => (jsonDecode(utf8.decode(b)) as List).cast<T>();
+    scope.stage = EngineInitStage.download;
     final actions = json<String>(
         await fetchModelBytes('$_base/actions.json', 'searchless_actions.json'));
     final buckets = [
@@ -151,6 +171,7 @@ class SearchlessEngine implements ChessEngine, EngineRuntimeReport {
     }
     final bytes = await fetchModelBytes('$_base/${size.file}',
         'searchless_${size.label}_${size.file.split('/').last}');
+    scope.stage = EngineInitStage.loadBackend;
     if (preferNative && NativeSearchlessModel.isSupported) {
       try {
         final m = NativeSearchlessModel.create(bytes);

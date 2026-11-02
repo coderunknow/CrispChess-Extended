@@ -567,7 +567,7 @@
   "enginePreflightRetry": "Erneut prüfen",
   "enginePreflightCopy": "Diagnose kopieren",
   "enginePreflightContinue": "Mit bestandenen Engines fortfahren",
-  "enginePreflightReviewed": "Ich habe die Ergebnisse geprüft; nicht bestandene Engines werden in diesem Lauf ausgelassen.",
+  "enginePreflightReviewed": "Ich habe die Ergebnisse geprüft; die als ausgelassen markierten Engines nehmen an diesem Lauf nicht teil.",
   "enginePreflightAcceptWarnings": "Warnungen für diese Engine akzeptieren",
   "enginePreflightNeedTwo": "Für einen Benchmark müssen mindestens zwei Engines bestehen.",
   "enginePreflightCancel": "Prüfung abbrechen",

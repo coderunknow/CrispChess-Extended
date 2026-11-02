@@ -466,7 +466,8 @@ class LynxEngine
     final binaryFile = File('${dir.path}/${asset.binary}');
     debugPrint('[Lynx] Downloading from ${asset.url}...');
     await dir.create(recursive: true);
-    final zipFile = File('${dir.path}/lynx.zip.part');
+    // Expand-Archive (Windows) accepts only a `.zip` extension.
+    final zipFile = File('${dir.path}/lynx.part.zip');
     final client = HttpClient(); // follows GitHub's redirect chain itself
     try {
       final request = await client.getUrl(Uri.parse(asset.url));

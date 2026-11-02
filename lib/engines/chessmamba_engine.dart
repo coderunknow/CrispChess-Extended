@@ -23,6 +23,7 @@ import 'chessmamba/search.dart';
 import 'chessmamba/step_model.dart';
 import 'dart_engine.dart';
 import 'maia3_dart/onnx/model_fetch.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
 const String chessMambaModelUrl =
@@ -39,7 +40,8 @@ double mambaValueToPawns(double value, {required bool whiteToMove}) {
   return whiteToMove ? pawns : -pawns;
 }
 
-class ChessMambaEngine implements ChessEngine, EngineRuntimeReport {
+class ChessMambaEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
 
   /// Try native ONNX Runtime first where it exists.
@@ -120,10 +122,22 @@ class ChessMambaEngine implements ChessEngine, EngineRuntimeReport {
         },
       );
 
+  /// The model download [initialize] would start; asked by Engine Preflight
+  /// before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async =>
+      modelFactory != null
+          ? null
+          : pendingModelDownload(
+              description: 'ChessMamba model (about 67 MB)',
+              files: [(chessMambaModelUrl, _modelFile)],
+              license: license,
+            );
+
   Future<void> _start(EngineInitScope scope) async {
     scope.stage = EngineInitStage.loadBackend;
     _fallbackNote = null;
-    _model = modelFactory != null ? await modelFactory!() : await _load();
+    _model = modelFactory != null ? await modelFactory!() : await _load(scope);
     scope.backend = backendName;
     scope.fallbackReason = _fallbackNote;
     _searcher = MambaSearcher(_model!);
@@ -133,8 +147,10 @@ class ChessMambaEngine implements ChessEngine, EngineRuntimeReport {
     debugPrint('[ChessMamba] Ready ($backendName)');
   }
 
-  Future<MambaStepModel> _load() async {
+  Future<MambaStepModel> _load(EngineInitScope scope) async {
+    scope.stage = EngineInitStage.download;
     final bytes = await fetchModelBytes(chessMambaModelUrl, _modelFile);
+    scope.stage = EngineInitStage.loadBackend;
     if (preferNative && NativeMambaStepModel.isSupported) {
       try {
         final native = NativeMambaStepModel.create(bytes);

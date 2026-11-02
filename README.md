@@ -153,12 +153,14 @@ silently substituted engine.
   (explicitly enabled adjudications may be scored as statistical draws)
 - **Performance metrics** — p50/p95/p99/max move latency, nodes and NPS, depth
   reached, per engine
-- **Engine Preflight** — before a run, every selected engine is checked
+- **Engine Preflight** — before a manual run, every selected engine is checked
   (platform, runtime, start-up, readiness, identity, options, a first search, a
   legal move, clean shutdown) with a card per engine, copyable diagnostics and
   retry; results are tied to the engine identity, platform and settings and go
   stale when they change; the run continues with the passed engines only after
-  you have reviewed the result, and lists those left out
+  you have reviewed the result, and the Preflight screen lists those left out
+  with the reason. Engines that would download a model or binary ask first.
+  (Automatic runs keep their own budget and refusal rules.)
 - **Stability diagnostics** — repeated start-up and repeated searches, with
   hangs and leaks reported rather than averaged away
 - **Durable history** — one JSON document per run with a schema version and a

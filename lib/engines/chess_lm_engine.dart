@@ -29,6 +29,7 @@ import 'chesslm/scorer.dart';
 import 'chesslm/tokenizer.dart';
 import 'dart_engine.dart';
 import 'maia3_dart/onnx/model_fetch.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
 const String _zooBase = 'https://huggingface.co/cstr/chess-lm-zoo-onnx/resolve/main';
@@ -75,7 +76,8 @@ class ChessLmSpec {
   String get tokenizerUrl => '$_zooBase/$folder/tokenizer.json';
 }
 
-class ChessLmEngine implements ChessEngine, EngineRuntimeReport {
+class ChessLmEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final ChessLmSpec spec;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final math.Random _random;
@@ -147,10 +149,25 @@ class ChessLmEngine implements ChessEngine, EngineRuntimeReport {
         },
       );
 
+  /// The model download [initialize] would start; asked by Engine Preflight
+  /// before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async => loader != null
+      ? null
+      : pendingModelDownload(
+          description: '${spec.name} language model',
+          files: [
+            (spec.tokenizerUrl, '${spec.folder}_tokenizer.json'),
+            (spec.onnxUrl, '${spec.folder}_${spec.onnxFile}'),
+          ],
+          license: spec.license,
+        );
+
   Future<void> _start(EngineInitScope scope) async {
     scope.stage = EngineInitStage.loadBackend;
     _fallbackNote = null;
-    final (model, tokenizer) = loader != null ? await loader!() : await _load();
+    final (model, tokenizer) =
+        loader != null ? await loader!() : await _load(scope);
     _model = model;
     _scorer = ChessLmScorer(model, tokenizer, spec.format,
         contextLength: spec.contextLength);
@@ -159,10 +176,13 @@ class ChessLmEngine implements ChessEngine, EngineRuntimeReport {
     debugPrint('[ChessLm] ${spec.name} ready ($backendName)');
   }
 
-  Future<(KvLanguageModel, ChessLmTokenizer)> _load() async {
+  Future<(KvLanguageModel, ChessLmTokenizer)> _load(
+      EngineInitScope scope) async {
+    scope.stage = EngineInitStage.download;
     final tokenizer = ChessLmTokenizer.fromJson(utf8.decode(await fetchModelBytes(
         spec.tokenizerUrl, '${spec.folder}_tokenizer.json')));
     final bytes = await fetchModelBytes(spec.onnxUrl, '${spec.folder}_${spec.onnxFile}');
+    scope.stage = EngineInitStage.loadBackend;
     if (preferNative && NativeKvLanguageModel.isSupported) {
       try {
         final m = NativeKvLanguageModel.create(bytes,

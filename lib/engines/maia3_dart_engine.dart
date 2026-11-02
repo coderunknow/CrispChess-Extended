@@ -23,10 +23,22 @@ import 'maia3_dart/onnx_native_backend_stub.dart'
 import 'maia3_dart/onnx_runtime_backend.dart';
 import 'maia3_dart/utils.dart';
 import 'maia3_dart/variants.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
+/// The Maia3 model download loading [variantId] would start, or null when it
+/// is cached. Never downloads.
+Future<EngineDownloadRequirement?> maia3PendingDownload(String variantId) {
+  final variant = getVariant(variantId);
+  return pendingModelDownload(
+    description: '${variant.displayName} model (about ${variant.displaySize})',
+    files: [(variant.url, variant.onnxFile)],
+  );
+}
+
 /// Maia3 engine with all logic in Dart + platform ONNX inference.
-class Maia3DartEngine implements ChessEngine, EngineRuntimeReport {
+class Maia3DartEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final String variantId;
   final int playerElo;
@@ -107,6 +119,12 @@ class Maia3DartEngine implements ChessEngine, EngineRuntimeReport {
           await model?.close();
         },
       );
+
+  /// The model download [initialize] would start; asked by Engine Preflight
+  /// before anything is downloaded. Every backend loads the same file.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() =>
+      maia3PendingDownload(variantId);
 
   Future<void> _start(EngineInitScope scope) async {
     final variant = getVariant(variantId);

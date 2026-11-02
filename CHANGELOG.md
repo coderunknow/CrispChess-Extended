@@ -32,8 +32,11 @@
   without consent. Results are bound to engine identity/fingerprint, platform,
   benchmark settings and app build and go stale when any of them changes. A run
   continues with the passed engines only after the user has reviewed the
-  results; engines that did not pass are listed, never silently omitted. A
-  gauntlet whose reference engine fails is not re-centred on another engine.
+  results; engines left out are listed with the reason on the Preflight screen,
+  never silently omitted. Model engines (Lc0, Maia3, Ghost, ChessMamba,
+  searchless, Chess LM) report what they would download, so Preflight asks
+  before any transfer. A gauntlet whose reference engine fails is not
+  re-centred on another engine. Automatic runs keep their own rules.
 - **Reports name the root cause.** Engine problems in a run report and the
   Stability Probe show the structured failure kind and stage (one diagnostic per
   distinct cause), stored redacted: no home directories or usernames in exports.
@@ -45,7 +48,9 @@
   the built-in adapter, Engine Preflight and the custom-UCI path; those tests
   fail instead of skipping when the binary is missing.
 - The iOS App Store workflow no longer runs for development prerelease tags
-  (`v*-dev*`); stable tags and manual dispatch are unchanged, with a validation
+  (`v*-dev*`): the tag filter, the job and the upload/submit steps each exclude
+  them (the step guards no longer rely on a missing input comparing unequal to
+  `false`); stable tags and manual dispatch are unchanged, with a validation
   test.
 
 ## 2.3.2-dev3 — Frozenight Windows runtime repair

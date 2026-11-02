@@ -276,9 +276,13 @@ void main() {
       final slot = EngineSlot(() => engine);
       final first = slot.get();
       final second = slot.get();
+      // Both matchers are attached before the shared failure is delivered, so
+      // neither future can fail unhandled while the other is awaited.
+      final firstFails = expectLater(first, throwsA(isA<EngineStartupFailure>()));
+      final secondFails =
+          expectLater(second, throwsA(isA<EngineStartupFailure>()));
       engine.initGate!.complete();
-      await expectLater(first, throwsA(isA<EngineStartupFailure>()));
-      await expectLater(second, throwsA(isA<EngineStartupFailure>()));
+      await Future.wait([firstFails, secondFails]);
       slot.dispose();
     });
   });

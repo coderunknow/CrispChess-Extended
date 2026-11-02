@@ -27,7 +27,8 @@ const String ghostEloKey = 'ghostElo';
 const String ghostEloGamesKey = 'ghostEloGames';
 const String _historyKey = 'gameHistory';
 
-class GhostEngine implements ChessEngine, EngineRuntimeReport {
+class GhostEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final math.Random _random;
 
@@ -94,6 +95,13 @@ class GhostEngine implements ChessEngine, EngineRuntimeReport {
           _maia = null;
         },
       );
+
+  /// Ghost plays through Maia3 5M; its model is the only download.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async =>
+      policyOverride != null
+          ? null
+          : maia3PendingDownload('5m');
 
   Future<void> _start(EngineInitScope scope) async {
     scope.stage = EngineInitStage.resolveRuntime;

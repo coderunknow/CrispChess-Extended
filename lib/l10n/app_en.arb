@@ -805,7 +805,7 @@
   "enginePreflightRetry": "Retry",
   "enginePreflightCopy": "Copy diagnostics",
   "enginePreflightContinue": "Continue with passed engines",
-  "enginePreflightReviewed": "I have reviewed the results; engines that did not pass are left out of this run.",
+  "enginePreflightReviewed": "I have reviewed the results; the engines marked as left out will not take part in this run.",
   "enginePreflightAcceptWarnings": "Accept warnings for this engine",
   "enginePreflightNeedTwo": "At least two engines must pass to run a benchmark.",
   "enginePreflightCancel": "Stop checking",

@@ -1805,7 +1805,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get enginePreflightContinue => 'Mit bestandenen Engines fortfahren';
 
   @override
-  String get enginePreflightReviewed => 'Ich habe die Ergebnisse geprüft; nicht bestandene Engines werden in diesem Lauf ausgelassen.';
+  String get enginePreflightReviewed => 'Ich habe die Ergebnisse geprüft; die als ausgelassen markierten Engines nehmen an diesem Lauf nicht teil.';
 
   @override
   String get enginePreflightAcceptWarnings => 'Warnungen für diese Engine akzeptieren';

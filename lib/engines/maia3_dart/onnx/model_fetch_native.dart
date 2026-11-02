@@ -45,6 +45,13 @@ String _cacheName(String url, String cacheFileName) {
       : '$cacheFileName-$tag';
 }
 
+/// Whether [url] is already in the model cache. Never downloads.
+Future<bool> isModelCached(String url, String cacheFileName) async {
+  final modelDir = await _modelDir();
+  return File('${modelDir.path}/${_cacheName(url, cacheFileName)}')
+      .existsSync();
+}
+
 Future<Uint8List> fetchModelBytes(String url, String cacheFileName) async =>
     File(await fetchModelFile(url, cacheFileName)).readAsBytes();
 

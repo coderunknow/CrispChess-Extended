@@ -300,8 +300,8 @@ class _EnginePreflightScreenState extends State<EnginePreflightScreen> {
                             : (value) =>
                                 setState(() => _reviewed = value == true),
                         title: Text(l?.enginePreflightReviewed ??
-                            'I have reviewed the results; engines that did '
-                                'not pass are left out of this run.'),
+                            'I have reviewed the results; the engines marked '
+                                'as left out will not take part in this run.'),
                       ),
                     FilledButton.icon(
                       onPressed: canContinue

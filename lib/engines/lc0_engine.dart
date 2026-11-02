@@ -30,10 +30,12 @@ import 'lc0_dart/native_inference_backend.dart';
 import 'lc0_dart/policy_map.dart' as policy;
 import 'lc0_dart/variants.dart';
 import 'maia3_dart/onnx/model_fetch.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
 /// Lc0 for native platforms — MCTS over a Maia network.
-class Lc0Engine implements ChessEngine, EngineRuntimeReport {
+class Lc0Engine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final String variantId;
 
@@ -135,6 +137,19 @@ class Lc0Engine implements ChessEngine, EngineRuntimeReport {
           _model = null;
         },
       );
+
+  /// The network download [initialize] would start; asked by Engine
+  /// Preflight before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async {
+    final variant = getLc0Variant(variantId);
+    return pendingModelDownload(
+      description: 'Lc0 ${variant.displayName} network (about '
+          '${(variant.sizeBytes / 1e6).toStringAsFixed(1)} MB)',
+      files: [(variant.url, '${variant.id}.onnx')],
+      license: license,
+    );
+  }
 
   Future<void> _start(EngineInitScope scope) async {
     final variant = getLc0Variant(variantId);

@@ -111,7 +111,12 @@ service methods in `benchmark_service.dart`.
 - Statuses: passed, warning, failed, unsupported, notInstalled, timedOut,
   cancelled (and skipped for steps not reached).
 - Downloads only after explicit consent; declining → notInstalled, nothing
-  downloaded.
+  downloaded. Engines declare pending downloads through `DownloadAwareEngine`
+  without downloading: Stockfish (iOS/web), Lynx, and — after review — the model
+  engines Lc0 (native and web), Maia3, Ghost, ChessMamba, searchless and Chess
+  LM, which check the model cache (`isModelCached`; on the web the browser cache
+  cannot be queried, so they always ask). Their model fetch now runs in the
+  `download` stage, so a failed transfer is `downloadFailed`.
 - Results are bound to engine identity/fingerprint, platform/backend,
   benchmark configuration digest and app build; any change makes them stale.
 - Gate: only passed engines, or warning engines whose warnings were explicitly
@@ -195,5 +200,18 @@ requests only build and verify; `create-release` is tag-only.
   step, mate perspective, clean stop, repeated init/search/dispose. The earlier
   run 41400637020 (job 125132985301, head 225c0c1) had 10/11 with the test
   defect described in §2.
-- The exact-head runs for the merged commit are listed in PR #11; this file
-  is not edited after review so that the reviewed head stays the merged one.
+- The exact-head runs for the merged commit are listed in PR #11.
+
+## 8. Review (CodeRabbit full review on 17fed43)
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Lynx archive saved as `lynx.zip.part`; Windows `Expand-Archive` only accepts `.zip` (regression in this PR) | Major | Fixed: `lynx.part.zip` |
+| Model engines (Lc0, Maia3, ChessMamba, searchless, Chess LM; also Ghost) could download in Preflight without consent | Major | Fixed: `DownloadAwareEngine` via the model cache; download stage; `test/model_download_consent_test.dart` |
+| ios-release step guards true on push because GitHub coerces null == false; test evaluator used Python semantics | Minor | Fixed: manual clauses tied to `workflow_dispatch`; evaluator coerces like GitHub; step-only test (fails on the old workflow) |
+| Release notes claimed excluded engines are listed in the saved run | Minor | Fixed wording: listed on the Preflight screen; only admitted engines run |
+| Release notes implied fake-engine tests on other platforms | Minor | Fixed: Ubuntu only; others build-only |
+| Review checkbox text said engines that did not pass are left out (accepted warnings are admitted) | Minor | Fixed EN + DE |
+| README implied automatic runs are preflighted | Minor | Fixed: manual runs; automatic runs keep their rules |
+| Contract test attached the second matcher after the shared failure could be delivered | Minor | Fixed: both matchers attached before completing |
+| Annotator repeated failures in `--summary` mode | Minor | Fixed |
