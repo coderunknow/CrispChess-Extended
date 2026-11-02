@@ -380,9 +380,11 @@ class GenericUciEngine
     if (processGone) return;
     try {
       _process?.stdin.writeln(command);
-    } on SocketException catch (e) {
-      // Writing to a pipe whose far end is gone. The exit watcher reports it.
-      debugPrint('[UCI] ${profile.path} write failed: $e');
+    } catch (e) {
+      // Writing to a pipe whose far end is gone (a SocketException, or a
+      // StateError once the sink has closed on that error). The exit watcher
+      // reports the death with its exit code and stderr.
+      debugPrint('[UCI] ${redactPersonalPaths(profile.path)} write failed: $e');
     }
   }
 

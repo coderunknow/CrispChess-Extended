@@ -94,7 +94,14 @@ class LynxEngine
   bool get canPonder => true;
 
   @override
-  void sendUci(String command) => _process?.stdin.writeln(command);
+  void sendUci(String command) {
+    try {
+      _process?.stdin.writeln(command);
+    } catch (e) {
+      // The process is gone; the exit watcher reports how it ended.
+      debugPrint('[Lynx] write failed: $e');
+    }
+  }
 
   static bool get isAvailable =>
       !kIsWeb &&

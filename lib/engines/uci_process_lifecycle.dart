@@ -81,6 +81,16 @@ mixin UciProcessLifecycle {
       debugPrint('[$processLabel stderr] $line');
     });
 
+    // A write to stdin after the process has exited (an executable that
+    // dies at once: wrong architecture, a missing DLL, not an engine) fails
+    // asynchronously with "Broken pipe" on the sink's `done` future. Nobody
+    // else listens to it, so without this the error escapes as an unhandled
+    // exception instead of becoming the death report below.
+    unawaited(process.stdin.done.then<void>((_) {}, onError: (Object error) {
+      if (!identical(_latest, process)) return;
+      debugPrint('[$processLabel] stdin closed with error: $error');
+    }));
+
     unawaited(process.exitCode.then((code) {
       // A process replaced by a retry (or already let go) must not report its
       // exit against the one now being watched.
