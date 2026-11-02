@@ -595,7 +595,7 @@ class EnginePreflight {
     final detectedVersion = runtime?.detectedVersion;
     final versionDiffers = requestedVersion != null &&
         detectedVersion != null &&
-        !_sameVersion(requestedVersion, detectedVersion);
+        !sameEngineVersion(requestedVersion, detectedVersion);
     final fallback = runtime?.fallbackReason;
     final notes = <String>[
       'version ${checked.engineVersion.isEmpty ? 'not reported' : checked.engineVersion}',
@@ -713,11 +713,18 @@ class EnginePreflight {
   }
 }
 
-/// `16` matches `16`, `16.0`; `16` does not match `17` or `10`.
-bool _sameVersion(String requested, String detected) {
+/// `16` matches `16`, `16.0`; `16` does not match `17` or `10`. A commit
+/// hash suffix (`1.11.0-2e4b458f`, from Lynx's `1.11.0-dev-2e4b458f`) is the
+/// same release; other suffixes such as `-rc1` are not.
+bool sameEngineVersion(String requested, String detected) {
   final a = requested.trim().toLowerCase();
   final b = detected.trim().toLowerCase();
   if (a == b) return true;
+  if (a.isNotEmpty &&
+      b.startsWith('$a-') &&
+      RegExp(r'^[0-9a-f]{7,40}$').hasMatch(b.substring(a.length + 1))) {
+    return true;
+  }
   return b == '$a.0' || b.startsWith('$a.0.') || a == '$b.0';
 }
 

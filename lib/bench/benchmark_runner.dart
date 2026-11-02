@@ -285,6 +285,7 @@ class BenchmarkRunner {
       final live = _LiveEngine(slot, slot.build());
       _live[identity.engineId] = live;
       final init = Stopwatch()..start();
+      var startedOk = false;
       try {
         await _untilStopped(live.engine.initialize());
         init.stop();
@@ -298,6 +299,10 @@ class BenchmarkRunner {
         // does not, and it reports the adapter's own recorded cause when
         // there is one instead of a bare "returned with state error".
         requireEngineReady(live.engine, platform: enginePlatformLabel());
+        // From here on a failure is a configuration failure. The engine's
+        // live state cannot tell: a failed option sync disposes the custom
+        // UCI delegate, which Stockfish then reports as `error`.
+        startedOk = true;
         if (config.nodeLimit != null && live.engine is! NodeLimitedEngine) {
           throw UnsupportedError('Engine does not support node-limited search');
         }
@@ -312,8 +317,7 @@ class BenchmarkRunner {
         }
         live.started = true;
         live.failed = true;
-        if (live.engine.state == EngineState.ready ||
-            live.engine.state == EngineState.thinking) {
+        if (startedOk) {
           // Started, then failed while being configured: not a startup
           // failure, so no startup diagnostic.
           live.failureReason = _describe(error);

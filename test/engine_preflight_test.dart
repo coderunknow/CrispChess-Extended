@@ -462,4 +462,14 @@ void main() {
       }
     });
   });
+
+  test('a commit-hash suffix is the same release, other suffixes are not', () {
+    expect(sameEngineVersion('16', '16'), isTrue);
+    expect(sameEngineVersion('16', '16.0'), isTrue);
+    expect(sameEngineVersion('1.11.0', '1.11.0-2e4b458f'), isTrue);
+    expect(sameEngineVersion('1.11.0', '1.11.0-rc1'), isFalse);
+    expect(sameEngineVersion('16', '16-1'), isFalse);
+    expect(sameEngineVersion('16', '17'), isFalse);
+    expect(sameEngineVersion('1', '10'), isFalse);
+  });
 }

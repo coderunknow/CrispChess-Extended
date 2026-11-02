@@ -247,6 +247,13 @@ requests only build and verify; `create-release` is tag-only.
 | Same in the Stability Probe | Minor | Fixed the same way; test |
 | Preflight screen could call `_check` after being disposed during the first admission refresh | Minor | Fixed: `mounted` check |
 
+### Sixth full review (947d179)
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Runner decided "started, then failed while configuring" from the engine's live state; a failed option sync leaves Stockfish in `error`, so a configuration failure got a startup diagnostic | Minor | Fixed: an explicit flag set once `requireEngineReady` passes; test |
+| Preflight's identity check warned on Lynx dev builds (`1.11.0-2e4b458f` vs `1.11.0`) | Minor | Fixed: a 7–40 character hex commit-hash suffix is the same release (`-rc1` is not); test |
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned

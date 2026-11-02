@@ -3,6 +3,7 @@
 // one, and never the bare "initialize returned with state error".
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crispchess/bench/benchmark_run.dart';
@@ -32,6 +33,22 @@ class _SilentFailureEngine extends ScriptedEngine {
   void dispose() {
     super.dispose();
     _gone = true;
+  }
+}
+
+/// Starts fine, then fails while its options are synchronised and ends up in
+/// `error` (like Stockfish over a disposed custom UCI delegate).
+class _ConfigFailureEngine extends ScriptedEngine {
+  _ConfigFailureEngine(super.name);
+  bool _broken = false;
+
+  @override
+  EngineState get state => _broken ? EngineState.error : super.state;
+
+  @override
+  Future<void> synchronizeOptions() async {
+    _broken = true;
+    throw TimeoutException('no readyok after setoption');
   }
 }
 
@@ -75,5 +92,21 @@ void main() {
     expect(status.status, isNot('completed'));
     expect(result.alpha.askedPositions, isEmpty,
         reason: 'no game is played with an engine that did not start');
+  });
+
+  test('a failure while configuring a started engine is not a startup failure',
+      () async {
+    final result = await runScriptedBenchmark(
+      alpha: _ConfigFailureEngine('Alpha'),
+      config: benchConfig().copyWith(threads: 2),
+    );
+    addTearDown(result.runner.dispose);
+    final status = result.run.engineStatus[testIdentity('Alpha').engineId]!;
+    expect(status.status, 'failed');
+    expect(status.diagnostic, isNull,
+        reason: 'it started; its live error state must not make the '
+            'configuration failure look like a startup failure');
+    expect(status.reason, contains('no readyok after setoption'));
+    expect(result.alpha.askedPositions, isEmpty);
   });
 }
