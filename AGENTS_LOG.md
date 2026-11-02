@@ -36,3 +36,16 @@ Resolved all 19 PR review threads individually. CI integration first failed on
 ambiguous device selection, then on a headless Linux display; the final change
 selects `-d linux` and runs under xvfb-run. Owner authorization now covers
 merge/tag/prerelease; Windows 10 and byte reproducibility remain unverified.
+
+## 2026-11-02 — v2.3.2-dev4: Stockfish 16 initialization and Engine Preflight
+
+Owner report "Stockfish 16: failed — Bad state: initialize returned with state
+error". Reproduced on the dev3 baseline vs the candidate on Linux and Windows
+CI (RCA run 41400637184): the desktop adapter swallowed "no Stockfish found"
+and returned in the error state. Moved every engine onto one initialization
+coordinator with structured, redacted failures; added Engine Preflight with
+identity-bound gating; fixed an unhandled broken-pipe on engines that exit at
+once; guarded ios-release against dev tags. Genuine Stockfish `sf_16` built
+from pinned source runs in CI (11/11 on Linux x86-64, job 125139989647). Other
+platforms are build-only for this change. No SDK in the sandbox: CI was the
+oracle. Details: docs/audit/2026-11-02-engine-initialization-dev4.md.
