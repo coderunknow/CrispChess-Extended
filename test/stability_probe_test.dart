@@ -107,6 +107,18 @@ void main() {
     expect(report.rootCause!['kind'], 'readinessTimeout');
   });
 
+  test("an adapter's own timeout is its root cause, not the probe's", () async {
+    final report = await _probe.run(
+      identity: testIdentity('No uciok'),
+      build: () => AdapterTimeoutEngine('No uciok'),
+    );
+    expect(report.passed, isFalse);
+    expect(report.rootCause!['kind'], 'handshakeTimeout');
+    expect(report.rootCause!['stage'], EngineInitStage.handshake);
+    expect('${report.rootCause!['detail'] ?? ''}',
+        isNot(contains('Stability Probe stopped waiting')));
+  });
+
   test('distinct causes are kept apart', () async {
     var built = 0;
     final report = await _probe.run(

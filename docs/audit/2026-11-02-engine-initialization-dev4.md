@@ -71,7 +71,8 @@ from failures now being structured.
 
 Stockfish runtime resolution (`resolveStockfishRuntime`): explicit path or
 `CRISPCHESS_STOCKFISH_PATH` (authoritative: missing → `binaryMissing`, not
-executable → `permissionDenied`) → Android asset → iOS (`unsupportedPlatform`
+executable → `permissionDenied`) → Android asset (only if the build includes
+one; release builds do not) → iOS (`unsupportedPlatform`
 for the process adapter) → `PATH` → well-known install locations → otherwise
 `runtimeMissing` with a platform-specific install hint. No `id name` →
 `protocolError`. The detected version is reported, never relabelled as 16.
@@ -236,6 +237,15 @@ requests only build and verify; `create-release` is tag-only.
 |---|---|---|
 | Custom UCI: dispose during `File.exists()`/`Process.start()` left the new process running through the handshake timeout | Minor | Fixed: disposed checks before and right after launch; the new process is torn down and the start ends as a cancellation (the window is a single await, so it has no timing-based test) |
 | Annotator skipped hidden reporter entries even when they failed (compile errors, `setUpAll`) | Minor | Fixed: failed hidden entries are kept |
+
+### Fifth full review (c6a1ca2)
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Release notes called the Android Stockfish asset "bundled" (release builds have none) | Minor | Fixed wording in the release notes, CHANGELOG and this audit |
+| Preflight treated an adapter's own `TimeoutException` (no `uciok`/`readyok`) as Preflight's deadline, hiding the adapter's diagnostic | Minor | Fixed: only Preflight's deadline is flagged; everything else goes through `engineFailureOf`; test |
+| Same in the Stability Probe | Minor | Fixed the same way; test |
+| Preflight screen could call `_check` after being disposed during the first admission refresh | Minor | Fixed: `mounted` check |
 
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either

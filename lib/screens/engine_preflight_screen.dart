@@ -84,6 +84,7 @@ class _EnginePreflightScreenState extends State<EnginePreflightScreen> {
       if (previous != null) _results[id] = previous;
     }
     _refreshAdmission().then((_) {
+      if (!mounted) return;
       // Check whatever is not admitted by a current result. A current result
       // with unreviewed warnings is kept for review instead of re-run.
       final excluded = _admission?.excluded ?? const <String, String>{};

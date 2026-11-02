@@ -525,9 +525,17 @@ class EnginePreflight {
     // 3. Initialization, 4. readiness.
     final watch = Stopwatch()..start();
     var initialized = false;
+    // Only Preflight's own deadline is reported as Preflight giving up; an
+    // adapter's TimeoutException (no `uciok`, no `readyok`) carries the
+    // adapter's recorded diagnostic and goes through engineFailureOf.
+    var preflightTimedOut = false;
     try {
       await Future.any([
-        engine.initialize().timeout(initTimeout),
+        engine.initialize().timeout(initTimeout, onTimeout: () {
+          preflightTimedOut = true;
+          throw TimeoutException(
+              'Preflight stopped waiting for initialize()', initTimeout);
+        }),
         if (cancellation != null)
           cancellation.whenCancelled.then<void>((_) =>
               throw const EngineStartupFailure(EngineFailureKind.cancelled,
@@ -542,7 +550,7 @@ class EnginePreflight {
           PreflightStep.readiness, PreflightStatus.passed));
     } catch (error, stack) {
       final EngineInitializationException failure;
-      if (error is TimeoutException) {
+      if (preflightTimedOut && error is TimeoutException) {
         failure = EngineInitializationException(
           engine: engine.name,
           version: engine.version,

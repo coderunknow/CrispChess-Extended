@@ -355,10 +355,18 @@ class StabilityProbe {
   /// the engine anything but ready is a contract violation and reported as
   /// one (with the adapter's recorded cause when it has one).
   Future<void> _initialize(ChessEngine engine) async {
+    // Only the probe's own deadline is the probe giving up. An adapter's
+    // TimeoutException (no `uciok`, no `readyok`) is rethrown so that
+    // [_structured] finds the adapter's recorded diagnostic.
+    var probeTimedOut = false;
     try {
-      await engine.initialize().timeout(timeout);
+      await engine.initialize().timeout(timeout, onTimeout: () {
+        probeTimedOut = true;
+        throw TimeoutException(
+            'the Stability Probe stopped waiting for initialize()', timeout);
+      });
     } on TimeoutException catch (error, stack) {
-      // The adapter's own timeouts are shorter; this is the probe giving up.
+      if (!probeTimedOut) rethrow;
       throw EngineInitializationException(
         engine: engine.name,
         version: engine.version,

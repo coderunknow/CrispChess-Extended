@@ -252,6 +252,17 @@ void main() {
       expect(engine.disposed, isTrue);
     });
 
+    test("an adapter's own timeout keeps its diagnostic, not Preflight's",
+        () async {
+      final engine = AdapterTimeoutEngine('No uciok');
+      final result = await _check(engine);
+      expect(result.status, PreflightStatus.timedOut);
+      expect(result.diagnostic!['kind'], 'handshakeTimeout');
+      expect(result.diagnostic!['stage'], EngineInitStage.handshake);
+      expect('${result.diagnostic!['detail'] ?? ''}',
+          isNot(contains('Preflight stopped waiting')));
+    });
+
     test('an illegal first move fails the legal-move step', () async {
       final engine = ScriptedEngine('Illegal')..ask = (_, __) async => 'e2e4';
       final result = await _check(engine);

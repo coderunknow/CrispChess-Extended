@@ -9,8 +9,8 @@
   contract violation. Reproduced on the dev3 baseline on Linux and Windows CI and
   compared with the candidate on the same runners
   (`.github/workflows/stockfish-rca.yml`). The adapter now resolves the
-  executable explicitly (configured path / `CRISPCHESS_STOCKFISH_PATH`, Android
-  asset, `PATH`, well-known install locations) and fails with a structured
+  executable explicitly (configured path / `CRISPCHESS_STOCKFISH_PATH`, an Android
+  asset if the build includes one, `PATH`, well-known install locations) and fails with a structured
   `runtimeMissing` diagnostic that says how to install or configure it. iOS keeps
   the user-downloaded stockfish.js 10.0.2 (WebKit) and now reports that
   version, not 16.
