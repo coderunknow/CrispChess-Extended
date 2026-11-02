@@ -288,6 +288,13 @@ Review 5739366024 on the exact head 5c759d1: no Major findings, one Minor (Secur
 |---|---|---|
 | When `pendingDownload()` threw, Preflight recorded a warning and still called `initialize()`, which downloads whatever is missing, without consent | Minor | Fixed: an unknown download state is not consent. The runtime step is `notInstalled`, the engine is never started (cleanup still runs). Preflight is the only consumer of `pendingDownload()`. Test: consent is not asked, `initialize()` never runs, the engine is disposed |
 
+CI on ffd0504 (run 41476939319) did not complete: the "Frozenight (iOS)" job
+was cancelled because no hosted macOS runner picked it up ("The job was not
+acquired by Runner of type hosted even after multiple attempts"; GitHub's
+macOS-capacity notice). No step ran; every other job matched the previous green
+run. The session token cannot re-run jobs (HTTP 403), so CI was re-triggered by
+the next commit (a release-notes line wrap) instead of being treated as passed.
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned
