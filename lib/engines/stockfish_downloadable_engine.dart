@@ -226,8 +226,12 @@ class StockfishDownloadableEngine
       }
     });
 
-    // `ignore` marks an early error as handled until the await below.
-    _uciOkCompleter = Completer<void>()..future.ignore();
+    // `ignore` marks an early error as handled until the await below. The
+    // locals keep the completers after _handleOutput or dispose() clears the
+    // fields: the bridge's onOutput call is not ordered with the reply to
+    // send/initialize, so `uciok` can arrive before `_send` returns.
+    final uciOk = Completer<void>()..future.ignore();
+    _uciOkCompleter = uciOk;
     // Load stockfish.js into the WebView; completes once the harness is ready.
     await _channel.invokeMethod('initialize', {'path': jsPath});
     _initialized = true;
@@ -237,14 +241,15 @@ class StockfishDownloadableEngine
     // fixed delay (the Web Worker may still be compiling stockfish.js).
     scope.stage = EngineInitStage.handshake;
     await _send('uci');
-    await _uciOkCompleter!.future.timeout(handshakeTimeout);
+    await uciOk.future.timeout(handshakeTimeout);
     scope.detectedVersion = detectedVersion;
     scope.checkCancelled();
 
     scope.stage = EngineInitStage.readiness;
-    _readyOkCompleter = Completer<void>()..future.ignore();
+    final readyOk = Completer<void>()..future.ignore();
+    _readyOkCompleter = readyOk;
     await _send('isready');
-    await _readyOkCompleter!.future.timeout(readinessTimeout);
+    await readyOk.future.timeout(readinessTimeout);
     debugPrint('[Stockfish] Initialized via WebKit JS runtime ($_detectedName)');
   }
 

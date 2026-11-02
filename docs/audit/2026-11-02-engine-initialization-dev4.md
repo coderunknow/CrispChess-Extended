@@ -223,3 +223,9 @@ requests only build and verify; `create-release` is tag-only.
 | Runtime-refined identities (detected version, fallback backend) stored in runs made automatic change detection report a change against the registry's unrefined identity, so automatic benchmarks could repeat (regression from `withRuntime` in this PR) | Major | Fixed: `withRuntime` keeps the assumed fingerprint/backend (`sourceFingerprint`, `sourceBackend`, exported only when set); `changeFrom(sourceOnly: true)` compares those, `identityKey`/cohorts are unchanged; test in `engine_init_contract_test.dart` |
 | Custom UCI: dispose during the handshake waited for the 10 s timeout and was classified `handshakeTimeout` | Minor | Fixed: dispose releases the handshake wait; caller disposal is `cancelled`; test in `generic_uci_init_test.dart` |
 | German consent text used formal "Ihre" | Minor | Fixed: "deine" |
+
+### Third full review (eebe0df)
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| iOS Stockfish (WebKit): `_start` re-read the handshake completer fields with `!` after awaiting the method channel; `uciok`/`readyok` or a harness error delivered first cleared them, giving a null-check TypeError instead of ready or the real worker error | Major | Fixed: completers held in locals (fields stay for `_handleOutput`/`dispose`, which complete before clearing). The web adapter's `_send` is synchronous and has no await between creation and read, so it is unaffected |
