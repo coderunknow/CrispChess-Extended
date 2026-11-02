@@ -138,18 +138,8 @@ jobs:
             test/lab_release_review_test.dart \
             test/rating_fit_test.dart \
             test/match_config_test.dart \
-            test/match_result_test.dart 2>&1 | tee lab-tests.log
+            test/match_result_test.dart \
+            --file-reporter json:lab-tests.json 2>&1 | tee lab-tests.log
       - name: Surface failed assertions as check annotations
         if: failure()
-        run: |
-          python3 - <<'PYTHON'
-          from pathlib import Path
-          path = Path('lab-tests.log')
-          if path.exists():
-              lines = path.read_text(errors='replace').splitlines()
-              for i, line in enumerate(lines):
-                  if '[E]' in line or 'Error:' in line:
-                      block = '\n'.join(lines[i:i+12])[:9000]
-                      block = block.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                      print('::error title=Lab regression::' + block)
-          PYTHON
+        run: python3 tool/ci/annotate_test_failures.py lab-tests.json 'Lab regression'

@@ -66,23 +66,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          flutter test 2>&1 | tee unit-tests.log
+          flutter test --file-reporter json:unit-tests.json 2>&1 | tee unit-tests.log
       - name: Surface failed tests as check annotations
         if: failure()
-        run: |
-          python3 - <<'PYTHON'
-          from pathlib import Path
-          path = Path('unit-tests.log')
-          if path.exists():
-              lines = path.read_text(errors='replace').splitlines()
-              shown = 0
-              for i, line in enumerate(lines):
-                  if shown < 20 and ('[E]' in line or 'Error:' in line or 'Expected:' in line):
-                      block = '\n'.join(lines[max(0, i - 2):i + 25])[:9000]
-                      block = block.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                      print('::error title=Unit test failure::' + block)
-                      shown += 1
-          PYTHON
+        run: python3 tool/ci/annotate_test_failures.py unit-tests.json 'Unit test failure'
       - name: Install Linux desktop integration-test dependencies
         run: |
           sudo apt-get update
@@ -191,21 +178,10 @@ jobs:
           set -o pipefail
           export CRISPCHESS_STOCKFISH_PATH="$SF16_BIN"
           export CRISP_UCI_ENGINE="$SF16_BIN"
-          flutter test test/stockfish16_integration_test.dart test/real_uci_engine_test.dart --reporter expanded 2>&1 | tee sf16-tests.log
+          flutter test test/stockfish16_integration_test.dart test/real_uci_engine_test.dart --reporter expanded --file-reporter json:sf16-tests.json 2>&1 | tee sf16-tests.log
       - name: Surface failed tests as check annotations
         if: failure()
-        run: |
-          python3 - <<'PYTHON'
-          from pathlib import Path
-          path = Path('sf16-tests.log')
-          if path.exists():
-              lines = path.read_text(errors='replace').splitlines()
-              for i, line in enumerate(lines):
-                  if '[E]' in line or 'Expected:' in line or 'Error:' in line:
-                      block = '\n'.join(lines[max(0, i - 2):i + 25])[:9000]
-                      block = block.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                      print('::error title=Stockfish 16::' + block)
-          PYTHON
+        run: python3 tool/ci/annotate_test_failures.py sf16-tests.json 'Stockfish 16'
 
   # Plays the engines against each other and fails on an illegal move, a throw
   # or a hang. Every engine bug this session cost a tournament to notice:
