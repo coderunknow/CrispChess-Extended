@@ -58,8 +58,14 @@ mixin UciProcessLifecycle {
   /// A label for the report.
   String get processLabel;
 
+  /// The most recently watched process. Unlike [_watched] it survives
+  /// [stopWatchingProcess], so a death that lands just after teardown still
+  /// records its exit code — but a process replaced by a retry does not.
+  Process? _latest;
+
   void watchProcess(Process process) {
     _watched = process;
+    _latest = process;
     _exited = false;
     _exitCode = null;
     _disposingProcess = false;
@@ -76,6 +82,9 @@ mixin UciProcessLifecycle {
     });
 
     unawaited(process.exitCode.then((code) {
+      // A process replaced by a retry (or already let go) must not report its
+      // exit against the one now being watched.
+      if (!identical(_latest, process)) return;
       _exitCode = code;
       if (!_disposingProcess) {
         debugPrint('[$processLabel] exited with code $code');
@@ -110,9 +119,10 @@ mixin UciProcessLifecycle {
   /// most useful part, so this waits briefly rather than saying "unknown" —
   /// which also lets a last stderr line be delivered.
   Future<EngineProcessDiedException> processDeathReport() async {
-    if (_exitCode == null && _watched != null) {
+    final process = _watched ?? (_exited ? _latest : null);
+    if (_exitCode == null && process != null) {
       try {
-        _exitCode = await _watched!.exitCode.timeout(const Duration(seconds: 2));
+        _exitCode = await process.exitCode.timeout(const Duration(seconds: 2));
       } on TimeoutException {
         // Gone but not reaped; report it without a code.
       }

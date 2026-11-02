@@ -28,6 +28,10 @@ class EngineSlot {
   final ChessEngine Function() _build;
   ChessEngine? _current;
 
+  /// The start this slot itself began, so concurrent [get]s can join it.
+  Future<void>? _starting;
+  ChessEngine? _startingEngine;
+
   /// How many times the engine has been replaced, for callers that want to
   /// stop after a while rather than restart something permanently broken.
   int rebuilds = 0;
@@ -45,8 +49,23 @@ class EngineSlot {
     }
 
     final engine = _current ??= _build();
-    if (engine.state == EngineState.idle) {
-      await engine.initialize();
+    final starting = _starting;
+    if (starting != null && identical(_startingEngine, engine)) {
+      // A second request while this slot is starting the engine waits for
+      // that start instead of being rejected as "initializing".
+      await starting;
+    } else if (engine.state == EngineState.idle) {
+      final start = engine.initialize();
+      _starting = start;
+      _startingEngine = engine;
+      try {
+        await start;
+      } finally {
+        if (identical(_starting, start)) {
+          _starting = null;
+          _startingEngine = null;
+        }
+      }
     }
     // A cached thinking engine may still be finishing a prior search. It is
     // already initialized, and the engine serializes the next request. Do not

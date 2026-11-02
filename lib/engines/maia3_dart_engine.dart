@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:chess/chess.dart' as chess_lib;
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'maia3_dart/encoding.dart';
 import 'maia3_dart/history.dart';
 import 'maia3_dart/moves.dart' as moves;
@@ -25,7 +26,7 @@ import 'maia3_dart/variants.dart';
 import 'uci_position.dart';
 
 /// Maia3 engine with all logic in Dart + platform ONNX inference.
-class Maia3DartEngine implements ChessEngine {
+class Maia3DartEngine implements ChessEngine, EngineRuntimeReport {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final String variantId;
   final int playerElo;
@@ -73,19 +74,51 @@ class Maia3DartEngine implements ChessEngine {
   @override
   bool get canPonder => false;
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+
+  /// Why the preferred runtime was not used, when the engine fell back.
+  String? _fallbackNote;
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
-    try {
-      final variant = getVariant(variantId);
-      _model = await _loadModel(variant);
-      await _warmUp();
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[Maia3Dart] Ready (${variant.displayName}, $backendName)');
-    } catch (e) {
-      debugPrint('[Maia3Dart] Init failed: $e');
-      _stateNotifier.value = EngineState.error;
-    }
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => _init.effectiveBackend.isEmpty
+      ? (backendName.isEmpty ? 'onnx' : backendName)
+      : _init.effectiveBackend;
+  @override
+  String? get fallbackReason => _init.fallbackReason;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => null;
+
+  /// Loads the model; completes only when it is usable, otherwise throws a
+  /// structured [EngineInitializationException] (dev3 and earlier returned
+  /// normally). A fall back from the native runtime is recorded.
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: version,
+        backend: backendName.isEmpty ? 'onnx' : backendName,
+        body: _start,
+        cleanup: () async {
+          final model = _model;
+          _model = null;
+          await model?.close();
+        },
+      );
+
+  Future<void> _start(EngineInitScope scope) async {
+    final variant = getVariant(variantId);
+    scope.stage = EngineInitStage.loadBackend;
+    _fallbackNote = null;
+    _model = await _loadModel(variant);
+    scope.backend = backendName;
+    scope.fallbackReason = _fallbackNote;
+    scope.checkCancelled();
+    scope.stage = EngineInitStage.warmUp;
+    await _warmUp();
+    debugPrint('[Maia3Dart] Ready (${variant.displayName}, $backendName)');
   }
 
   Future<Maia3OnnxModel> _loadModel(Maia3Variant variant) async {
@@ -103,6 +136,7 @@ class Maia3DartEngine implements ChessEngine {
         return native;
       } catch (e) {
         debugPrint('[Maia3Dart] Native runtime unavailable, using Dart: $e');
+        _fallbackNote = 'native ONNX Runtime unavailable: ${_reasonOf(e)}';
         await native.close();
       }
     }
@@ -307,6 +341,7 @@ class Maia3DartEngine implements ChessEngine {
 
   @override
   void dispose() {
+    _init.markDisposed();
     _model?.close();
     _model = null;
     _stateNotifier.value = EngineState.disposed;
@@ -326,4 +361,11 @@ class Maia3DartEngine implements ChessEngine {
         priorFens:
             history.length > 1 ? history.sublist(0, history.length - 1) : null,
       );
+}
+
+/// First line of an error, for a fallback reason.
+String _reasonOf(Object error) {
+  final text = error.toString();
+  final cut = text.indexOf('\n');
+  return cut < 0 ? text : text.substring(0, cut);
 }

@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'uci_position.dart';
 import 'uci_process_lifecycle.dart';
 import 'uci_search_coordinator.dart';
@@ -51,7 +52,11 @@ const _lynxBaseUrl =
 /// Lynx chess engine — downloads and runs as a native UCI process.
 class LynxEngine
     with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine, SearchDrainableEngine {
+    implements
+        ChessEngine,
+        SearchDrainableEngine,
+        EngineRuntimeReport,
+        DownloadAwareEngine {
   /// Accepted for API parity with the web build, which offers a choice of WASM
   /// bundles. There is nothing to choose on native: it runs one downloaded
   /// binary.
@@ -100,70 +105,186 @@ class LynxEngine
 
   @override
   void onProcessLost() {
-    if (!disposingProcess) _stateNotifier.value = EngineState.error;
+    final pending = [_uciOk, _readyOk];
+    _uciOk = null;
+    _readyOk = null;
+    if (pending.any((c) => c != null && !c.isCompleted)) {
+      // Died during startup: fail the step with the exit code and stderr.
+      unawaited(processDeathReport().then((died) {
+        for (final c in pending) {
+          if (c != null && !c.isCompleted) c.completeError(died);
+        }
+      }));
+    }
+    if (!disposingProcess && !_init.isInitializing) {
+      _stateNotifier.value = EngineState.error;
+    }
     resetSearches();
   }
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+  Completer<void>? _uciOk;
+  Completer<void>? _readyOk;
+  String _idName = '';
+
+  /// How long Lynx may take to answer `uci` and `isready`. The first start
+  /// after a download includes the .NET single-file extraction.
+  Duration handshakeTimeout = const Duration(seconds: 15);
+  Duration readinessTimeout = const Duration(seconds: 15);
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => 'native-process';
+  @override
+  String? get fallbackReason => null;
+  @override
+  String? get requestedVersion => _lynxVersion;
+  @override
+  String? get detectedVersion => _idName.isEmpty ? null : _detectedVersion;
+
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async {
+    if (await isDownloaded()) return null;
+    final ({String url, String binary}) asset;
     try {
-      final binaryPath = await _ensureDownloaded();
-      debugPrint('[Lynx] Starting: $binaryPath');
-      _process = await Process.start(binaryPath, []);
-      watchProcess(_process!);
-
-      final ready = Completer<void>();
-      _stdoutSub = _process!.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
-        _handleLine(line);
-        if (line.trim() == 'uciok' && !ready.isCompleted) ready.complete();
-      }, onDone: () {
-        // stdout closing is the first sign of death, usually ahead of the exit
-        // code; do not leave a caller waiting for the difference.
-        if (!ready.isCompleted) ready.complete();
-        releaseOnLoss();
-      }, onError: (Object e) {
-        debugPrint('[Lynx] stdout error: $e');
-        releaseOnLoss();
-      });
-
-      // stderr belongs to the lifecycle watch now — it prints each line the
-      // same way and keeps the last few for a death report. A second listener
-      // here threw "Stream has already been listened to" and left the engine
-      // in EngineState.error, which the round robin quietly skips.
-
-      _process!.stdin.writeln('uci');
-      await ready.future.timeout(const Duration(seconds: 15),
-          onTimeout: () => debugPrint('[Lynx] UCI handshake timeout'));
-
-      // Lynx reserves MoveOverhead milliseconds of every move against losing
-      // on time, and honours it for `go movetime` too: a 300ms budget came
-      // back in 251ms over a round robin, which is the default 50 subtracted.
-      // Nothing here plays to a clock — each move is given its own budget and
-      // there is no flag to fall — so most of that reserve is thinking time
-      // handed back for nothing. Ten leaves a margin for the pipe without
-      // giving up a sixth of the search.
-      _process!.stdin.writeln('setoption name MoveOverhead value 10');
-
-      _process!.stdin.writeln('isready');
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[Lynx] Ready (v$_lynxVersion, ~${estimatedElo} ELO)');
-    } catch (e) {
-      debugPrint('[Lynx] Init failed: $e');
-      _stateNotifier.value = EngineState.error;
+      asset = _platformAsset();
+    } on UnsupportedError {
+      return null;
     }
+    return EngineDownloadRequirement(
+      description: 'Lynx $_lynxVersion self-contained binary (GitHub release)',
+      source: Uri.parse(asset.url),
+      license: 'MIT',
+    );
+  }
+
+  /// Starts Lynx and completes only once it has answered `uciok` and
+  /// `readyok`; otherwise throws a structured [EngineInitializationException].
+  ///
+  /// Downloads the binary first when it is missing (the user picked Lynx);
+  /// Engine Preflight asks before that happens via [pendingDownload].
+  /// dev3 and earlier caught every error and returned normally, treated
+  /// stdout closing as a handshake, and never waited for `readyok`.
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: _lynxVersion,
+        requestedVersion: _lynxVersion,
+        backend: effectiveBackend,
+        body: _start,
+        cleanup: _closeProcess,
+      );
+
+  Future<void> _start(EngineInitScope scope) async {
+    _closeProcess();
+    scope.stage = EngineInitStage.resolveRuntime;
+    final asset = _platformAsset();
+    if (!await isDownloaded()) {
+      scope.stage = EngineInitStage.download;
+      await _download(asset);
+    }
+    scope.checkCancelled();
+    final binaryPath = File('${(await _engineDir()).path}/${asset.binary}').path;
+    scope.runtimePath = binaryPath;
+
+    scope.stage = EngineInitStage.launchProcess;
+    debugPrint('[Lynx] Starting: $binaryPath');
+    final process = await Process.start(binaryPath, []);
+    _process = process;
+    watchProcess(process);
+    if (scope.cancelled) {
+      _closeProcess();
+      scope.checkCancelled();
+    }
+
+    _uciOk = Completer<void>()..future.ignore();
+    _stdoutSub = process.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen(_handleLine, onDone: () {
+      // stdout closing is the first sign of death, usually ahead of the exit
+      // code: fail a pending handshake now instead of at its timeout.
+      releaseOnLoss();
+    }, onError: (Object e) {
+      debugPrint('[Lynx] stdout error: $e');
+      releaseOnLoss();
+    });
+
+    // stderr belongs to the lifecycle watch now — it prints each line the
+    // same way and keeps the last few for a death report. A second listener
+    // here threw "Stream has already been listened to" and left the engine
+    // in EngineState.error, which the round robin quietly skips.
+
+    scope.stage = EngineInitStage.handshake;
+    process.stdin.writeln('uci');
+    await _awaitReply(_uciOk!, handshakeTimeout, scope);
+    scope.detectedVersion = detectedVersion;
+
+    // Lynx reserves MoveOverhead milliseconds of every move against losing
+    // on time, and honours it for `go movetime` too: a 300ms budget came
+    // back in 251ms over a round robin, which is the default 50 subtracted.
+    // Nothing here plays to a clock — each move is given its own budget and
+    // there is no flag to fall — so most of that reserve is thinking time
+    // handed back for nothing. Ten leaves a margin for the pipe without
+    // giving up a sixth of the search.
+    scope.stage = EngineInitStage.configure;
+    process.stdin.writeln('setoption name MoveOverhead value 10');
+
+    scope.stage = EngineInitStage.readiness;
+    _readyOk = Completer<void>()..future.ignore();
+    process.stdin.writeln('isready');
+    await _awaitReply(_readyOk!, readinessTimeout, scope);
+    debugPrint('[Lynx] Ready (v$_detectedVersion, ~$estimatedElo ELO)');
+  }
+
+  /// Waits for `uciok`/`readyok`, failing with the process's own death report
+  /// (exit code, stderr) when it exits first.
+  Future<void> _awaitReply(
+      Completer<void> reply, Duration timeout, EngineInitScope scope) async {
+    try {
+      await reply.future.timeout(timeout);
+    } on EngineProcessDiedException catch (died) {
+      scope.exitCode = died.exitCode;
+      scope.stderrTail = died.stderrTail;
+      rethrow;
+    }
+  }
+
+  void _closeProcess() {
+    final process = _process;
+    _uciOk = null;
+    _readyOk = null;
+    if (process == null) return;
+    beginProcessDispose();
+    try {
+      process.stdin.writeln('quit');
+    } catch (_) {}
+    _stdoutSub?.cancel();
+    _stdoutSub = null;
+    stopWatchingProcess();
+    process.kill();
+    _process = null;
   }
 
   void _handleLine(String line) {
     final t = line.trim();
 
     // Parse "id name Lynx 1.11.0-dev-2e4b458f" → version with commit hash
+    if (t.startsWith('id name ')) _idName = t.substring(8).trim();
     if (t.startsWith('id name Lynx')) {
       final m = _idNameRegex.firstMatch(t);
       if (m != null) _detectedVersion = m.group(1)!.replaceAll('-dev', '');
+    }
+    if (t == 'uciok' || t == 'readyok') {
+      final pending = t == 'uciok' ? _uciOk : _readyOk;
+      if (t == 'uciok') {
+        _uciOk = null;
+      } else {
+        _readyOk = null;
+      }
+      if (pending != null && !pending.isCompleted) pending.complete();
+      return;
     }
 
     if (t.startsWith('info') && t.contains('depth')) {
@@ -295,14 +416,16 @@ class LynxEngine
 
   @override
   void dispose() {
+    if (_init.disposed) return;
+    _init.markDisposed();
     beginProcessDispose();
+    final cancelled = StateError('Lynx was disposed during initialization');
+    for (final c in [_uciOk, _readyOk]) {
+      if (c != null && !c.isCompleted) c.completeError(cancelled);
+    }
     resetSearches();
-    _process?.stdin.writeln('quit');
-    _stdoutSub?.cancel();
-    stopWatchingProcess();
-    _evalController.close();
-    _process?.kill();
-    _process = null;
+    _closeProcess();
+    if (!_evalController.isClosed) _evalController.close();
     _stateNotifier.value = EngineState.disposed;
   }
 
@@ -325,62 +448,73 @@ class LynxEngine
     }
   }
 
-  /// Download and extract the platform-appropriate Lynx binary.
-  Future<String> _ensureDownloaded() async {
+  /// Downloads and extracts the platform's Lynx binary into the engine
+  /// directory. Throws on any failure and leaves no partial file behind: a
+  /// non-200 response, a truncated body, a failed extraction or a binary that
+  /// is not where the archive should have put it are all errors. (dev3 and
+  /// earlier wrote whatever came back — an HTML error page included — and
+  /// ignored the unzip and chmod exit codes.)
+  Future<void> _download(({String url, String binary}) asset) async {
     final dir = await _engineDir();
-    final asset = _platformAsset();
     final binaryFile = File('${dir.path}/${asset.binary}');
-
-    if (binaryFile.existsSync()) {
-      return binaryFile.path;
-    }
-
     debugPrint('[Lynx] Downloading from ${asset.url}...');
     await dir.create(recursive: true);
-
-    // Download zip
-    final zipFile = File('${dir.path}/lynx.zip');
-    final client = HttpClient();
+    final zipFile = File('${dir.path}/lynx.zip.part');
+    final client = HttpClient(); // follows GitHub's redirect chain itself
     try {
       final request = await client.getUrl(Uri.parse(asset.url));
       final response = await request.close();
-
-      // Follow redirects (GitHub releases redirect)
-      if (response.statusCode == 302 || response.statusCode == 301) {
-        final redirect = response.headers.value('location');
-        if (redirect != null) {
-          final r2 = await client.getUrl(Uri.parse(redirect));
-          final resp2 = await r2.close();
-          await resp2.pipe(zipFile.openWrite());
-        }
-      } else {
-        await response.pipe(zipFile.openWrite());
+      if (response.statusCode != 200) {
+        await response.drain<void>();
+        throw HttpException('HTTP ${response.statusCode}',
+            uri: Uri.parse(asset.url));
       }
+      final expected = response.contentLength;
+      await response.pipe(zipFile.openWrite());
+      final received = zipFile.lengthSync();
+      if (received == 0 || (expected > 0 && received != expected)) {
+        throw HttpException(
+            'download truncated ($received of $expected bytes)',
+            uri: Uri.parse(asset.url));
+      }
+
+      debugPrint('[Lynx] Extracting...');
+      final ProcessResult unzip = Platform.isWindows
+          ? await Process.run('powershell', [
+              '-NoProfile',
+              '-command',
+              'Expand-Archive', '-Path', zipFile.path, '-DestinationPath',
+              dir.path, '-Force',
+            ])
+          : await Process.run('unzip', ['-o', zipFile.path, '-d', dir.path]);
+      if (unzip.exitCode != 0) {
+        throw ProcessException(Platform.isWindows ? 'powershell' : 'unzip',
+            const [], 'extracting Lynx failed: ${unzip.stderr}', unzip.exitCode);
+      }
+      if (!binaryFile.existsSync()) {
+        throw FileSystemException(
+            'the Lynx archive did not contain ${asset.binary}', binaryFile.path);
+      }
+      if (!Platform.isWindows) {
+        final chmod = await Process.run('chmod', ['+x', binaryFile.path]);
+        if (chmod.exitCode != 0) {
+          throw ProcessException('chmod', ['+x', binaryFile.path],
+              '${chmod.stderr}', chmod.exitCode);
+        }
+      }
+      debugPrint('[Lynx] Ready at ${binaryFile.path}');
+    } catch (_) {
+      // A half-extracted binary would pass isDownloaded() next time.
+      try {
+        if (binaryFile.existsSync()) binaryFile.deleteSync();
+      } catch (_) {}
+      rethrow;
     } finally {
       client.close();
+      try {
+        if (zipFile.existsSync()) zipFile.deleteSync();
+      } catch (_) {}
     }
-
-    // Extract zip
-    debugPrint('[Lynx] Extracting...');
-    if (Platform.isWindows) {
-      await Process.run('powershell', [
-        '-command',
-        'Expand-Archive', '-Path', zipFile.path, '-DestinationPath', dir.path, '-Force',
-      ]);
-    } else {
-      await Process.run('unzip', ['-o', zipFile.path, '-d', dir.path]);
-    }
-
-    // Make executable on Unix
-    if (!Platform.isWindows) {
-      await Process.run('chmod', ['+x', binaryFile.path]);
-    }
-
-    // Clean up zip
-    if (zipFile.existsSync()) zipFile.deleteSync();
-
-    debugPrint('[Lynx] Ready at ${binaryFile.path}');
-    return binaryFile.path;
   }
 
   /// Delete downloaded engine files.

@@ -19,6 +19,7 @@ library;
 import 'dart:async';
 
 import '../engines/chess_engine.dart';
+import '../engines/engine_initialization.dart';
 import '../engines/search_telemetry.dart';
 import '../engines/uci_capabilities.dart';
 import 'benchmark_config.dart';
@@ -124,6 +125,9 @@ class _LiveEngine {
   bool failed = false;
   bool started = false;
   String? failureReason;
+
+  /// Redacted structured startup diagnostic, when initialization failed.
+  Map<String, dynamic>? diagnostic;
   int initMillis = 0;
   int gamesCompleted = 0;
   int scheduledCompleted = 0;
@@ -290,15 +294,16 @@ class BenchmarkRunner {
         }
         live.started = true;
         live.initMillis = init.elapsedMilliseconds;
-        if (live.engine.state != EngineState.ready) {
-          throw StateError('initialize returned with state ${live.engine.state.name}');
-        }
+        // Every adapter throws on failure; this is the guard for one that
+        // does not, and it reports the adapter's own recorded cause when
+        // there is one instead of a bare "returned with state error".
+        requireEngineReady(live.engine, platform: enginePlatformLabel());
         if (config.nodeLimit != null && live.engine is! NodeLimitedEngine) {
           throw UnsupportedError('Engine does not support node-limited search');
         }
         await _untilStopped(_applyConfiguration(live, config));
         _refineIdentity(live);
-      } catch (error) {
+      } catch (error, stack) {
         init.stop();
         live.initMillis = init.elapsedMilliseconds;
         if (_cancelled || _timeCapReached) {
@@ -307,7 +312,17 @@ class BenchmarkRunner {
         }
         live.started = true;
         live.failed = true;
-        live.failureReason = _describe(error);
+        if (live.engine.state == EngineState.ready ||
+            live.engine.state == EngineState.thinking) {
+          // Started, then failed while being configured: not a startup
+          // failure, so no startup diagnostic.
+          live.failureReason = _describe(error);
+        } else {
+          final failure = engineFailureOf(live.engine, error, stack,
+              engineId: identity.engineId);
+          live.failureReason = _describe(failure.summary);
+          live.diagnostic = Map<String, dynamic>.from(failure.toJson());
+        }
         _events.add(BenchmarkEngineFailedEvent(
           engineId: identity.engineId,
           label: identity.label,
@@ -582,6 +597,18 @@ class BenchmarkRunner {
     if (live.identity.kind == 'custom' && engine.version.isNotEmpty) {
       live.identity = live.identity.withReportedIdentity(name: null, version: engine.version);
     }
+    // Built-in engines: what actually started can differ from what the
+    // registry assumed — the Stockfish found on this computer, the stockfish.js
+    // build on iOS, a runtime fallback. Record the truth in the identity so a
+    // stale gate or a comparison cannot mix them up.
+    if (live.identity.kind != 'custom' && engine is EngineRuntimeReport) {
+      final report = engine as EngineRuntimeReport;
+      live.identity = live.identity.withRuntime(
+        detectedVersion: report.detectedVersion,
+        backend: report.effectiveBackend,
+        fallbackReason: report.fallbackReason,
+      );
+    }
     if (options.isEmpty) {
       live.warnings.add('${live.label} advertised no UCI options; the report '
           'records that rather than assuming defaults.');
@@ -720,6 +747,7 @@ class BenchmarkRunner {
           status: 'failed',
           reason: live.failureReason,
           gamesCompleted: live.gamesCompleted,
+          diagnostic: live.diagnostic,
         );
       } else if (live.forfeitLosses > 0) {
         status[identity.engineId] = EngineRunStatus(
@@ -792,6 +820,6 @@ String newRunId(DateTime startedAt) {
 }
 
 String _describe(Object error) {
-  final text = error.toString();
+  final text = redactPersonalPaths(error.toString());
   return text.length <= 400 ? text : '${text.substring(0, 400)}…';
 }

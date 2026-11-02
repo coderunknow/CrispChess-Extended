@@ -25,6 +25,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 
+import '../engines/engine_initialization.dart' show redactPersonalPaths;
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../engines/engine_registry.dart'
     show customProfileIdFromId, isCustomEngineId, builtInNameFromId;
@@ -66,7 +67,11 @@ String backendForBuiltIn(String name) {
     case 'Ghost':
       return 'dart';
     case 'Stockfish':
-      return web ? 'wasm' : 'native-process';
+      // iOS cannot start a process: it runs stockfish.js inside WebKit.
+      if (web) return 'wasm';
+      return defaultTargetPlatform == TargetPlatform.iOS
+          ? 'javascript-webkit'
+          : 'native-process';
     case 'Frozenight':
       return web ? 'wasm' : 'ffi';
     case 'Lynx':
@@ -143,6 +148,11 @@ class EngineIdentity {
   /// The overrides themselves, so a report can say what they were.
   final Map<String, String> configuration;
 
+  /// Why the engine ran on a different backend than it prefers (a native
+  /// runtime that failed to load, a WASM build already on the page), when it
+  /// did. Such a run is in its own cohort: see [withRuntime].
+  final String? fallbackReason;
+
   const EngineIdentity({
     required this.engineId,
     required this.displayName,
@@ -160,6 +170,7 @@ class EngineIdentity {
     required this.configurationDigest,
     this.sourceConfigurationDigest,
     this.configuration = const {},
+    this.fallbackReason,
   });
 
   /// Identity of a built-in engine.
@@ -273,6 +284,7 @@ class EngineIdentity {
             configuration.entries.map((e) => '${e.key}=${e.value}').toList()
               ..sort()),
         configuration: Map.unmodifiable(configuration),
+        fallbackReason: fallbackReason,
       );
 
   /// Identity refined once the engine has advertised its options.
@@ -295,6 +307,7 @@ class EngineIdentity {
         sourceConfigurationDigest: sourceConfigurationDigest,
       configurationDigest: configurationDigest,
         configuration: configuration,
+        fallbackReason: fallbackReason,
       );
 
   /// Identity refined once the engine has reported its own name/version.
@@ -322,6 +335,59 @@ class EngineIdentity {
       sourceConfigurationDigest: sourceConfigurationDigest,
       configurationDigest: configurationDigest,
       configuration: configuration,
+      fallbackReason: fallbackReason,
+    );
+  }
+
+  /// Identity refined with what a built-in engine reported about how it
+  /// actually started (`EngineRuntimeReport`).
+  ///
+  /// * [detectedVersion] replaces the assumed version — the Stockfish found on
+  ///   this computer is whatever it says it is, not the "16" the app asked
+  ///   for — and the build fingerprint follows it, so a gate or comparison
+  ///   made against one version is stale for another.
+  /// * A [fallbackReason] moves the run into its own cohort, labelled with
+  ///   the backend that really ran: numbers from a Dart fallback must not be
+  ///   pooled with numbers from the native runtime.
+  EngineIdentity withRuntime({
+    String? detectedVersion,
+    String? backend,
+    String? fallbackReason,
+  }) {
+    final version = (detectedVersion ?? '').trim();
+    var nextVersion = engineVersion;
+    var nextFingerprint = fingerprint;
+    if (version.isNotEmpty && version != engineVersion) {
+      nextVersion = version;
+      if (fingerprintKind == 'builtin-build' &&
+          fingerprint.endsWith('+$engineVersion')) {
+        nextFingerprint =
+            '${fingerprint.substring(0, fingerprint.length - engineVersion.length)}$version';
+      }
+    }
+    final reported = (backend ?? '').trim();
+    final fellBack = fallbackReason != null && fallbackReason.trim().isNotEmpty;
+    final nextBackend =
+        fellBack && reported.isNotEmpty ? '$reported (fallback)' : this.backend;
+    return EngineIdentity(
+      engineId: engineId,
+      displayName: displayName,
+      engineName: engineName,
+      engineVersion: nextVersion,
+      author: author,
+      kind: kind,
+      platform: platform,
+      backend: nextBackend,
+      fingerprint: nextFingerprint,
+      fingerprintKind: fingerprintKind,
+      profileId: profileId,
+      advertisedOptionsDigest: advertisedOptionsDigest,
+      advertisedOptionCount: advertisedOptionCount,
+      sourceConfigurationDigest: sourceConfigurationDigest,
+      configurationDigest: configurationDigest,
+      configuration: configuration,
+      fallbackReason:
+          fellBack ? redactPersonalPaths(fallbackReason) : this.fallbackReason,
     );
   }
 
@@ -401,6 +467,7 @@ class EngineIdentity {
         if (sourceConfigurationDigest != null)
           'sourceConfigurationDigest': sourceConfigurationDigest,
         if (configuration.isNotEmpty) 'configuration': configuration,
+        if (fallbackReason != null) 'fallbackReason': fallbackReason,
         'fingerprintScheme': kFingerprintScheme,
       };
 
@@ -446,6 +513,7 @@ class EngineIdentity {
       sourceConfigurationDigest: json['sourceConfigurationDigest'] as String?,
       configurationDigest: str('configurationDigest', 'unknown'),
       configuration: config,
+      fallbackReason: str('fallbackReason').isEmpty ? null : str('fallbackReason'),
     );
   }
 

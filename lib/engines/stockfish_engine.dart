@@ -1,45 +1,314 @@
 // Stockfish engine for native platforms.
-// Desktop: finds and runs system-installed stockfish binary.
-// Android: extracts bundled binary from assets, runs as process.
+//
+// Desktop (Windows/macOS/Linux): runs a Stockfish executable that is installed
+//   on this computer. The app never bundles GPL Stockfish (see NOTICE.md); the
+//   executable is located by [resolveStockfishRuntime] — an explicit path, the
+//   CRISPCHESS_STOCKFISH_PATH environment variable, PATH, then the usual
+//   package-manager locations that a GUI app does not inherit on its PATH.
+// Android: runs `assets/bin/stockfish-android` when a build bundles one. The
+//   release builds do not (the asset is not declared in pubspec.yaml), so this
+//   is reported as `runtimeMissing` rather than attempted and swallowed.
 // iOS: delegates to StockfishDownloadableEngine, which runs stockfish.js
-//      (downloaded at runtime) inside WebKit — no subprocess, no GPL in binary.
+//   (downloaded at runtime) inside WebKit — no subprocess, no GPL in binary.
+//
+// The process protocol itself — launch, `uci`/`uciok`, `isready`/`readyok`,
+// process death, timeouts, teardown, concurrent initialization and disposal —
+// is the custom-UCI implementation in generic_uci_engine.dart, which is the
+// path user-added engines already exercise. dev3 and earlier had a second,
+// weaker copy here that swallowed every startup failure, treated stdout
+// closing as a handshake, never awaited `readyok` and reported "ready"
+// unconditionally; the Engine Lab then saw only
+// "Bad state: initialize returned with state error".
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:path_provider/path_provider.dart';
+
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
+import 'generic_uci_engine.dart';
+import 'search_telemetry.dart';
 import 'stockfish_downloadable_engine.dart';
-import 'uci_position.dart';
-import 'uci_process_lifecycle.dart';
-import 'uci_search_coordinator.dart';
+import 'uci_capabilities.dart';
 
+/// The Stockfish version the built-in desktop/Android engine is meant to be.
+///
+/// A request, not a measurement: the version that runs is whatever the
+/// executable reports in `id name`, recorded as [StockfishEngine.detectedVersion]
+/// and used for the engine's label and benchmark identity.
+const String kStockfishRequestedVersion = '16';
+
+/// Environment variable naming the Stockfish executable explicitly.
+const String kStockfishPathEnvironment = 'CRISPCHESS_STOCKFISH_PATH';
+
+/// Where the built-in Stockfish executable was found.
+class StockfishRuntime {
+  final String path;
+
+  /// `explicit`, `environment`, `path`, `well-known` or `android-asset`.
+  final String source;
+
+  const StockfishRuntime(this.path, this.source);
+}
+
+/// How to find the executable; replaceable in tests.
+typedef StockfishRuntimeResolver = Future<StockfishRuntime> Function();
+
+/// Message shown when no executable can be found, per platform.
+String stockfishInstallHint() {
+  if (Platform.isAndroid) {
+    return 'This build does not bundle a Stockfish executable for Android '
+        '(Stockfish is GPL-licensed and kept separate from the app).';
+  }
+  final how = Platform.isWindows
+      ? 'install it with "winget install Stockfish.Stockfish" or download it '
+          'from stockfishchess.org'
+      : Platform.isMacOS
+          ? 'install it with "brew install stockfish"'
+          : 'install it with your package manager (e.g. "sudo apt install '
+              'stockfish")';
+  return 'No Stockfish executable was found on this computer. To use the '
+      'built-in Stockfish, $how, or set $kStockfishPathEnvironment to the '
+      'executable. A downloaded Stockfish can also be added in the Engine '
+      'Manager as a custom UCI engine.';
+}
+
+/// Directories on PATH, split the platform's way.
+List<String> _pathDirectories(Map<String, String> environment) {
+  final raw = environment['PATH'] ?? environment['Path'] ?? '';
+  final separator = Platform.isWindows ? ';' : ':';
+  return [
+    for (final entry in raw.split(separator))
+      if (entry.trim().isNotEmpty) entry.trim().replaceAll('"', '')
+  ];
+}
+
+/// Locations package managers install to that a GUI app often does not have
+/// on its PATH (Finder-launched apps on macOS get a minimal PATH; Debian puts
+/// Stockfish in /usr/games; winget links live under LOCALAPPDATA).
+List<String> stockfishWellKnownLocations(Map<String, String> environment) {
+  if (Platform.isMacOS) {
+    return const [
+      '/opt/homebrew/bin/stockfish',
+      '/usr/local/bin/stockfish',
+      '/opt/local/bin/stockfish',
+    ];
+  }
+  if (Platform.isLinux) {
+    return const [
+      '/usr/games/stockfish',
+      '/usr/bin/stockfish',
+      '/usr/local/bin/stockfish',
+      '/snap/bin/stockfish',
+    ];
+  }
+  if (Platform.isWindows) {
+    final local = environment['LOCALAPPDATA'];
+    return [
+      if (local != null) '$local\\Microsoft\\WinGet\\Links\\stockfish.exe',
+    ];
+  }
+  return const [];
+}
+
+bool _isExecutableFile(String path) {
+  final stat = FileStat.statSync(path);
+  if (stat.type != FileSystemEntityType.file &&
+      stat.type != FileSystemEntityType.link) {
+    return false;
+  }
+  if (Platform.isWindows) return true;
+  // Any execute bit. The launch itself is the real test; this only keeps a
+  // non-executable file on PATH from shadowing a working one later on PATH.
+  return stat.mode & 0x49 != 0;
+}
+
+/// Finds the Stockfish executable, or throws an [EngineStartupFailure] that
+/// says which kind of "not found" it is.
+///
+/// Explicit choices are authoritative: a wrong [explicitPath] or environment
+/// variable is reported as such instead of silently falling back to some other
+/// Stockfish found on PATH.
+Future<StockfishRuntime> resolveStockfishRuntime({
+  String? explicitPath,
+  Map<String, String>? environment,
+}) async {
+  final env = environment ?? Platform.environment;
+  final configured = explicitPath ??
+      ((env[kStockfishPathEnvironment] ?? '').isNotEmpty
+          ? env[kStockfishPathEnvironment]
+          : null);
+  if (configured != null) {
+    final source = explicitPath != null ? 'explicit' : 'environment';
+    final type = FileSystemEntity.typeSync(configured);
+    if (type == FileSystemEntityType.notFound) {
+      throw EngineStartupFailure(
+        EngineFailureKind.binaryMissing,
+        source == 'explicit'
+            ? 'the configured Stockfish executable does not exist'
+            : '$kStockfishPathEnvironment names a file that does not exist',
+        cause: FileSystemException('Stockfish executable not found', configured),
+      );
+    }
+    if (!_isExecutableFile(configured)) {
+      throw EngineStartupFailure(
+        EngineFailureKind.permissionDenied,
+        'the configured Stockfish file is not an executable file',
+        cause: FileSystemException('Not executable', configured),
+      );
+    }
+    return StockfishRuntime(configured, source);
+  }
+
+  if (Platform.isAndroid) return _extractAndroidBinary();
+  if (Platform.isIOS) {
+    throw const EngineStartupFailure(EngineFailureKind.unsupportedPlatform,
+        'iOS cannot start a Stockfish process; the WebKit engine is used');
+  }
+
+  final names = Platform.isWindows
+      ? const ['stockfish.exe', 'stockfish.com']
+      : const ['stockfish'];
+  for (final directory in _pathDirectories(env)) {
+    for (final name in names) {
+      final candidate =
+          '$directory${Platform.pathSeparator}$name';
+      if (_isExecutableFile(candidate)) {
+        return StockfishRuntime(candidate, 'path');
+      }
+    }
+  }
+  for (final candidate in stockfishWellKnownLocations(env)) {
+    if (_isExecutableFile(candidate)) {
+      return StockfishRuntime(candidate, 'well-known');
+    }
+  }
+  throw EngineStartupFailure(
+    EngineFailureKind.runtimeMissing,
+    stockfishInstallHint(),
+    cause: const FileSystemException(
+        'No Stockfish executable on PATH or in the usual install locations'),
+  );
+}
+
+/// Extracts a bundled Android binary, when the build has one.
+Future<StockfishRuntime> _extractAndroidBinary() async {
+  const asset = 'assets/bin/stockfish-android';
+  final ByteData bytes;
+  try {
+    bytes = await rootBundle.load(asset);
+  } catch (error, stack) {
+    throw EngineStartupFailure(
+      EngineFailureKind.runtimeMissing,
+      stockfishInstallHint(),
+      cause: error,
+      causeStack: stack,
+    );
+  }
+  final Directory base;
+  try {
+    base = await getApplicationSupportDirectory();
+  } catch (error, stack) {
+    throw EngineStartupFailure(EngineFailureKind.runtimeMissing,
+        'no application storage to extract Stockfish into',
+        cause: error, causeStack: stack);
+  }
+  final binary = File('${base.path}/engines/stockfish');
+  final data = bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
+  if (!binary.existsSync() || binary.lengthSync() != data.length) {
+    await binary.parent.create(recursive: true);
+    final part = File('${binary.path}.part');
+    await part.writeAsBytes(data, flush: true);
+    await part.rename(binary.path);
+  }
+  final chmod = await Process.run('chmod', ['700', binary.path]);
+  if (chmod.exitCode != 0) {
+    throw EngineStartupFailure(EngineFailureKind.permissionDenied,
+        'could not mark the extracted Stockfish executable as runnable',
+        cause: ProcessException('chmod', ['700', binary.path],
+            '${chmod.stderr}', chmod.exitCode));
+  }
+  return StockfishRuntime(binary.path, 'android-asset');
+}
+
+/// The version inside a Stockfish `id name`: `Stockfish 16` → `16`,
+/// `Stockfish 16.1` → `16.1`, `Stockfish dev-20231105-1a2b3c` →
+/// `dev-20231105-1a2b3c`. Null when the name says nothing more.
+String? stockfishVersionFromIdName(String idName) {
+  final trimmed = idName.trim();
+  final match =
+      RegExp(r'^stockfish(?:\.js)?\s+(.+)$', caseSensitive: false).firstMatch(trimmed);
+  if (match == null) return null;
+  final rest = match.group(1)!.trim();
+  // Strip trailing architecture/build tags some packagers append.
+  final cleaned = rest
+      .replaceFirst(RegExp(r'\s+(?:by\s.*|\(.*\)|64(?:-bit)?|x86[-_]64\S*)$',
+          caseSensitive: false), '')
+      .trim();
+  return cleaned.isEmpty ? null : cleaned;
+}
+
+/// Native Stockfish (desktop/Android) — or, on iOS, the WebKit engine.
 class StockfishEngine
-    with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine {
-  // Accept sfVersion/variantId for API compat with web engine (ignored on native)
-  StockfishEngine({dynamic sfVersion, String? variantId})
-      : _delegate = Platform.isIOS ? StockfishDownloadableEngine() : null;
+    implements
+        ChessEngine,
+        SearchTelemetry,
+        UciOptionAware,
+        SearchDrainableEngine,
+        EngineRuntimeReport,
+        DownloadAwareEngine {
+  /// [sfVersion]/[variantId] are accepted for API parity with the web engine.
+  /// [executablePath] and [resolver] pin the runtime (tests, and an explicit
+  /// configuration); without them the executable is searched for.
+  StockfishEngine({
+    dynamic sfVersion,
+    String? variantId,
+    String? executablePath,
+    StockfishRuntimeResolver? resolver,
+    this.handshakeTimeout = const Duration(seconds: 10),
+    this.readinessTimeout = const Duration(seconds: 30),
+  })  : _delegate = Platform.isIOS && executablePath == null && resolver == null
+            ? StockfishDownloadableEngine()
+            : null,
+        _resolver = resolver ??
+            (() => resolveStockfishRuntime(explicitPath: executablePath));
 
-  // On iOS, all work is forwarded to the WebKit-backed engine.
-  final ChessEngine? _delegate;
+  /// On iOS, all work is forwarded to the WebKit-backed engine.
+  final StockfishDownloadableEngine? _delegate;
+  final StockfishRuntimeResolver _resolver;
+  final Duration handshakeTimeout;
+  final Duration readinessTimeout;
 
-  Process? _process;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
-  StreamSubscription? _stdoutSub;
-  final _evalController = StreamController<EvalInfo>.broadcast();
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
 
-  static final _cpRegex = RegExp(r'score cp (-?\d+)');
-  static final _mateRegex = RegExp(r'score mate (-?\d+)');
-  static final _depthRegex = RegExp(r'depth (\d+)');
-  static final _pvRegex = RegExp(r' pv (.+)');
-  static final _multipvRegex = RegExp(r'multipv (\d+)');
+  /// The running UCI connection. Replaced on every initialization attempt, so
+  /// a retry after a failure starts from a fresh process.
+  GenericUciEngine? _uci;
+  VoidCallback? _uciListener;
+  StockfishRuntime? _runtime;
+
+  /// Where the executable came from, once it has been found.
+  StockfishRuntime? get runtime => _runtime;
+
+  static bool get isAvailable {
+    if (kIsWeb) return false;
+    // Desktop/Android: native binary. iOS: stockfish.js inside WebKit.
+    return Platform.isLinux || Platform.isMacOS || Platform.isWindows ||
+        Platform.isAndroid || Platform.isIOS;
+  }
 
   @override
   String get name => 'Stockfish';
+
+  /// The detected version once the engine has spoken, otherwise the request.
   @override
-  String get version => '16';
+  String get version =>
+      _delegate?.version ?? detectedVersion ?? kStockfishRequestedVersion;
+
   @override
   String get license => 'GPL-3.0 (separate process)';
   @override
@@ -55,257 +324,231 @@ class StockfishEngine
   @override
   bool get canPonder => _delegate?.canPonder ?? true;
 
-  @override
-  void sendUci(String command) => _process?.stdin.writeln(command);
+  // ------------------------------------------------------------ diagnostics
 
-  static bool get isAvailable {
-    if (kIsWeb) return false;
-    // Desktop/Android: native binary. iOS: stockfish.js inside WebKit.
-    return Platform.isLinux || Platform.isMacOS || Platform.isWindows ||
-        Platform.isAndroid || Platform.isIOS;
+  @override
+  EngineInitializationException? get initializationError =>
+      _delegate?.initializationError ?? _init.lastFailure;
+
+  @override
+  String get effectiveBackend =>
+      _delegate?.effectiveBackend ?? 'native-process';
+
+  @override
+  String? get fallbackReason => _delegate?.fallbackReason;
+
+  @override
+  String? get requestedVersion =>
+      _delegate?.requestedVersion ?? kStockfishRequestedVersion;
+
+  @override
+  String? get detectedVersion {
+    final delegate = _delegate;
+    if (delegate != null) return delegate.detectedVersion;
+    final uci = _uci;
+    if (uci == null || uci.engineIdentifier.isEmpty) return null;
+    return stockfishVersionFromIdName(uci.engineIdentifier) ??
+        (uci.version.isEmpty ? null : uci.version);
+  }
+
+  /// The engine's own `id name`, once it has started.
+  String? get detectedName {
+    final uci = _uci;
+    return uci == null || uci.engineIdentifier.isEmpty
+        ? null
+        : uci.engineIdentifier;
   }
 
   @override
-  String get processLabel => 'Stockfish';
-
-  @override
-  void onProcessLost() {
-    if (!disposingProcess) _stateNotifier.value = EngineState.error;
-    resetSearches();
+  Future<EngineDownloadRequirement?> pendingDownload() async {
+    final delegate = _delegate;
+    return delegate == null ? null : await delegate.pendingDownload();
   }
 
+  // ---------------------------------------------------------------- startup
+
   @override
-  Future<void> initialize() async {
-    if (_delegate != null) return _delegate.initialize();
-    _stateNotifier.value = EngineState.initializing;
+  Future<void> initialize() {
+    final delegate = _delegate;
+    if (delegate != null) return delegate.initialize();
+    return _init.run(
+      engine: name,
+      version: kStockfishRequestedVersion,
+      requestedVersion: kStockfishRequestedVersion,
+      backend: 'native-process',
+      body: _start,
+      cleanup: _releaseConnection,
+    );
+  }
+
+  Future<void> _start(EngineInitScope scope) async {
+    // A retry after a crash or a failed start begins from a fresh process.
+    _releaseConnection();
+    scope.stage = EngineInitStage.resolveRuntime;
+    final runtime = await _resolver();
+    _runtime = runtime;
+    scope.runtimePath = runtime.path;
+    scope.checkCancelled();
+
+    scope.stage = EngineInitStage.launchProcess;
+    final uci = GenericUciEngine(
+      EngineProfile(id: 'builtin-stockfish', name: 'Stockfish', path: runtime.path),
+      handshakeTimeout: handshakeTimeout,
+      readinessTimeout: readinessTimeout,
+    );
+    _uci = uci;
     try {
-      final path = await _findOrExtractBinary();
-      debugPrint('[Stockfish] Starting: $path');
-      _process = await Process.start(path, []);
-      watchProcess(_process!);
-
-      final ready = Completer<void>();
-      _stdoutSub = _process!.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
-        _handleLine(line);
-        if (line.trim() == 'uciok' && !ready.isCompleted) ready.complete();
-      }, onDone: () {
-        // stdout closing is the first sign of death, usually ahead of the exit
-        // code; do not leave a caller waiting for the difference.
-        if (!ready.isCompleted) ready.complete();
-        releaseOnLoss();
-      }, onError: (Object e) {
-        debugPrint('[Stockfish] stdout error: $e');
-        releaseOnLoss();
-      });
-
-      _process!.stdin.writeln('uci');
-      await ready.future.timeout(const Duration(seconds: 10),
-          onTimeout: () => debugPrint('[Stockfish] UCI timeout'));
-
-      _process!.stdin.writeln('isready');
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[Stockfish] Ready');
-    } catch (e) {
-      debugPrint('[Stockfish] Not available: $e');
-      _stateNotifier.value = EngineState.error;
+      await uci.initialize();
+    } catch (error) {
+      // The connection records which step failed and how (exit code, stderr,
+      // timeout); hand that on with the original exception as the cause.
+      final recorded = uci.initializationError;
+      if (recorded != null) {
+        scope.stage = recorded.stage;
+        scope.exitCode = recorded.exitCode;
+        scope.stderrTail = recorded.stderrTail;
+        scope.detectedVersion = detectedVersion;
+        throw recorded;
+      }
+      rethrow;
     }
-  }
-
-  void _handleLine(String line) {
-    final t = line.trim();
-
-    if (t.startsWith('info') && t.contains('depth')) {
-      final cp = _cpRegex.firstMatch(t);
-      final mate = _mateRegex.firstMatch(t);
-      final d = _depthRegex.firstMatch(t);
-      final pvMatch = _pvRegex.firstMatch(t);
-      final mpv = _multipvRegex.firstMatch(t);
-      if (d != null && (cp != null || mate != null)) {
-        final double score;
-        if (cp != null) {
-          score = int.parse(cp.group(1)!) / 100.0;
-        } else {
-          // A forced mate has no `cp` score at all. Skipping these lines, as
-          // this did, left the eval bar frozen and blank on exactly the
-          // positions where the evaluation matters most.
-          final mateIn = int.parse(mate!.group(1)!);
-          score = mateIn > 0 ? 999.0 : -999.0;
-        }
-        final pv = pvMatch?.group(1);
-        _evalController.add(EvalInfo(
-          // UCI reports from the side to move; the app consumes White's.
-          score: searchWhiteToMove ? score : -score,
-          depth: int.parse(d.group(1)!),
-          bestMove: pv?.split(' ').first,
-          pv: pv,
-          pvIndex: mpv != null ? int.parse(mpv.group(1)!) : 1,
-        ));
+    scope.checkCancelled();
+    scope.stage = EngineInitStage.verifyReady;
+    scope.detectedVersion = detectedVersion;
+    if (detectedName == null) {
+      throw const EngineStartupFailure(EngineFailureKind.protocolError,
+          'the executable completed the UCI handshake without an "id name"');
+    }
+    if (!detectedName!.toLowerCase().contains('stockfish')) {
+      // Not fatal — a renamed fork is still a UCI engine — but never pretend
+      // it is Stockfish: the label and identity use what it reported.
+      debugPrint('[Stockfish] ${runtime.path} reports "$detectedName"');
+    }
+    // Mirror the connection's later state changes (thinking, ready, a crash
+    // turning it to error) now that it is genuinely ready.
+    void listener() {
+      if (_init.disposed || !identical(_uci, uci)) return;
+      final next = uci.state;
+      if (next == EngineState.disposed) {
+        _stateNotifier.value = EngineState.error;
+      } else if (next != EngineState.initializing) {
+        _stateNotifier.value = next;
       }
     }
 
-    if (t.startsWith('bestmove')) {
-      final parts = t.split(' ');
-      finishSearch(
-          parts.length >= 2 && parts[1] != '(none)' ? parts[1] : null);
-      _stateNotifier.value = EngineState.ready;
-    }
+    _uciListener = listener;
+    uci.stateNotifier.addListener(listener);
+  }
+
+  void _releaseConnection() {
+    final uci = _uci;
+    _uci = null;
+    final listener = _uciListener;
+    _uciListener = null;
+    if (uci == null) return;
+    if (listener != null) uci.stateNotifier.removeListener(listener);
+    uci.dispose();
+  }
+
+  // ----------------------------------------------------------------- search
+
+  GenericUciEngine _ready() {
+    final uci = _uci;
+    if (_init.disposed) throw StateError('Engine disposed');
+    if (uci == null) throw StateError('Not initialized');
+    return uci;
   }
 
   @override
-  Future<String> bestMove(String positionCommand, {
-    int? depth, Duration? moveTime, int? skillLevel,
-  }) async {
-    if (_delegate != null) {
-      return _delegate.bestMove(positionCommand,
+  Future<String> bestMove(
+    String positionCommand, {
+    int? depth,
+    Duration? moveTime,
+    int? skillLevel,
+  }) {
+    final delegate = _delegate;
+    if (delegate != null) {
+      return delegate.bestMove(positionCommand,
           depth: depth, moveTime: moveTime, skillLevel: skillLevel);
     }
-    if (_process == null) throw StateError('Not initialized');
-    _stateNotifier.value = EngineState.thinking;
-
-    if (skillLevel != null) {
-      _process!.stdin.writeln('setoption name Skill Level value $skillLevel');
+    try {
+      return _ready().bestMove(positionCommand,
+          depth: depth, moveTime: moveTime, skillLevel: skillLevel);
+    } catch (error, stack) {
+      return Future.error(error, stack);
     }
-    final go = uciGoCommand(
-        depth: depth, moveTime: moveTime, skillLevel: skillLevel);
-    final cap = uciSearchTimeout(
-        depth: depth, moveTime: moveTime, skillLevel: skillLevel);
-
-    if (processGone) throw await processDeathReport();
-
-    final move = await startSearch(
-            positionCommand,
-            go,
-            awaitMove: true,
-            // Belongs to the search, not the engine: `info` lines from the
-            // search being stopped are still arriving when this one starts.
-            whiteToMove: positionCommandIsWhiteToMove(positionCommand))
-        .timeout(cap, onTimeout: () {
-      abandonSearch();
-      return null;
-    });
-    if (move == null) {
-      // A null answer means one of two very different things, and reporting
-      // both as a timeout is what let a crashed engine pass for a slow one.
-      if (processGone) throw await processDeathReport();
-      throw TimeoutException(
-          'No bestmove within ${cap.inMilliseconds}ms', cap);
-    }
-    return move;
   }
 
   @override
-  Stream<EvalInfo> analyze(String positionCommand, {int? depth, bool infinite = false}) {
-    if (_delegate != null) {
-      return _delegate.analyze(positionCommand, depth: depth, infinite: infinite);
+  Stream<EvalInfo> analyze(String positionCommand,
+      {int? depth, bool infinite = false}) {
+    final delegate = _delegate;
+    if (delegate != null) {
+      return delegate.analyze(positionCommand, depth: depth, infinite: infinite);
     }
-    if (_process == null || processGone) {
-      // Silently returning an empty stream here is how a dead engine looked
-      // like a quiet one: the eval bar simply stopped updating.
-      if (processGone) debugPrint('[$processLabel] analysis skipped: process gone');
-      return const Stream.empty();
-    }
-    _stateNotifier.value = EngineState.thinking;
-    // Bound the depth search by the clock too. A fixed depth costs whatever
-    // that depth costs in the position in front of it — the thing that was
-    // taken out of `bestMove` because it turned into seconds per move by the
-    // middlegame — and nothing here ever stopped it: analysis has no timeout,
-    // so a strong engine asked for depth 20 sits at full CPU until the next
-    // move happens to interrupt it. On a phone that is the battery.
-    //
-    // `infinite` is left alone: it is unbounded on purpose and ends at `stop`.
-    startSearch(
-        positionCommand,
-        infinite
-            ? 'go infinite'
-            : 'go depth ${depth ?? 20} movetime ${kFixedDepthTimeCap.inMilliseconds}',
-        awaitMove: false,
-        whiteToMove: positionCommandIsWhiteToMove(positionCommand));
-    return _evalController.stream;
+    final uci = _uci;
+    if (uci == null || _init.disposed) return const Stream.empty();
+    return uci.analyze(positionCommand, depth: depth, infinite: infinite);
   }
 
   @override
   void stop() {
-    if (_delegate != null) return _delegate.stop();
-    // Leave the search registered — the `bestmove` it is about to print belongs
-    // to it, and must not be adopted by the next request.
-    if (isSearching) sendUci('stop');
-    _stateNotifier.value = EngineState.ready;
+    final delegate = _delegate;
+    if (delegate != null) return delegate.stop();
+    _uci?.stop();
   }
 
   @override
   void setOption(String name, String value) {
-    if (_delegate != null) return _delegate.setOption(name, value);
-    _process?.stdin.writeln('setoption name $name value $value');
+    final delegate = _delegate;
+    if (delegate != null) return delegate.setOption(name, value);
+    _uci?.setOption(name, value);
+  }
+
+  // ------------------------------------------------------------ capabilities
+
+  @override
+  SearchStatistics get lastSearchStatistics =>
+      _uci?.lastSearchStatistics ?? SearchStatistics.none;
+
+  @override
+  void resetSearchStatistics() => _uci?.resetSearchStatistics();
+
+  @override
+  List<String> get advertisedOptionNames =>
+      _uci?.advertisedOptionNames ?? const <String>[];
+
+  @override
+  bool advertisesOption(String name) => _uci?.advertisesOption(name) ?? false;
+
+  @override
+  void applyOption(String name, String value) => _uci?.applyOption(name, value);
+
+  @override
+  Future<void> synchronizeOptions() async {
+    final uci = _uci;
+    if (uci == null) {
+      throw StateError('Stockfish is not running; options cannot be synchronized');
+    }
+    await uci.synchronizeOptions();
   }
 
   @override
+  Future<void> drainSearch({Duration timeout = const Duration(seconds: 5)}) async {
+    final delegate = _delegate;
+    if (delegate != null) return;
+    await _uci?.drainSearch(timeout: timeout);
+  }
+
+  // ---------------------------------------------------------------- dispose
+
+  @override
   void dispose() {
-    if (_delegate != null) return _delegate.dispose();
-    beginProcessDispose();
-    resetSearches();
-    _process?.stdin.writeln('quit');
-    _stdoutSub?.cancel();
-    stopWatchingProcess();
-    _evalController.close();
-    _process?.kill();
-    _process = null;
+    final delegate = _delegate;
+    if (delegate != null) return delegate.dispose();
+    if (_init.disposed && _stateNotifier.value == EngineState.disposed) return;
+    _init.markDisposed();
+    _releaseConnection();
     _stateNotifier.value = EngineState.disposed;
-  }
-
-  /// Find or extract the Stockfish binary.
-  static Future<String> _findOrExtractBinary() async {
-    if (Platform.isAndroid) {
-      return _extractAndroidBinary();
-    }
-    return _findSystemBinary();
-  }
-
-  /// On Android: extract bundled stockfish binary from assets to app data dir.
-  static Future<String> _extractAndroidBinary() async {
-    // The binary is bundled as a Flutter asset
-    final dataDir = Directory('/data/data/${_getPackageName()}/files');
-    final binary = File('${dataDir.path}/stockfish');
-
-    if (!await binary.exists()) {
-      debugPrint('[Stockfish] Extracting Android binary...');
-      try {
-        final bytes = await rootBundle.load('assets/bin/stockfish-android');
-        await dataDir.create(recursive: true);
-        await binary.writeAsBytes(bytes.buffer.asUint8List());
-        await Process.run('chmod', ['+x', binary.path]);
-        debugPrint('[Stockfish] Extracted to ${binary.path}');
-      } catch (e) {
-        throw FileSystemException(
-            'Failed to extract Stockfish binary: $e');
-      }
-    }
-
-    return binary.path;
-  }
-
-  /// On desktop: find stockfish in system PATH.
-  static Future<String> _findSystemBinary() async {
-    final cmd = Platform.isWindows ? 'where' : 'which';
-    for (final name in ['stockfish', 'stockfish.exe']) {
-      try {
-        final result = await Process.run(cmd, [name]);
-        if (result.exitCode == 0) {
-          return (result.stdout as String).trim();
-        }
-      } catch (_) {}
-    }
-    throw FileSystemException(
-        'Stockfish not found. Install via package manager:\n'
-        '  Linux: sudo apt install stockfish\n'
-        '  macOS: brew install stockfish\n'
-        '  Windows: download from stockfishchess.org');
-  }
-
-  static String _getPackageName() {
-    // Default package name — can be overridden
-    return 'com.crispstrobe.crispchess';
   }
 }

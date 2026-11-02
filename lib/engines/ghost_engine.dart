@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../chess/player_profile.dart';
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'maia3_dart_engine.dart';
 import 'uci_position.dart';
 
@@ -26,7 +27,7 @@ const String ghostEloKey = 'ghostElo';
 const String ghostEloGamesKey = 'ghostEloGames';
 const String _historyKey = 'gameHistory';
 
-class GhostEngine implements ChessEngine {
+class GhostEngine implements ChessEngine, EngineRuntimeReport {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final math.Random _random;
 
@@ -63,32 +64,58 @@ class GhostEngine implements ChessEngine {
   @override
   bool get canPonder => false;
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
-    try {
-      if (profileOverride != null) {
-        _profile = profileOverride!;
-        _elo = eloOverride ?? 1500;
-      } else {
-        final prefs = await SharedPreferences.getInstance();
-        _profile = PlayerProfile.fromPgns(prefs.getStringList(_historyKey) ?? []);
-        _elo = prefs.getInt(ghostEloKey) ?? 1500;
-      }
-      if (policyOverride == null) {
-        _maia = Maia3DartEngine(variantId: '5m', playerElo: _elo);
-        await _maia!.initialize();
-      }
-      _stateNotifier.value =
-          policyOverride != null || _maia!.state == EngineState.ready
-              ? EngineState.ready
-              : EngineState.error;
-      debugPrint('[Ghost] ${_profile.games} games, '
-          '${_profile.repertoire.length} book positions, plays like $_elo');
-    } catch (e) {
-      debugPrint('[Ghost] Failed: $e');
-      _stateNotifier.value = EngineState.error;
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => _init.effectiveBackend.isEmpty
+      ? 'maia3+book'
+      : _init.effectiveBackend;
+  @override
+  String? get fallbackReason => _init.fallbackReason;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => null;
+
+  /// Reads the player's games and loads the Maia model it plays through;
+  /// completes only when both worked, otherwise throws a structured
+  /// [EngineInitializationException] — Maia's own failure when that is what
+  /// failed (dev3 and earlier returned normally either way).
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: version,
+        backend: 'maia3+book',
+        body: _start,
+        cleanup: () {
+          _maia?.dispose();
+          _maia = null;
+        },
+      );
+
+  Future<void> _start(EngineInitScope scope) async {
+    scope.stage = EngineInitStage.resolveRuntime;
+    if (profileOverride != null) {
+      _profile = profileOverride!;
+      _elo = eloOverride ?? 1500;
+    } else {
+      final prefs = await SharedPreferences.getInstance();
+      _profile = PlayerProfile.fromPgns(prefs.getStringList(_historyKey) ?? []);
+      _elo = prefs.getInt(ghostEloKey) ?? 1500;
     }
+    scope.checkCancelled();
+    if (policyOverride == null) {
+      scope.stage = EngineInitStage.loadBackend;
+      final maia = Maia3DartEngine(variantId: '5m', playerElo: _elo);
+      _maia = maia;
+      await maia.initialize();
+      scope.backend = 'maia3+book (${maia.effectiveBackend})';
+      scope.fallbackReason = maia.fallbackReason;
+    }
+    debugPrint('[Ghost] ${_profile.games} games, '
+        '${_profile.repertoire.length} book positions, plays like $_elo');
   }
 
   @override
@@ -138,6 +165,7 @@ class GhostEngine implements ChessEngine {
 
   @override
   void dispose() {
+    _init.markDisposed();
     _maia?.dispose();
     _stateNotifier.value = EngineState.disposed;
   }

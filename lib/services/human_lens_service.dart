@@ -39,6 +39,9 @@ class HumanLensService {
       await Future.wait([maia.initialize(), judge.initialize()]);
     } catch (_) {
       _loading = null;
+      // Neither engine is kept, so neither may keep its model or isolate pool.
+      maia.dispose();
+      judge.dispose();
       rethrow;
     }
     if (maia.state != EngineState.ready) {

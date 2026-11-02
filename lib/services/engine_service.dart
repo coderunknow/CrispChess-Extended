@@ -172,10 +172,14 @@ class EngineService {
       if (_disposed) return false;
       requireEngineReady(_engine, platform: 'application');
       return true;
-    } catch (e) {
+    } catch (e, stack) {
       if (!_disposed) {
-        _eventController.add(
-            EngineErrorEvent('Init failed: $e', kind: EngineFailure.startup));
+        // The structured summary names the engine, the step that failed and
+        // why ("… could not start: no Stockfish executable was found …"),
+        // instead of a multi-line exception dump.
+        final failure = engineFailureOf(_engine, e, stack);
+        _eventController.add(EngineErrorEvent('Init failed: ${failure.summary}',
+            kind: EngineFailure.startup));
       }
       return false;
     }
