@@ -280,6 +280,14 @@ Independent re-check of 0ac8a5f, before the fix above:
 - The one analyzer warning in a changed file (`chess_lm_engine.dart:255`) is on a line unchanged since the base commit 5ee20cd.
 - The "Kilo Code Review" check reports `action_required` on every head because the account has insufficient credits; it is not a review and is not counted as one.
 
+### Ninth full review (5c759d1)
+
+Review 5739366024 on the exact head 5c759d1: no Major findings, one Minor (Security & Privacy).
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| When `pendingDownload()` threw, Preflight recorded a warning and still called `initialize()`, which downloads whatever is missing, without consent | Minor | Fixed: an unknown download state is not consent. The runtime step is `notInstalled`, the engine is never started (cleanup still runs). Preflight is the only consumer of `pendingDownload()`. Test: consent is not asked, `initialize()` never runs, the engine is disposed |
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned

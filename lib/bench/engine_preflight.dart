@@ -490,11 +490,14 @@ class EnginePreflight {
       try {
         requirement = await (engine as DownloadAwareEngine).pendingDownload();
       } catch (error) {
+        // An unknown download state is not consent: initialize() would fetch
+        // whatever is missing, so the engine is not started at all.
         record(PreflightStepResult(
-            PreflightStep.runtime, PreflightStatus.warning,
+            PreflightStep.runtime, PreflightStatus.notInstalled,
             detail: 'could not tell whether a download is needed: '
-                '${_short(error)}'));
-        runtimeRecorded = true;
+                '${_short(error)}; not started, so nothing is downloaded '
+                'without consent'));
+        return PreflightStatus.notInstalled;
       }
       if (requirement != null) {
         final allowed = await consent(label, requirement);

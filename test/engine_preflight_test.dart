@@ -32,6 +32,16 @@ class _DownloadEngine extends ScriptedEngine implements DownloadAwareEngine {
   Future<EngineDownloadRequirement?> pendingDownload() async => requirement;
 }
 
+/// Cannot tell whether it needs a download (a failing cache lookup).
+class _UnknownDownloadEngine extends ScriptedEngine
+    implements DownloadAwareEngine {
+  _UnknownDownloadEngine() : super('Unknown cache');
+
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async =>
+      throw StateError('cache lookup failed');
+}
+
 /// Returns from initialize() normally while not ready — a contract violation.
 class _SilentFailureEngine extends ScriptedEngine {
   _SilentFailureEngine() : super('Silent');
@@ -183,6 +193,23 @@ void main() {
       expect(result.pendingDownload, same(requirement));
       expect(_step(result, PreflightStep.cleanup), PreflightStatus.passed);
       expect(result.toJson()['pendingDownload']['license'], 'GPL-3.0');
+    });
+
+    test('an unknown download state is not consent: the engine is not started',
+        () async {
+      final engine = _UnknownDownloadEngine();
+      var asked = false;
+      final result = await _check(engine, consent: (_, __) async {
+        asked = true;
+        return true;
+      });
+      expect(asked, isFalse, reason: 'there is no requirement to show');
+      expect(engine.initialised, isEmpty,
+          reason: 'initialize() would download without consent');
+      expect(result.status, PreflightStatus.notInstalled);
+      expect(_step(result, PreflightStep.runtime), PreflightStatus.notInstalled);
+      expect(_step(result, PreflightStep.cleanup), PreflightStatus.passed);
+      expect(engine.disposed, isTrue);
     });
 
     test('an approved download proceeds to initialization', () async {
