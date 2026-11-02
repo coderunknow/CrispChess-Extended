@@ -1785,4 +1785,121 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get engineLabImported => 'Lauf importiert.';
   @override
-  String get engineLabImportRenamed => 'Er wurde unter einer neuen Kennung gespeichert, damit der vorhandene Lauf erhalten bleibt.';}
+  String get engineLabImportRenamed => 'Er wurde unter einer neuen Kennung gespeichert, damit der vorhandene Lauf erhalten bleibt.';
+  @override
+  String get enginePreflight => 'Engine-Vorabprüfung';
+
+  @override
+  String get enginePreflightSubtitle => 'Jede Engine wird vor dem Benchmark gestartet, nach einem Zug gefragt und wieder beendet.';
+
+  @override
+  String get enginePreflightRun => 'Engines prüfen';
+
+  @override
+  String get enginePreflightRetry => 'Erneut prüfen';
+
+  @override
+  String get enginePreflightCopy => 'Diagnose kopieren';
+
+  @override
+  String get enginePreflightContinue => 'Mit bestandenen Engines fortfahren';
+
+  @override
+  String get enginePreflightReviewed => 'Ich habe die Ergebnisse geprüft; nicht bestandene Engines werden in diesem Lauf ausgelassen.';
+
+  @override
+  String get enginePreflightAcceptWarnings => 'Warnungen für diese Engine akzeptieren';
+
+  @override
+  String get enginePreflightNeedTwo => 'Für einen Benchmark müssen mindestens zwei Engines bestehen.';
+
+  @override
+  String get enginePreflightCancel => 'Prüfung abbrechen';
+
+  @override
+  String get enginePreflightDownloadTitle => 'Download erforderlich';
+
+  @override
+  String get enginePreflightDownloadBody => 'Diese Engine muss vor dem Start eine Datei herunterladen. Ohne Ihre Zustimmung wird nichts heruntergeladen.';
+
+  @override
+  String get enginePreflightDownloadAllow => 'Herunterladen';
+
+  @override
+  String get enginePreflightDownloadDeny => 'Diese Engine überspringen';
+
+  @override
+  String get enginePreflightSource => 'Quelle';
+
+  @override
+  String get enginePreflightLicense => 'Lizenz';
+
+  @override
+  String get enginePreflightStale => 'Veraltet — bitte erneut prüfen';
+
+  @override
+  String get enginePreflightDiagnostics => 'Diagnose';
+
+  @override
+  String get enginePreflightExcluded => 'In diesem Lauf ausgelassen';
+
+  @override
+  String get enginePreflightPassedCount => 'für den Lauf zugelassen';
+
+  @override
+  String get enginePreflightStatusPending => 'Wartet';
+
+  @override
+  String get enginePreflightStatusPassed => 'Bestanden';
+
+  @override
+  String get enginePreflightStatusWarning => 'Warnung';
+
+  @override
+  String get enginePreflightStatusFailed => 'Fehlgeschlagen';
+
+  @override
+  String get enginePreflightStatusUnsupported => 'Hier nicht unterstützt';
+
+  @override
+  String get enginePreflightStatusNotInstalled => 'Nicht installiert';
+
+  @override
+  String get enginePreflightStatusTimedOut => 'Zeitüberschreitung';
+
+  @override
+  String get enginePreflightStatusCancelled => 'Abgebrochen';
+
+  @override
+  String get enginePreflightStatusSkipped => 'Nicht ausgeführt';
+
+  @override
+  String get enginePreflightStepPlatform => 'Plattform';
+
+  @override
+  String get enginePreflightStepRuntime => 'Laufzeit';
+
+  @override
+  String get enginePreflightStepInitialization => 'Initialisierung';
+
+  @override
+  String get enginePreflightStepReadiness => 'Bereitschaft';
+
+  @override
+  String get enginePreflightStepIdentity => 'Identität';
+
+  @override
+  String get enginePreflightStepOptions => 'Optionen';
+
+  @override
+  String get enginePreflightStepFirstSearch => 'Erste Suche';
+
+  @override
+  String get enginePreflightStepLegalMove => 'Legaler Zug';
+
+  @override
+  String get enginePreflightStepCleanup => 'Aufräumen';
+
+  @override
+  String get engineLabRootCause => 'Ursache';
+}

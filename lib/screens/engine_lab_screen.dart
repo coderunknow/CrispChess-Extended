@@ -39,6 +39,7 @@ import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/engine_lab/lab_widgets.dart';
 import 'benchmark_report_screen.dart';
+import 'engine_preflight_screen.dart';
 
 class EngineLabScreen extends StatefulWidget {
   /// Tab to open on: 0 overview, 1 benchmark, 2 ratings, 3 history,
@@ -272,8 +273,41 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _snack(l?.engineLabPickTwo ?? 'Select at least two engines.', error: true);
       return;
     }
-    final validationPairings = _format == TournamentFormat.gauntlet ? _selected.length - 1 : _selected.length * (_selected.length - 1) ~/ 2;
-    final validation = validateConfig(_config, engineCount: _selected.length, pairings: validationPairings);
+    final selectedPairings = _format == TournamentFormat.gauntlet ? _selected.length - 1 : _selected.length * (_selected.length - 1) ~/ 2;
+    final selectedValidation = validateConfig(_config, engineCount: _selected.length, pairings: selectedPairings);
+    if (!selectedValidation.isValid) {
+      _snack(selectedValidation.errors.join(' '), error: true);
+      return;
+    }
+
+    // Engine Preflight: every selected engine must start, answer, search and
+    // shut down here before games are scheduled for it. Engines whose current
+    // result already admits them are not checked again; anything else opens
+    // the Preflight step, which returns the engines to run with only after
+    // the user has reviewed the results.
+    final admission =
+        await _service.preflightAdmission(_selected.toList(), _config);
+    if (!mounted) return;
+    List<String> engineIds = admission.admitted;
+    if (!admission.allAdmitted) {
+      final chosen = await EnginePreflightScreen.open(
+        context,
+        service: _service,
+        engineIds: _selected.toList(),
+        labels: {for (final c in _candidates) c.engineId: c.label},
+        config: _config,
+      );
+      if (chosen == null || !mounted) return;
+      engineIds = chosen;
+    }
+    if (engineIds.length < 2) {
+      _snack(l?.enginePreflightNeedTwo ??
+          'At least two engines must pass to run a benchmark.', error: true);
+      return;
+    }
+    final runReference = engineIds.contains(_referenceId) ? _referenceId : engineIds.first;
+    final validationPairings = _format == TournamentFormat.gauntlet ? engineIds.length - 1 : engineIds.length * (engineIds.length - 1) ~/ 2;
+    final validation = validateConfig(_config, engineCount: engineIds.length, pairings: validationPairings);
     if (!validation.isValid) {
       _snack(validation.errors.join(' '), error: true);
       return;
@@ -284,16 +318,16 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     // preview a number would be the kind of guess this feature exists to
     // avoid.
     final pairings = _format == TournamentFormat.gauntlet
-        ? math.max(0, _selected.length - 1)
-        : _selected.length * (_selected.length - 1) ~/ 2;
+        ? math.max(0, engineIds.length - 1)
+        : engineIds.length * (engineIds.length - 1) ~/ 2;
     final estimate = estimateWorkload(
       _config,
-      engineCount: _selected.length,
+      engineCount: engineIds.length,
       pairings: pairings,
     );
     final confirmed = await _confirmWorkload(
       l,
-      engineCount: _selected.length,
+      engineCount: engineIds.length,
       // The dialog quotes the estimate's own numbers, so it cannot promise a
       // different run from the one the planner will schedule.
       gamesPlanned: estimate.plannedGames,
@@ -318,11 +352,14 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     try {
       await _service.setLastConfig(_config);
       final runner = await _service.createRunner(
-        engineIds: _selected.toList(),
+        engineIds: engineIds,
         config: _config,
         format: _format,
         referenceEngineId:
-            _format == TournamentFormat.gauntlet ? _referenceId : null,
+            _format == TournamentFormat.gauntlet ? runReference : null,
+        // Re-checked inside: a binary replaced or a setting changed after the
+        // Preflight makes its result stale, and a stale result admits nothing.
+        requirePreflight: true,
         suites: _userSuites,
         anchor: null,
         anchors: _anchors,
@@ -1289,6 +1326,23 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           padding: const EdgeInsets.only(top: 8),
           child: Row(
             children: [
+              OutlinedButton.icon(
+                onPressed: _running || _selected.isEmpty
+                    ? null
+                    : () => EnginePreflightScreen.open(
+                          context,
+                          service: _service,
+                          engineIds: _selected.toList(),
+                          labels: {
+                            for (final c in _candidates) c.engineId: c.label
+                          },
+                          config: _config,
+                          allowContinue: false,
+                        ),
+                icon: const Icon(Icons.fact_check_outlined),
+                label: Text(l?.enginePreflightRun ?? 'Check engines'),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: FilledButton.icon(
                   onPressed: _running ? null : _start,
@@ -2063,6 +2117,18 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                if (report.rootCause != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: SelectableText(
+                      '${l?.engineLabRootCause ?? 'Root cause'}: '
+                      '${report.rootCause!['kind']} @ ${report.rootCause!['stage']}'
+                      '${report.rootCause!['exitCode'] != null ? ' · exit code ${report.rootCause!['exitCode']}' : ''}'
+                      '${report.rootCause!['backend'] != null ? ' · ${report.rootCause!['backend']}' : ''}',
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                   ),
                 if (report.failures.isNotEmpty)
