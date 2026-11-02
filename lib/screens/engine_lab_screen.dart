@@ -81,6 +81,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   // Run state
   BenchmarkRunner? _runner;
   bool _running = false;
+  // True from the tap on "Start benchmark" until that attempt ends, so a
+  // second tap while admission is computed or a dialog is open cannot start a
+  // second preparation (and a second Engine Preflight).
+  bool _starting = false;
   bool _paused = false;
   String _status = '';
   double _progress = 0;
@@ -268,6 +272,24 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   // ------------------------------------------------------------------ actions
 
   Future<void> _start() async {
+    if (_running || _starting) return;
+    setState(() => _starting = true);
+    try {
+      await _startNow();
+    } catch (error) {
+      // Preparation (admission, fingerprints, the Preflight step) failed
+      // before the run's own error handling took over.
+      if (mounted) {
+        final l = AppLocalizations.of(context);
+        _snack('${l?.engineLabFailed ?? 'The benchmark failed'}: $error',
+            error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  Future<void> _startNow() async {
     final l = AppLocalizations.of(context);
     if (_selected.length < 2) {
       _snack(l?.engineLabPickTwo ?? 'Select at least two engines.', error: true);
@@ -1334,10 +1356,15 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         ),
         Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: Row(
+          // Side by side when they fit, stacked when the localized labels do
+          // not (instead of squeezing the start button).
+          child: OverflowBar(
+            spacing: 8,
+            overflowSpacing: 8,
+            overflowAlignment: OverflowBarAlignment.start,
             children: [
               OutlinedButton.icon(
-                onPressed: _running || _selected.isEmpty
+                onPressed: _running || _starting || _selected.isEmpty
                     ? null
                     : () => EnginePreflightScreen.open(
                           context,
@@ -1352,15 +1379,12 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                 icon: const Icon(Icons.fact_check_outlined),
                 label: Text(l?.enginePreflightRun ?? 'Check engines'),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _running ? null : _start,
-                  icon: const Icon(Icons.play_arrow),
-                  label: Text(_running
-                      ? (l?.engineLabRunning ?? 'Running…')
-                      : (l?.startBenchmark ?? 'Start benchmark')),
-                ),
+              FilledButton.icon(
+                onPressed: _running || _starting ? null : _start,
+                icon: const Icon(Icons.play_arrow),
+                label: Text(_running
+                    ? (l?.engineLabRunning ?? 'Running…')
+                    : (l?.startBenchmark ?? 'Start benchmark')),
               ),
             ],
           ),

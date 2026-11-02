@@ -174,6 +174,36 @@ void main() {
     expect(service.isPreflighting, isFalse);
   });
 
+  test('a runner prepared before a Preflight cannot start during it',
+      () async {
+    final slow = _script('slow', '''
+    uci) sleep 1; echo "id name Slow"; echo "uciok" ;;
+    isready) echo "readyok" ;;
+    go*) echo "bestmove f1c4" ;;
+    quit) exit 0 ;;''');
+    final service = await _service(
+        [EngineProfile(id: 'slow', name: 'Slow', path: slow)]);
+    // Prepared first, while nothing else is going on.
+    final runner = await service.createRunner(
+        engineIds: [builtIn, 'custom:slow'], config: benchConfig());
+    addTearDown(runner.dispose);
+    final checking = service.preflight(
+      engineIds: ['custom:slow'],
+      config: benchConfig(),
+      consent: (_, __) async => false,
+      checker: _fast,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(service.isPreflighting, isTrue);
+    await expectLater(
+      service.runWithRunner(runner),
+      throwsA(isA<StateError>().having(
+          (e) => e.message, 'message', contains('Preflight'))),
+    );
+    expect(service.isRunning, isFalse);
+    await checking;
+  });
+
   test('a manual run refuses engines the preflight did not admit', () async {
     final service = await _service(const []);
     await expectLater(

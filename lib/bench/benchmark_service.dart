@@ -350,6 +350,9 @@ class BenchmarkService {
     // createRunner awaits profile/fingerprint IO, so two callers may both
     // finish construction before either reserves the shared service.
     if (_active != null || _creatingRunner) throw StateError('A benchmark is already running or being prepared.');
+    // A Preflight started between createRunner() and here is still starting
+    // and stopping engines; a run must not overlap it.
+    if (_preflighting) throw StateError('Engine Preflight is still running.');
     _active = runner;
     try {
       final run = await runner.run();

@@ -295,6 +295,16 @@ macOS-capacity notice). No step ran; every other job matched the previous green
 run. The session token cannot re-run jobs (HTTP 403), so CI was re-triggered by
 the next commit (a release-notes line wrap) instead of being treated as passed.
 
+### Tenth full review (a68368d)
+
+Review 5740207229 on the exact head a68368d: no Major findings, three Minor. CI on a68368d was green, including real Stockfish 16 11/11 (job 125399260919).
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| `runWithRunner` did not refuse while a Preflight runs, so a runner prepared earlier could start mid-Preflight | Minor | Fixed; service test |
+| A second tap on "Start benchmark" while admission is computed or a dialog is open started a second preparation (and Preflight); an admission error escaped `_start` unhandled | Minor | Fixed: a `_starting` flag guards re-entry and disables both buttons until the attempt ends; preparation errors are shown. Verified by analyzer and build only (no Engine Lab widget test exists) |
+| The start button was squeezed by `Expanded` next to a long localized "Check engines" | Minor | Fixed: `OverflowBar` (side by side when they fit, stacked otherwise). Analyzer and build only |
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned
