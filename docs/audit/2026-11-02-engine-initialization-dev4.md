@@ -254,6 +254,13 @@ requests only build and verify; `create-release` is tag-only.
 | Runner decided "started, then failed while configuring" from the engine's live state; a failed option sync leaves Stockfish in `error`, so a configuration failure got a startup diagnostic | Minor | Fixed: an explicit flag set once `requireEngineReady` passes; test |
 | Preflight's identity check warned on Lynx dev builds (`1.11.0-2e4b458f` vs `1.11.0`) | Minor | Fixed: a 7–40 character hex commit-hash suffix is the same release (`-rc1` is not); test |
 
+### Seventh full review (b6edbb9)
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| `EngineInitCoordinator.run` trusted a shared `ready` state. Several adapters' `stop()` set `ready` unconditionally, so `EngineService.stop()` after a failed start could make the next `initialize()` skip the start and return success with no model or runtime | Major | Fixed: the coordinator takes the ready shortcut only after a successful attempt (flag cleared when a new attempt begins). `stop()` in Lc0, Lc0 web, Maia3, Stockfish iOS, Stockfish web and Frozenight web now returns to `ready` only from `thinking`, as Lynx already did. Two contract tests |
+| `runAutomatic` threw (via `createRunner`) while Engine Preflight ran, despite "never throws for a refusal" | Minor | Fixed: it also refuses quietly while Preflight runs; test |
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned

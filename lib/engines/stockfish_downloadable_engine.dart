@@ -384,7 +384,11 @@ class StockfishDownloadableEngine
   @override
   void stop() {
     if (isSearching) _send('stop');
-    _stateNotifier.value = EngineState.ready;
+    // Only a live search goes back to `ready`: a failed or disposed engine
+    // must not be reported as usable.
+    if (_stateNotifier.value == EngineState.thinking) {
+      _stateNotifier.value = EngineState.ready;
+    }
   }
 
   @override

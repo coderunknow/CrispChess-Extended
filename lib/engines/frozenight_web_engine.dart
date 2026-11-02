@@ -260,7 +260,11 @@ class FrozenightEngine implements ChessEngine {
   @override
   void stop() {
     _stopped = true;
-    _stateNotifier.value = EngineState.ready;
+    // Only a live search goes back to `ready`: a failed or disposed engine
+    // must not be reported as usable.
+    if (_stateNotifier.value == EngineState.thinking) {
+      _stateNotifier.value = EngineState.ready;
+    }
   }
 
   @override

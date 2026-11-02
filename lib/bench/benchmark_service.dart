@@ -695,8 +695,9 @@ class BenchmarkService {
     final identity = decision.identity;
     final config = decision.config;
     if (!decision.shouldRun || identity == null || config == null) return null;
-    if (_active != null || _creatingRunner) {
-      debugPrint('[EngineLab] automatic run skipped: a benchmark is running or being prepared');
+    if (_active != null || _creatingRunner || _preflighting) {
+      debugPrint('[EngineLab] automatic run skipped: a benchmark or Engine '
+          'Preflight is running');
       return null;
     }
     final engineIds = [identity.engineId, ...decision.opponents];

@@ -145,6 +145,33 @@ void main() {
       expect(init.lastFailure, isNull);
     });
 
+    test('a ready state without a successful start is not trusted',
+        () async {
+      final state = ValueNotifier(EngineState.idle);
+      final init = _coordinator(state);
+      var attempt = 0;
+      Future<void> body(EngineInitScope scope) async {
+        attempt++;
+        if (attempt == 1) throw StateError('first try fails');
+      }
+
+      await expectLater(_run(init, body), throwsA(anything));
+      // What an adapter's stop() used to do after the failed start.
+      state.value = EngineState.ready;
+      await _run(init, body);
+      expect(attempt, 2, reason: 'the start must really run again');
+      expect(state.value, EngineState.ready);
+    });
+
+    test('a state set before any start does not skip initialization',
+        () async {
+      final state = ValueNotifier(EngineState.ready);
+      final init = _coordinator(state);
+      var bodies = 0;
+      await _run(init, (_) async => bodies++);
+      expect(bodies, 1);
+    });
+
     test('a non-retryable failure is returned again', () async {
       final init = _coordinator(ValueNotifier(EngineState.idle));
       var attempt = 0;

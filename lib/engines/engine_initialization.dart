@@ -566,6 +566,10 @@ class EngineInitCoordinator {
   final ValueNotifier<EngineState> _state;
   Future<void>? _pending;
   bool _disposed = false;
+  // Set only by a successful attempt and cleared when a new one begins. The
+  // shared state alone is not proof of a start: a `stop()` after a failed
+  // start could otherwise turn `error` into `ready` and skip initialization.
+  bool _succeeded = false;
   int _generation = 0;
   EngineInitializationException? _lastFailure;
   String _effectiveBackend = '';
@@ -605,7 +609,8 @@ class EngineInitCoordinator {
       ));
     }
     final current = _state.value;
-    if (current == EngineState.ready || current == EngineState.thinking) {
+    if (_succeeded &&
+        (current == EngineState.ready || current == EngineState.thinking)) {
       return Future<void>.value();
     }
     final pending = _pending;
@@ -639,6 +644,7 @@ class EngineInitCoordinator {
     final scope = EngineInitScope._(this, generation)..backend = backend;
     final watch = Stopwatch()..start();
     _lastFailure = null;
+    _succeeded = false;
     _setState(EngineState.initializing);
     try {
       await body(scope);
@@ -647,6 +653,7 @@ class EngineInitCoordinator {
       _effectiveBackend = scope.backend ?? backend;
       _fallbackReason = scope.fallbackReason;
       _detectedVersion = scope.detectedVersion;
+      _succeeded = true;
       _setState(EngineState.ready);
     } catch (error, stack) {
       String? cleanupProblem;

@@ -158,6 +158,18 @@ void main() {
           config: benchConfig()),
       throwsA(isA<StateError>()),
     );
+    // An automatic run is refused quietly, as documented: null, not a throw.
+    final identity = await service.identityFor('custom:slow');
+    expect(
+      await service.runAutomatic(AutoBenchmarkDecision(
+        shouldRun: true,
+        reason: 'test',
+        config: benchConfig(),
+        identity: identity,
+        opponents: [builtIn],
+      )),
+      isNull,
+    );
     await first;
     expect(service.isPreflighting, isFalse);
   });
