@@ -84,11 +84,13 @@ class _EnginePreflightScreenState extends State<EnginePreflightScreen> {
       if (previous != null) _results[id] = previous;
     }
     _refreshAdmission().then((_) {
-      // Check whatever has no current result; keep results that still match.
+      // Check whatever is not admitted by a current result. A current result
+      // with unreviewed warnings is kept for review instead of re-run.
+      final excluded = _admission?.excluded ?? const <String, String>{};
       final pending = [
         for (final id in widget.engineIds)
-          if (_admission?.admitted.contains(id) != true &&
-              _results[id]?.status != PreflightStatus.warning)
+          if (excluded.containsKey(id) &&
+              excluded[id] != 'warnings not reviewed')
             id
       ];
       if (pending.isNotEmpty) _check(pending);

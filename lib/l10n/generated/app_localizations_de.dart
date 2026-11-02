@@ -1902,4 +1902,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get engineLabRootCause => 'Ursache';
+
+  @override
+  String get enginePreflightReferenceExcluded => 'Die Referenz-Engine des Gauntlets hat die Engine-Vorabprüfung nicht bestanden.';
 }

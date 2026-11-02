@@ -305,7 +305,17 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           'At least two engines must pass to run a benchmark.', error: true);
       return;
     }
-    final runReference = engineIds.contains(_referenceId) ? _referenceId : engineIds.first;
+    // A gauntlet is measured against its reference; when the reference did
+    // not pass, the run is not quietly re-centred on another engine.
+    if (_format == TournamentFormat.gauntlet &&
+        _referenceId != null &&
+        !engineIds.contains(_referenceId)) {
+      _snack(l?.enginePreflightReferenceExcluded ??
+          'The gauntlet reference engine did not pass Engine Preflight.',
+          error: true);
+      return;
+    }
+    final runReference = _referenceId;
     final validationPairings = _format == TournamentFormat.gauntlet ? engineIds.length - 1 : engineIds.length * (engineIds.length - 1) ~/ 2;
     final validation = validateConfig(_config, engineCount: engineIds.length, pairings: validationPairings);
     if (!validation.isValid) {

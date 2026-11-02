@@ -837,5 +837,6 @@
   "enginePreflightStepFirstSearch": "First search",
   "enginePreflightStepLegalMove": "Legal move",
   "enginePreflightStepCleanup": "Cleanup",
-  "engineLabRootCause": "Root cause"
+  "engineLabRootCause": "Root cause",
+  "enginePreflightReferenceExcluded": "The gauntlet reference engine did not pass Engine Preflight."
 }

@@ -3315,6 +3315,9 @@ abstract class AppLocalizations {
 
   /// `engineLabRootCause`.
   String get engineLabRootCause;
+
+  /// `enginePreflightReferenceExcluded`.
+  String get enginePreflightReferenceExcluded;
 }
 
 class _AppLocalizationsDelegate

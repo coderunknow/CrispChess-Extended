@@ -599,5 +599,6 @@
   "enginePreflightStepFirstSearch": "Erste Suche",
   "enginePreflightStepLegalMove": "Legaler Zug",
   "enginePreflightStepCleanup": "Aufräumen",
-  "engineLabRootCause": "Ursache"
+  "engineLabRootCause": "Ursache",
+  "enginePreflightReferenceExcluded": "Die Referenz-Engine des Gauntlets hat die Engine-Vorabprüfung nicht bestanden."
 }
