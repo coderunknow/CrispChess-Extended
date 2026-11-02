@@ -62,9 +62,11 @@ void main() {
         reason: results[builtIn]!.toDiagnosticText());
     expect(results[gone]!.status, PreflightStatus.unsupported);
 
-    // Both engines are shown; the one that did not pass is not hidden.
+    // Both engines are shown; the one that did not pass is not hidden. Its
+    // profile no longer exists, so the card names it the way the rest of the
+    // Lab does (engineLabelForId) rather than by a stale caller label.
     expect(find.text('Built-in'), findsWidgets);
-    expect(find.text('Gone engine'), findsOneWidget);
+    expect(find.text('Removed engine'), findsOneWidget);
     expect(find.text('Not supported here'), findsWidgets);
     expect(find.textContaining('Left out of this run: unsupported'),
         findsOneWidget);
