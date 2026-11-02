@@ -217,7 +217,16 @@ class GenericUciEngine
       }
 
       _initStage = EngineInitStage.launchProcess;
+      if (_isDisposed) {
+        throw StateError('Engine disposed during initialization');
+      }
       _process = await Process.start(profile.path, []);
+      if (_isDisposed) {
+        // Disposed while the process was starting: dispose() could not kill
+        // it, and nothing would release a handshake started now.
+        await _teardownProcess(announce: false);
+        throw StateError('Engine disposed during initialization');
+      }
       watchProcess(_process!);
       _initStage = EngineInitStage.handshake;
 

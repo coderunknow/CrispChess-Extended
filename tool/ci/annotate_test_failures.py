@@ -48,7 +48,10 @@ def main(argv):
             errors.setdefault(event['testID'], []).append(
                 (event.get('error', ''), event.get('stackTrace', '')))
         elif kind == 'testDone':
-            if event.get('hidden'):
+            # Hidden entries are the reporter's own (loading a file, setUpAll,
+            # tearDownAll); a compile error or a failing setUpAll is reported
+            # only there, so keep those when they failed.
+            if event.get('hidden') and event.get('result') not in ('failure', 'error'):
                 continue
             outcome = 'skipped' if event.get('skipped') else event.get('result')
             results.append((event['testID'], outcome))

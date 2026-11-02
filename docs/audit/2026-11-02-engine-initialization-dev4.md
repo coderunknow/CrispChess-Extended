@@ -229,3 +229,15 @@ requests only build and verify; `create-release` is tag-only.
 | Finding | Severity | Disposition |
 |---|---|---|
 | iOS Stockfish (WebKit): `_start` re-read the handshake completer fields with `!` after awaiting the method channel; `uciok`/`readyok` or a harness error delivered first cleared them, giving a null-check TypeError instead of ready or the real worker error | Major | Fixed: completers held in locals (fields stay for `_handleOutput`/`dispose`, which complete before clearing). The web adapter's `_send` is synchronous and has no await between creation and read, so it is unaffected |
+
+### Fourth full review (a2e32eb)
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Custom UCI: dispose during `File.exists()`/`Process.start()` left the new process running through the handshake timeout | Minor | Fixed: disposed checks before and right after launch; the new process is torn down and the start ends as a cancellation (the window is a single await, so it has no timing-based test) |
+| Annotator skipped hidden reporter entries even when they failed (compile errors, `setUpAll`) | Minor | Fixed: failed hidden entries are kept |
+
+Stop condition for the review loop: the final head needs a genuine full
+review with every Major finding fixed. Minor findings on that head are either
+fixed, which makes a new head and needs a new full review, or dispositioned
+here with a rationale and left unchanged.
