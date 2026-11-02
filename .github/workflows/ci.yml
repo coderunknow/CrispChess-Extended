@@ -124,6 +124,89 @@ jobs:
           { echo '### CI integration test failure'; echo '```'; tail -c 60000 integration-log/integration-tests.log; echo '```'; } > integration-comment.md
           gh pr comment '${{ github.event.pull_request.number }}' --repo '${{ github.repository }}' --body-file integration-comment.md
 
+  # Genuine Stockfish 16 through the app's built-in Stockfish adapter, the
+  # Engine Preflight and the custom-UCI code path. Built from official source
+  # at a pinned commit (never committed, never bundled with the app: GPL-3.0),
+  # NNUE net validated by its content hash. The tests fail rather than skip
+  # when the binary is missing (CRISP_*_REQUIRED=1).
+  stockfish16-real:
+    name: Real Stockfish 16 (Linux x86-64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SF_TAG: sf_16
+      SF_COMMIT: 68e1e9b3811e16cad014b590d7443b9063b3eb52
+      SF_NET: nn-5af11540bbfe.nnue
+      SF_ARCH: x86-64-sse41-popcnt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build Stockfish 16 from pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch "$SF_TAG" https://github.com/official-stockfish/Stockfish.git "$RUNNER_TEMP/sf"
+          cd "$RUNNER_TEMP/sf"
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$SF_COMMIT" ]; then
+            echo "::error::$SF_TAG resolved to $actual, expected $SF_COMMIT"; exit 1
+          fi
+          cd src
+          grep -q "\"$SF_NET\"" evaluate.h || { echo "::error::evaluate.h does not name $SF_NET"; exit 1; }
+          make -j2 net
+          prefix=$(sha256sum "$SF_NET" | cut -c1-12)
+          if [ "nn-$prefix.nnue" != "$SF_NET" ]; then
+            echo "::error::NNUE net content hash $prefix does not match $SF_NET"; exit 1
+          fi
+          make -j2 build ARCH="$SF_ARCH" COMP=gcc
+          id=$(printf 'uci\nquit\n' | ./stockfish | grep '^id name' || true)
+          echo "$id"
+          if [ "$id" != "id name Stockfish 16" ]; then
+            echo "::error::built binary reports '$id'"; exit 1
+          fi
+          {
+            echo "### Stockfish 16 under test"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| source | official-stockfish/Stockfish \`$SF_TAG\` @ \`$SF_COMMIT\` |"
+            echo "| arch | \`$SF_ARCH\` (gcc $(gcc -dumpfullversion)) |"
+            echo "| net | \`$SF_NET\` sha256 \`$(sha256sum "$SF_NET" | cut -d' ' -f1)\` |"
+            echo "| binary sha256 | \`$(sha256sum stockfish | cut -d' ' -f1)\` |"
+            echo "| reports | $id |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "SF16_BIN=$RUNNER_TEMP/sf/src/stockfish" >> "$GITHUB_ENV"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Stockfish 16 through the built-in adapter, Preflight and custom UCI
+        shell: bash
+        env:
+          CRISP_STOCKFISH16_REQUIRED: "1"
+          CRISP_UCI_ENGINE_REQUIRED: "1"
+        run: |
+          set -o pipefail
+          export CRISPCHESS_STOCKFISH_PATH="$SF16_BIN"
+          export CRISP_UCI_ENGINE="$SF16_BIN"
+          flutter test test/stockfish16_integration_test.dart test/real_uci_engine_test.dart --reporter expanded 2>&1 | tee sf16-tests.log
+      - name: Surface failed tests as check annotations
+        if: failure()
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path = Path('sf16-tests.log')
+          if path.exists():
+              lines = path.read_text(errors='replace').splitlines()
+              for i, line in enumerate(lines):
+                  if '[E]' in line or 'Expected:' in line or 'Error:' in line:
+                      block = '\n'.join(lines[max(0, i - 2):i + 25])[:9000]
+                      block = block.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                      print('::error title=Stockfish 16::' + block)
+          PYTHON
+
   # Plays the engines against each other and fails on an illegal move, a throw
   # or a hang. Every engine bug this session cost a tournament to notice:
   # Frozenight applying no moves at all and answering for the wrong side, then

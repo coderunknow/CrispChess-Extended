@@ -37,10 +37,21 @@ const String _whiteMatesInOne = '7k/5K2/8/8/8/8/8/6R1 w - - 0 1';
 /// The same position mirrored: Black mates in one.
 const String _blackMatesInOne = '6r1/8/8/8/8/8/5k2/7K b - - 0 1';
 
+/// Set by CI jobs that provide a real engine: a missing engine is then a
+/// failure, not a skip, so the job cannot go green without running anything.
+final bool _required = Platform.environment['CRISP_UCI_ENGINE_REQUIRED'] == '1';
+
 void main() {
   final skipReason = _enginePath == null
       ? 'set CRISP_UCI_ENGINE to a UCI engine binary to run these'
       : false;
+
+  test('a real engine is present when the job requires one', () {
+    expect(_enginePath, isNotNull,
+        reason: 'CRISP_UCI_ENGINE_REQUIRED=1 but CRISP_UCI_ENGINE is not set');
+    expect(File(_enginePath!).existsSync(), isTrue,
+        reason: 'CRISP_UCI_ENGINE does not name an existing file');
+  }, skip: _required ? false : 'CRISP_UCI_ENGINE_REQUIRED is not set');
 
   group('real UCI engine', () {
     test('completes the handshake and reports what it is', () async {
