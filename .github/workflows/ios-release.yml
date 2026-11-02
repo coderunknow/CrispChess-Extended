@@ -3,7 +3,12 @@ name: iOS Release (App Store)
 # Builds, signs and uploads the iOS app to App Store Connect from CI.
 #
 # Triggers:
-#   * push a tag matching v*        -> full build + upload (a real release)
+#   * push a stable tag (vX.Y.Z)    -> full build + upload (a real release)
+#     Development prerelease tags (v*-dev*, e.g. v2.3.2-dev4) do NOT trigger
+#     this workflow: they are GitHub prereleases only. The tag filter excludes
+#     them and the job and upload/submit steps check again, so a dev tag can
+#     never reach App Store Connect or TestFlight. A dev build can still be
+#     sent deliberately with "Run workflow" (dry_run=false).
 #   * manual "Run workflow"         -> choose dry_run=true to build+sign WITHOUT
 #                                      uploading (validates signing safely)
 #
@@ -27,7 +32,9 @@ name: iOS Release (App Store)
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
+      - '!v*-dev*'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -83,7 +90,7 @@ jobs:
             --app-id '${{ secrets.ASC_APP_ID }}' --status | tee -a "$GITHUB_STEP_SUMMARY"
 
   build-upload:
-    if: ${{ !inputs.status_only }}
+    if: ${{ !inputs.status_only && !(github.event_name == 'push' && contains(github.ref_name, '-dev')) }}
     runs-on: macos-latest
     timeout-minutes: 40
     steps:
@@ -225,7 +232,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload to App Store Connect
-        if: ${{ !inputs.submit_only && (github.event_name == 'push' || inputs.dry_run == false) }}
+        if: ${{ !inputs.submit_only && ((github.event_name == 'push' && !contains(github.ref_name, '-dev')) || inputs.dry_run == false) }}
         run: |
           set -euo pipefail
           read -r VER BUILD < <(python3 -c 'from tools.release_version import read_version; print(*read_version())')
@@ -242,7 +249,7 @@ jobs:
       # available to internal testers only. External testing needs the build
       # attached to an external group and passed through Beta App Review.
       - name: Submit to external TestFlight
-        if: ${{ github.event_name == 'push' || inputs.dry_run == false || inputs.submit_only }}
+        if: ${{ (github.event_name == 'push' && !contains(github.ref_name, '-dev')) || inputs.dry_run == false || inputs.submit_only }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}

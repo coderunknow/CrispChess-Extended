@@ -39,11 +39,50 @@ jobs:
           cache: true
       - run: flutter pub get
       - name: Analyze
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.log
+      # Job logs are not always readable from where a fix is made; the
+      # analyzer's warnings and errors are repeated as check annotations.
+      # Informational only: it neither fails nor relaxes the step above.
+      - name: Surface analyzer warnings as check annotations
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import re
+          from pathlib import Path
+          path = Path('analyze.log')
+          if path.exists():
+              for line in path.read_text(errors='replace').splitlines():
+                  m = re.match(r'\s*(warning|error) • (.*) • (\S+?):(\d+):\d+ • (\S+)', line)
+                  if m:
+                      level, message, file, row, code = m.groups()
+                      print(f'::{level} file={file},line={row},title={code}::{message}')
+          PYTHON
       # Was `continue-on-error: true`, which meant a red suite still showed a
       # green CI — the check existed but could not fail.
       - name: Run tests
-        run: flutter test
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee unit-tests.log
+      - name: Surface failed tests as check annotations
+        if: failure()
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          path = Path('unit-tests.log')
+          if path.exists():
+              lines = path.read_text(errors='replace').splitlines()
+              shown = 0
+              for i, line in enumerate(lines):
+                  if shown < 20 and ('[E]' in line or 'Error:' in line or 'Expected:' in line):
+                      block = '\n'.join(lines[max(0, i - 2):i + 25])[:9000]
+                      block = block.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                      print('::error title=Unit test failure::' + block)
+                      shown += 1
+          PYTHON
       - name: Install Linux desktop integration-test dependencies
         run: |
           sudo apt-get update

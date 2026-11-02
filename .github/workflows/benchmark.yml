@@ -27,9 +27,14 @@ on:
       - 'lib/widgets/engine_lab/**'
       - 'lib/screens/engine_lab_screen.dart'
       - 'lib/screens/benchmark_report_screen.dart'
+      - 'lib/screens/engine_preflight_screen.dart'
+      - 'lib/engines/**'
       - 'lib/services/engine_match_service.dart'
       - 'lib/l10n/**'
       - 'test/bench_*_test.dart'
+      - 'test/engine_preflight_test.dart'
+      - 'test/stockfish_runtime_test.dart'
+      - 'test/stability_probe_test.dart'
       - 'tool/bench/**'
       - '.github/workflows/benchmark.yml'
   pull_request:
@@ -39,9 +44,14 @@ on:
       - 'lib/widgets/engine_lab/**'
       - 'lib/screens/engine_lab_screen.dart'
       - 'lib/screens/benchmark_report_screen.dart'
+      - 'lib/screens/engine_preflight_screen.dart'
+      - 'lib/engines/**'
       - 'lib/services/engine_match_service.dart'
       - 'lib/l10n/**'
       - 'test/bench_*_test.dart'
+      - 'test/engine_preflight_test.dart'
+      - 'test/stockfish_runtime_test.dart'
+      - 'test/stability_probe_test.dart'
       - 'tool/bench/**'
       - '.github/workflows/benchmark.yml'
   workflow_dispatch:
@@ -119,6 +129,9 @@ jobs:
           flutter test \
             test/bench*_test.dart \
             test/generic_uci_*_test.dart \
+            test/engine_preflight_test.dart \
+            test/stockfish_runtime_test.dart \
+            test/stability_probe_test.dart \
             test/lab_rating_bar_test.dart \
             test/lab_opening_policy_test.dart \
             test/lab_prior_findings_test.dart \

@@ -267,6 +267,13 @@ class BenchmarkService {
     if (_active != null || _creatingRunner) {
       throw StateError('A benchmark is already running or being prepared.');
     }
+    if (_preflighting) {
+      throw StateError('Engine Preflight is still running.');
+    }
+    _creatingRunner = true;
+    try {
+    // Checked while this preparation holds the service, so no preflight can
+    // change the results between the check and the run.
     if (requirePreflight) {
       // The Lab's manual runs: only engines whose current Preflight result
       // admits them. Never silently narrowed — the caller passes exactly the
@@ -280,11 +287,6 @@ class BenchmarkService {
         throw StateError('Engine Preflight does not admit: $refused');
       }
     }
-    if (_preflighting) {
-      throw StateError('Engine Preflight is still running.');
-    }
-    _creatingRunner = true;
-    try {
     if (engineIds.length < 2) {
       throw ArgumentError('A benchmark needs at least two engines.');
     }
