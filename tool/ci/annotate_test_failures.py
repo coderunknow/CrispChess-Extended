@@ -17,14 +17,17 @@ def escape(text: str) -> str:
 
 
 def main(argv):
-    if len(argv) < 2:
+    args = [a for a in argv[1:] if not a.startswith('--')]
+    if not args:
         return 0
-    title = argv[2] if len(argv) > 2 else 'Test failure'
-    path = Path(argv[1])
+    title = args[1] if len(args) > 1 else 'Test failure'
+    path = Path(args[0])
     if not path.exists():
         print(f'::warning title={title}::no test report at {path}')
         return 0
+    summary = '--summary' in argv
     names, files, errors, failed = {}, {}, {}, []
+    results = []
     suites = {}
     for line in path.read_text(errors='replace').splitlines():
         try:
@@ -41,8 +44,13 @@ def main(argv):
         elif kind == 'error':
             errors.setdefault(event['testID'], []).append(
                 (event.get('error', ''), event.get('stackTrace', '')))
-        elif kind == 'testDone' and event.get('result') in ('failure', 'error'):
-            failed.append(event['testID'])
+        elif kind == 'testDone':
+            if event.get('hidden'):
+                continue
+            outcome = 'skipped' if event.get('skipped') else event.get('result')
+            results.append((event['testID'], outcome))
+            if event.get('result') in ('failure', 'error'):
+                failed.append(event['testID'])
     for test_id in failed[:30]:
         parts = []
         for error, stack in errors.get(test_id, []):
@@ -50,7 +58,15 @@ def main(argv):
             parts.append('\n'.join(stack.strip().splitlines()[:8]))
         body = f"{files.get(test_id) or ''}: {names.get(test_id, test_id)}\n" + '\n'.join(parts)
         print(f'::error title={title}::' + escape(body[:8000]))
-    if not failed:
+    if summary:
+        counts = {}
+        lines = []
+        for test_id, outcome in results:
+            counts[outcome] = counts.get(outcome, 0) + 1
+            lines.append(f'{outcome}: {names.get(test_id, test_id)}')
+        head = ', '.join(f'{v} {k}' for k, v in sorted(counts.items()))
+        print(f'::notice title={title} results::' + escape((head + '\n' + '\n'.join(lines))[:8000]))
+    elif not failed:
         print(f'::notice title={title}::no failed tests in {path}')
     return 0
 

@@ -174,11 +174,14 @@ class EngineService {
       return true;
     } catch (e, stack) {
       if (!_disposed) {
-        // The structured summary names the engine, the step that failed and
-        // why ("… could not start: no Stockfish executable was found …"),
-        // instead of a multi-line exception dump.
+        // The structured summary leads (engine, failed step, why — "…
+        // could not start: no Stockfish executable was found …"); the full
+        // local details (stage=, library/runtime path, exit code) follow, as
+        // they did before. This event stays on the device; exported reports
+        // use the redacted toJson() instead.
         final failure = engineFailureOf(_engine, e, stack);
-        _eventController.add(EngineErrorEvent('Init failed: ${failure.summary}',
+        _eventController.add(EngineErrorEvent(
+            'Init failed: ${failure.summary}\nDetails: $failure',
             kind: EngineFailure.startup));
       }
       return false;

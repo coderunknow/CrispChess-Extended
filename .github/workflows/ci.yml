@@ -182,6 +182,11 @@ jobs:
       - name: Surface failed tests as check annotations
         if: failure()
         run: python3 tool/ci/annotate_test_failures.py sf16-tests.json 'Stockfish 16'
+      # Which real-engine tests ran, passed or were skipped — evidence that a
+      # green job executed the genuine engine rather than skipping it.
+      - name: Report real-engine test results
+        if: always()
+        run: python3 tool/ci/annotate_test_failures.py sf16-tests.json 'Stockfish 16' --summary
 
   # Plays the engines against each other and fails on an illegal move, a throw
   # or a hang. Every engine bug this session cost a tournament to notice:
