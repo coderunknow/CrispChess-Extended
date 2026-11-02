@@ -1820,7 +1820,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get enginePreflightDownloadTitle => 'Download erforderlich';
 
   @override
-  String get enginePreflightDownloadBody => 'Diese Engine muss vor dem Start eine Datei herunterladen. Ohne Ihre Zustimmung wird nichts heruntergeladen.';
+  String get enginePreflightDownloadBody => 'Diese Engine muss vor dem Start eine Datei herunterladen. Ohne deine Zustimmung wird nichts heruntergeladen.';
 
   @override
   String get enginePreflightDownloadAllow => 'Herunterladen';

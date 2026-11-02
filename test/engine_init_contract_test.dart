@@ -333,6 +333,35 @@ void main() {
       final identity = EngineIdentity.forBuiltIn(
           name: 'Stockfish', engineVersion: '16', appBuild: 'x');
       expect(identity.toJson().containsKey('fallbackReason'), isFalse);
+      expect(identity.toJson().containsKey('sourceFingerprint'), isFalse);
+      expect(identity.toJson().containsKey('sourceBackend'), isFalse);
+    });
+
+    // A stored run keeps the runtime-refined identity; automatic change
+    // detection compares it with the registry's unrefined one. Refinements
+    // must not read as a change, or every check would re-run the benchmark.
+    test('runtime refinements are not a change for automatic detection', () {
+      final assumed = EngineIdentity.forBuiltIn(
+          name: 'Stockfish', engineVersion: '16', appBuild: 'x');
+      final refined = assumed
+          .withRuntime(
+              detectedVersion: '17',
+              backend: 'onnx-dart',
+              fallbackReason: 'native runtime missing')
+          .withAdvertisedOptions(const ['Hash', 'Threads']);
+      final stored = EngineIdentity.fromJson(
+          jsonDecode(jsonEncode(refined.toJson())) as Map<String, dynamic>);
+      expect(stored.fingerprint, isNot(assumed.fingerprint));
+      expect(stored.backend, isNot(assumed.backend));
+      expect(assumed.changeFrom(stored, sourceOnly: true), isNull);
+      expect(stored.changeFrom(assumed, sourceOnly: true), isNull);
+      // Measurements still differ: the refined run is its own cohort.
+      expect(assumed.changeFrom(stored), isNotNull);
+      expect(stored.identityKey, isNot(assumed.identityKey));
+      // A genuinely different build is still detected.
+      final rebuilt = EngineIdentity.forBuiltIn(
+          name: 'Stockfish', engineVersion: '16', appBuild: 'y');
+      expect(rebuilt.changeFrom(stored, sourceOnly: true), 'binary changed');
     });
   });
 }

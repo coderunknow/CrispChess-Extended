@@ -153,6 +153,14 @@ class EngineIdentity {
   /// did. Such a run is in its own cohort: see [withRuntime].
   final String? fallbackReason;
 
+  /// The fingerprint and backend the registry assumed before [withRuntime]
+  /// refined them, when it changed them. Automatic change detection compares
+  /// these ("what is configured") so that a run storing the refined identity
+  /// does not make the next check report a change and re-run forever — the
+  /// same reason [sourceConfigurationDigest] exists. Null when not refined.
+  final String? sourceFingerprint;
+  final String? sourceBackend;
+
   const EngineIdentity({
     required this.engineId,
     required this.displayName,
@@ -171,6 +179,8 @@ class EngineIdentity {
     this.sourceConfigurationDigest,
     this.configuration = const {},
     this.fallbackReason,
+    this.sourceFingerprint,
+    this.sourceBackend,
   });
 
   /// Identity of a built-in engine.
@@ -285,6 +295,8 @@ class EngineIdentity {
               ..sort()),
         configuration: Map.unmodifiable(configuration),
         fallbackReason: fallbackReason,
+        sourceFingerprint: sourceFingerprint,
+        sourceBackend: sourceBackend,
       );
 
   /// Identity refined once the engine has advertised its options.
@@ -308,6 +320,8 @@ class EngineIdentity {
       configurationDigest: configurationDigest,
         configuration: configuration,
         fallbackReason: fallbackReason,
+        sourceFingerprint: sourceFingerprint,
+        sourceBackend: sourceBackend,
       );
 
   /// Identity refined once the engine has reported its own name/version.
@@ -336,6 +350,8 @@ class EngineIdentity {
       configurationDigest: configurationDigest,
       configuration: configuration,
       fallbackReason: fallbackReason,
+      sourceFingerprint: sourceFingerprint,
+      sourceBackend: sourceBackend,
     );
   }
 
@@ -388,6 +404,11 @@ class EngineIdentity {
       configuration: configuration,
       fallbackReason:
           fellBack ? redactPersonalPaths(fallbackReason) : this.fallbackReason,
+      sourceFingerprint: nextFingerprint != fingerprint
+          ? sourceFingerprint ?? fingerprint
+          : sourceFingerprint,
+      sourceBackend:
+          nextBackend != this.backend ? sourceBackend ?? this.backend : sourceBackend,
     );
   }
 
@@ -436,8 +457,18 @@ class EngineIdentity {
   String? changeFrom(EngineIdentity other, {bool sourceOnly = false}) {
     if (engineId != other.engineId) return 'different engine';
     if (platform != other.platform) return 'platform changed';
-    if (backend != other.backend) return 'execution backend changed';
-    if (fingerprint != other.fingerprint) return 'binary changed';
+    // With [sourceOnly], runtime refinements ([withRuntime]) are not changes:
+    // the registry cannot know them before the engine starts.
+    final currentBackend = sourceOnly ? sourceBackend ?? backend : backend;
+    final previousBackend =
+        sourceOnly ? other.sourceBackend ?? other.backend : other.backend;
+    if (currentBackend != previousBackend) return 'execution backend changed';
+    final currentFingerprint =
+        sourceOnly ? sourceFingerprint ?? fingerprint : fingerprint;
+    final previousFingerprint = sourceOnly
+        ? other.sourceFingerprint ?? other.fingerprint
+        : other.fingerprint;
+    if (currentFingerprint != previousFingerprint) return 'binary changed';
     final currentConfig = sourceOnly
         ? sourceConfigurationDigest ?? configurationDigest : configurationDigest;
     final previousConfig = sourceOnly
@@ -468,6 +499,8 @@ class EngineIdentity {
           'sourceConfigurationDigest': sourceConfigurationDigest,
         if (configuration.isNotEmpty) 'configuration': configuration,
         if (fallbackReason != null) 'fallbackReason': fallbackReason,
+        if (sourceFingerprint != null) 'sourceFingerprint': sourceFingerprint,
+        if (sourceBackend != null) 'sourceBackend': sourceBackend,
         'fingerprintScheme': kFingerprintScheme,
       };
 
@@ -514,6 +547,9 @@ class EngineIdentity {
       configurationDigest: str('configurationDigest', 'unknown'),
       configuration: config,
       fallbackReason: str('fallbackReason').isEmpty ? null : str('fallbackReason'),
+      sourceFingerprint:
+          str('sourceFingerprint').isEmpty ? null : str('sourceFingerprint'),
+      sourceBackend: str('sourceBackend').isEmpty ? null : str('sourceBackend'),
     );
   }
 

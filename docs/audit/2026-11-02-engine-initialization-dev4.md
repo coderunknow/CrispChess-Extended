@@ -215,3 +215,11 @@ requests only build and verify; `create-release` is tag-only.
 | README implied automatic runs are preflighted | Minor | Fixed: manual runs; automatic runs keep their rules |
 | Contract test attached the second matcher after the shared failure could be delivered | Minor | Fixed: both matchers attached before completing |
 | Annotator repeated failures in `--summary` mode | Minor | Fixed |
+
+### Second full review (7f8be3a)
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Runtime-refined identities (detected version, fallback backend) stored in runs made automatic change detection report a change against the registry's unrefined identity, so automatic benchmarks could repeat (regression from `withRuntime` in this PR) | Major | Fixed: `withRuntime` keeps the assumed fingerprint/backend (`sourceFingerprint`, `sourceBackend`, exported only when set); `changeFrom(sourceOnly: true)` compares those, `identityKey`/cohorts are unchanged; test in `engine_init_contract_test.dart` |
+| Custom UCI: dispose during the handshake waited for the 10 s timeout and was classified `handshakeTimeout` | Minor | Fixed: dispose releases the handshake wait; caller disposal is `cancelled`; test in `generic_uci_init_test.dart` |
+| German consent text used formal "Ihre" | Minor | Fixed: "deine" |

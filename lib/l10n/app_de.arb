@@ -572,7 +572,7 @@
   "enginePreflightNeedTwo": "Für einen Benchmark müssen mindestens zwei Engines bestehen.",
   "enginePreflightCancel": "Prüfung abbrechen",
   "enginePreflightDownloadTitle": "Download erforderlich",
-  "enginePreflightDownloadBody": "Diese Engine muss vor dem Start eine Datei herunterladen. Ohne Ihre Zustimmung wird nichts heruntergeladen.",
+  "enginePreflightDownloadBody": "Diese Engine muss vor dem Start eine Datei herunterladen. Ohne deine Zustimmung wird nichts heruntergeladen.",
   "enginePreflightDownloadAllow": "Herunterladen",
   "enginePreflightDownloadDeny": "Diese Engine überspringen",
   "enginePreflightSource": "Quelle",

@@ -115,6 +115,9 @@ class GenericUciEngine
   /// Whether the engine answered `uciok` in the last handshake.
   bool _handshakeComplete = false;
 
+  /// The wait for `uciok` in flight, released by [dispose].
+  Completer<void>? _handshakeReady;
+
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
   static final _mateRegex = RegExp(r'score mate (-?\d+)');
   static final _depthRegex = RegExp(r'depth (\d+)');
@@ -218,7 +221,9 @@ class GenericUciEngine
       watchProcess(_process!);
       _initStage = EngineInitStage.handshake;
 
-      final ready = Completer<void>();
+      // Kept in a field so that dispose() can release this wait too: it
+      // cancels the stdout subscription, whose onDone would otherwise do it.
+      final ready = _handshakeReady = Completer<void>();
       _handshakeComplete = false;
       options.clear();
       _detectedName = '';
@@ -257,6 +262,12 @@ class GenericUciEngine
           '${handshakeTimeout.inMilliseconds}ms',
           handshakeTimeout,
         );
+      }
+
+      if (_isDisposed) {
+        // Disposed while the handshake was running: a cancellation, not a
+        // handshake timeout or a dead process.
+        throw StateError('Engine disposed during initialization');
       }
 
       if (!_handshakeComplete) {
@@ -330,7 +341,11 @@ class GenericUciEngine
       {EngineProcessDiedException? death}) {
     final stage = _initStage;
     EngineFailureKind? kind;
-    if (error is FileSystemException && stage == EngineInitStage.resolveRuntime) {
+    if (_disposedByCaller) {
+      // The caller went away; however the wait ended, it is not a fault.
+      kind = EngineFailureKind.cancelled;
+    } else if (error is FileSystemException &&
+        stage == EngineInitStage.resolveRuntime) {
       kind = EngineFailureKind.binaryMissing;
     } else if (error is ProcessException) {
       // EACCES (13) on POSIX, ERROR_ACCESS_DENIED (5) on Windows.
@@ -338,8 +353,6 @@ class GenericUciEngine
       kind = code == 13 || (Platform.isWindows && code == 5)
           ? EngineFailureKind.permissionDenied
           : EngineFailureKind.processLaunchFailed;
-    } else if (error is StateError && _disposedByCaller) {
-      kind = EngineFailureKind.cancelled;
     } else if (death != null || (error is StateError && processGone)) {
       kind = EngineFailureKind.processExited;
     } else if (error is StateError && stage == EngineInitStage.readiness) {
@@ -714,6 +727,9 @@ class GenericUciEngine
     final ready = _readyOk;
     _readyOk = null;
     if (ready != null && !ready.isCompleted) ready.complete();
+    final handshake = _handshakeReady;
+    _handshakeReady = null;
+    if (handshake != null && !handshake.isCompleted) handshake.complete();
     resetSearches();
     _send('quit');
     _stdoutSub?.cancel();
