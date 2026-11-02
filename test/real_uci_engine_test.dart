@@ -134,6 +134,15 @@ void main() {
           .analyze('position fen $_whiteMatesInOne', depth: 6)
           .first
           .timeout(const Duration(seconds: 30));
+      // Let the first search finish before asking about the second position.
+      // The analysis stream is shared, and by design (see "an eval still
+      // arriving from the stopped search keeps its colour" in
+      // generic_uci_init_test.dart) the late `info` lines of a search being
+      // stopped are still delivered, converted with *their* position's colour.
+      // Without this wait `.first` below can pick up White's +mate line from
+      // the first search — which is what genuine Stockfish 16 does, being fast
+      // enough that its remaining lines are still queued when `.first` returns.
+      await engine.drainSearch();
       final black = await engine
           .analyze('position fen $_blackMatesInOne', depth: 6)
           .first

@@ -28,6 +28,7 @@ def main(argv):
     summary = '--summary' in argv
     names, files, errors, failed = {}, {}, {}, []
     results = []
+    prints = {}
     suites = {}
     for line in path.read_text(errors='replace').splitlines():
         try:
@@ -41,6 +42,8 @@ def main(argv):
             test = event['test']
             names[test['id']] = test.get('name', '?')
             files[test['id']] = suites.get(test.get('suiteID'))
+        elif kind == 'print':
+            prints.setdefault(event.get('testID'), []).append(event.get('message', ''))
         elif kind == 'error':
             errors.setdefault(event['testID'], []).append(
                 (event.get('error', ''), event.get('stackTrace', '')))
@@ -56,6 +59,11 @@ def main(argv):
         for error, stack in errors.get(test_id, []):
             parts.append(error.strip())
             parts.append('\n'.join(stack.strip().splitlines()[:8]))
+        # Flutter reports widget-test exceptions through print, not as the
+        # error event ("Test failed. See exception logs above.").
+        printed = '\n'.join(prints.get(test_id, []))
+        if printed:
+            parts.append(printed[:5000])
         body = f"{files.get(test_id) or ''}: {names.get(test_id, test_id)}\n" + '\n'.join(parts)
         print(f'::error title={title}::' + escape(body[:8000]))
     if summary:

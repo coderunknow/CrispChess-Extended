@@ -33,6 +33,7 @@ on:
       - 'lib/l10n/**'
       - 'test/bench_*_test.dart'
       - 'test/engine_preflight_test.dart'
+      - 'test/engine_preflight_screen_test.dart'
       - 'test/stockfish_runtime_test.dart'
       - 'test/stability_probe_test.dart'
       - 'tool/bench/**'
@@ -50,6 +51,7 @@ on:
       - 'lib/l10n/**'
       - 'test/bench_*_test.dart'
       - 'test/engine_preflight_test.dart'
+      - 'test/engine_preflight_screen_test.dart'
       - 'test/stockfish_runtime_test.dart'
       - 'test/stability_probe_test.dart'
       - 'tool/bench/**'
@@ -130,6 +132,7 @@ jobs:
             test/bench*_test.dart \
             test/generic_uci_*_test.dart \
             test/engine_preflight_test.dart \
+            test/engine_preflight_screen_test.dart \
             test/stockfish_runtime_test.dart \
             test/stability_probe_test.dart \
             test/lab_rating_bar_test.dart \
