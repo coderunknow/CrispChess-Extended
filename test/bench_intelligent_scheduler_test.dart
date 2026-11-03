@@ -132,11 +132,16 @@ void main() {
       expect(entry.value[0].openingId, entry.value[1].openingId);
       expect(entry.value[0].clusterId, entry.value[1].clusterId);
     }
-    // Opening clusters are globally distinct across the pilot: an edit to the
-    // per-edge opening list can never reuse a line and quietly double-count one
-    // cluster as two independent observations.
+    // The pilot is the *minimum* connected schedule: one colour-reversed unit
+    // per tree edge, so one cluster per edge. Reaching minClusters is the
+    // adaptive phase's job; a pilot that tried to buy all 20 up front used to
+    // demand an unaffordable budget and select no opponent at all.
     final clusters = plan.games.map((g) => g.clusterId).toSet();
     expect(clusters.length, plan.games.length ~/ 2);
+    expect(s.participantIds.length, greaterThanOrEqualTo(2));
+    expect(plan.games.length, 2 * (s.participantIds.length - 1),
+        reason: 'one colour-reversed unit per spanning-tree edge');
+    expect(clusters.length, s.participantIds.length - 1);
     // The cluster is the line of chess, so it is stable for the same opening no
     // matter which pairing plays it.
     final suite = openingSuiteById('cluster-40');
@@ -182,10 +187,13 @@ void main() {
     // Which impossible input is named first is an implementation detail; that
     // it is refused, and refuses cleanly, is not.
     expect(starved.buildPilotPlan, throwsA(anything));
-    // Two games is exactly one unit, and the scheduler plans it.
+    // Two games is exactly one unit: a target with one opponent is planned, and
+    // nothing more is promised.
     final minimal = scheduler(cfg: config(maxGames: 2));
     expect(minimal.hasRoomForAnOpeningUnit, isTrue);
-    expect(minimal.buildPilotPlan().games.length, lessThanOrEqualTo(2));
+    expect(minimal.participantIds.length, 2,
+        reason: 'the minimum pilot fits: one edge, one pair');
+    expect(minimal.buildPilotPlan().games.length, 2);
   });
 
   test('adaptive decisions stop truthfully at the game budget', () {

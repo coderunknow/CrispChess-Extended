@@ -83,7 +83,10 @@ class PrecisionSettings {
   ];
 
   String get summary {
-    final confidence = '${(confidenceLevel * 100).toStringAsFixed(confidenceLevel == 0.95 ? 0 : 1)}%';
+    // 90% stays 90%, but 92.5% keeps its half point: a whole percentage is
+    // written without a trailing '.0', not rounded to the nearest percent.
+    final percent = confidenceLevel * 100;
+    final confidence = '${percent == percent.roundToDouble() ? percent.toStringAsFixed(0) : percent.toStringAsFixed(1)}%';
     final parts = <String>[
       if (wantsIndividual) 'individual ±${individualToleranceElo.toStringAsFixed(0)} Elo',
       if (wantsPairwise)

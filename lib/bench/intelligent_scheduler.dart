@@ -355,31 +355,42 @@ class IntelligentScheduler {
   /// One cycle is all the independence the pilot can buy from that edge.
   int get _openingsPerPairing => math.max(1, suite.openings.length);
 
-  /// Opening units the pilot can give each tree edge without repeating an
-  /// opening. The clamp is the point: `minClusters / edges` alone promises more
-  /// independent openings than the suite contains, and a repeat is not a new
-  /// cluster.
-  int _pilotUnitsPerEdge(int edgeCount) => math.max(
+  /// Units per tree edge the adaptive phase should aim for before it can make a
+  /// precision claim: enough distinct openings per edge to approach
+  /// [BootstrapSettings.minClusters] in total, never more than the suite holds.
+  ///
+  /// This is a *target*, not a reservation. The pilot itself plays one unit per
+  /// edge; the scheduler buys the rest adaptively, and the clamp is what stops
+  /// it promising more independent openings than exist — a repeat of the same
+  /// line is not a new cluster.
+  int targetUnitsPerEdge(int edgeCount) => math.max(
       1,
       math.min(
         (bootstrapSettings.minClusters / math.max(1, edgeCount)).ceil(),
         _openingsPerPairing,
       ));
 
-  double _pilotCost(List<String> ids) {
+  /// Cost of the *smallest* connected schedule: one colour-reversed pair per
+  /// tree edge plus engine startup.
+  ///
+  /// Deliberately not the cost of reaching [BootstrapSettings.minClusters] in
+  /// the pilot. That target is approached adaptively — the adaptive phase keeps
+  /// buying units until the bootstrap is reliable. Requiring the whole target to
+  /// fit before selecting a single opponent made a small budget select nobody at
+  /// all, and the run then failed with "no compatible opponent" when the truth
+  /// was "this budget buys a two-game pilot, not twenty clusters".
+  double _minimumPilotCost(List<String> ids) {
     if (ids.length < 2) return double.infinity;
     final edges = _spanningEdges(ids);
-    final unitsPerEdge = _pilotUnitsPerEdge(edges.length);
-    return edges.fold(0.0, (sum, e) => sum + unitsPerEdge * _pairCost(e.$1, e.$2)) +
+    return edges.fold(0.0, (sum, e) => sum + _pairCost(e.$1, e.$2)) +
         ids.fold(0.0, (sum, id) => sum + _byId[id]!.startupMillis);
   }
 
   bool _pilotAffordable(List<String> ids) {
-    final cost = _pilotCost(ids);
+    final cost = _minimumPilotCost(ids);
     final maxGames = config.maxGames;
     final edges = math.max(1, ids.length - 1);
-    final unitsPerEdge = _pilotUnitsPerEdge(edges);
-    final games = 2 * edges * unitsPerEdge;
+    final games = 2 * edges;
     if (maxGames != null && games + config.warmUpGames > maxGames) return false;
     final maxDuration = config.maxDuration;
     if (maxDuration != null && cost > maxDuration.inMilliseconds * 0.8) return false;
@@ -434,7 +445,9 @@ class IntelligentScheduler {
     }
     final identities = [for (final id in participantIds) _byId[id]!.identity];
     final edges = _spanningEdges(participantIds);
-    final unitsPerEdge = _pilotUnitsPerEdge(edges.length);
+    // One colour-reversed unit per edge is the minimum connected schedule. The
+    // remaining clusters come from the adaptive phase, which can stop when the
+    // budget runs out instead of failing before the first game.
     final games = <PlannedGame>[];
     final maxRecorded = effectiveRecordedGameCap(config) ?? 1 << 30;
     var pairingIndex = 0;
@@ -442,13 +455,14 @@ class IntelligentScheduler {
       final key = pairwiseKey(edge.$1, edge.$2);
       final order = suite.openingOrder(seed: config.seed, pairingIndex: pairingIndex);
       _pairOpenings[key] = [for (final i in order) suite.openings[i].id];
-      for (var unit = 0; unit < unitsPerEdge && games.length + 1 < maxRecorded; unit++) {
+      // Exactly one unit for this edge, and only if both games fit the cap.
+      if (games.length + 1 < maxRecorded) {
         final openingId = _pairOpenings[key]!.removeAt(0);
         final opening = suite.openingById(openingId)!;
         final cluster = suite.clusterIdFor(opening);
         _usedClusters.add(cluster);
         _pairUnits[key] = (_pairUnits[key] ?? 0) + 1;
-        final pairId = 'pilot/$pairingIndex/$unit';
+        final pairId = 'pilot/$pairingIndex/0';
         games.add(PlannedGame(index: games.length + 1, whiteId: edge.$1, blackId: edge.$2,
             pairingIndex: pairingIndex, gameInPairing: 0, openingId: openingId, clusterId: cluster, pairId: pairId));
         games.add(PlannedGame(index: games.length + 1, whiteId: edge.$2, blackId: edge.$1,
@@ -459,18 +473,19 @@ class IntelligentScheduler {
     _nextIndex = games.length + 1;
     _nextPairing = pairingIndex;
     final plannedClusters = _usedClusters.length;
+    final adaptiveTarget = targetUnitsPerEdge(edges.length);
     decisions.add({
       'phase': 'pilot',
-      'reason': 'Connected maximum-information/cost pilot; up to '
-          '$unitsPerEdge opening unit(s) per tree edge to approach '
-          '${bootstrapSettings.minClusters} independent clusters; '
-          '$plannedClusters planned before any cluster repeated'
-          '${plannedClusters < bootstrapSettings.minClusters ? ' (below the minimum, so a precision claim will need the adaptive phase)' : ''}.',
+      'reason': 'Connected maximum-information/cost pilot: one opening unit per '
+          'tree edge, $plannedClusters independent cluster(s). The adaptive '
+          'phase adds units towards ${bootstrapSettings.minClusters} clusters '
+          '(at most $adaptiveTarget per edge); a precision claim needs that '
+          'minimum, so it is never made from the pilot alone.',
       'participants': participantIds,
       'opponents': selectedOpponents,
       'games': games.length,
       'clusters': plannedClusters,
-      'unitsPerEdge': unitsPerEdge,
+      'adaptiveTargetUnitsPerEdge': adaptiveTarget,
     });
     return BenchmarkPlan(
       config: config, format: TournamentFormat.intelligent,
