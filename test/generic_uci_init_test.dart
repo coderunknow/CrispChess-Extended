@@ -18,6 +18,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:crispchess/engines/chess_engine.dart';
+import 'package:crispchess/engines/engine_initialization.dart';
 import 'package:crispchess/engines/generic_uci_engine.dart';
 
 late Directory _dir;
@@ -115,6 +116,25 @@ void main() {
       expect(engine.state, EngineState.error,
           reason: 'a silent engine must never be reported as ready');
       engine.dispose();
+    });
+
+    test('dispose during the handshake cancels at once, not by timeout',
+        () async {
+      final fake = _script('mute_dispose', 'uci) sleep 30 ;; quit) exit 0 ;;');
+      final engine = GenericUciEngine(
+        EngineProfile(name: 'Mute', path: fake.path),
+        handshakeTimeout: const Duration(seconds: 10),
+      );
+      final watch = Stopwatch()..start();
+      final init = engine.initialize();
+      final failed = expectLater(init, throwsA(isA<StateError>()));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      engine.dispose();
+      await failed;
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)),
+          reason: 'disposal releases the handshake wait');
+      expect(engine.initializationError?.kind, EngineFailureKind.cancelled);
+      expect(engine.state, EngineState.disposed);
     });
 
     test('an engine that dies during the handshake reports the death', () async {

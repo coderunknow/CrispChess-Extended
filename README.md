@@ -28,7 +28,7 @@ CrispChess uses a plugin architecture that lets you swap between chess engines a
 - **Maia3** — ELO-conditioned neural network trained on human games. Three model sizes: 5M (~25MB), 23M (~92MB), 79M (~313MB). ¹ Weights are downloaded at runtime, never bundled — see [Engine Licenses](#engine-licenses) below for the full provenance chain and license status.
 - **Frozenight** — NNUE-based Rust engine compiled to WASM for web.
 - **Lynx** — strong classical engine (~3350 ELO) by Eduardo Caceres. MIT licensed. Runs as native binary (desktop, downloaded on first use) or .NET WASM in the browser (compiled from C# via `wasm-tools`, ~6 MB). Supports Chess960.
-- **Stockfish** — strongest traditional engine. Runs as Web Worker (web), process (desktop/Android), or JavaScriptCore (iOS). Downloaded at runtime.
+- **Stockfish** — strongest traditional engine. Runs as Web Worker (web), process (desktop/Android), or JavaScriptCore (iOS). Never bundled in desktop releases (GPL-3.0): the desktop app uses a Stockfish installed on the computer — the path in `CRISPCHESS_STOCKFISH_PATH`, then `PATH` (e.g. `winget install Stockfish.Stockfish`, `brew install stockfish`, `sudo apt install stockfish`), then the usual install locations — or one you add as a custom UCI engine. When none is found, the app says so instead of failing with a generic error. iOS downloads stockfish.js 10.0.2 (Stockfish 10) on request; Engine Lab records that version.
 - **Lc0** — AlphaZero-style MCTS with Maia weights for human-like play. Runs everywhere: ONNX Runtime Web in the browser, native ONNX Runtime with a pure-Dart fallback elsewhere.
 - **ChessMamba** — [TobiasLogic's](https://huggingface.co/TobiasLogic/chessmamba) selective state-space network (Mamba/S6, 16.8M parameters). It never sees the board: it reads the game as a sequence of moves and carries a fixed-size state from move to move, so a move costs the same at move 5 as at move 50. Played with its own policy-guided negamax, expanding a node's candidate moves in one batched call. Games from the starting position only; others go to the built-in engine. Measured about 800 against Maia anchored at 1100 (84-game round robin); its search adds little over the network's first choice.
 - **Searchless 9M / 136M / 270M** — Google DeepMind's "Grandmaster-Level Chess Without Search" transformers (weights CC BY 4.0). No lookahead at all: the network judges every legal move once, in one batch, and plays the one with the highest predicted win probability. The 270M model reached a Lichess blitz rating of about 2895 in the paper. Converted to ONNX and checked against the original JAX engine (same moves; win probabilities within 1e-6 for 9M).
@@ -153,6 +153,14 @@ silently substituted engine.
   (explicitly enabled adjudications may be scored as statistical draws)
 - **Performance metrics** — p50/p95/p99/max move latency, nodes and NPS, depth
   reached, per engine
+- **Engine Preflight** — before a manual run, every selected engine is checked
+  (platform, runtime, start-up, readiness, identity, options, a first search, a
+  legal move, clean shutdown) with a card per engine, copyable diagnostics and
+  retry; results are tied to the engine identity, platform and settings and go
+  stale when they change; the run continues with the admitted engines (passed,
+  or with warnings you accepted) only after you have reviewed the result, and the Preflight screen lists those left out
+  with the reason. Engines that would download a model or binary ask first.
+  (Automatic runs keep their own budget and refusal rules.)
 - **Stability diagnostics** — repeated start-up and repeated searches, with
   hangs and leaks reported rather than averaged away
 - **Durable history** — one JSON document per run with a schema version and a

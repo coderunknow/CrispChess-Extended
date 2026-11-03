@@ -1,5 +1,59 @@
 # Changelog
 
+## 2.3.2-dev4 — Engine initialization contract and Engine Preflight
+
+- **"Stockfish 16: failed — Bad state: initialize returned with state error"
+  fixed at the root.** Desktop releases do not bundle Stockfish (GPL-3.0); the
+  built-in adapter looked it up with `which`, swallowed the failure and returned
+  from `initialize()` in the error state, so the Engine Lab could only report a
+  contract violation. Reproduced on the dev3 baseline on Linux and Windows CI and
+  compared with the candidate on the same runners
+  (`.github/workflows/stockfish-rca.yml`). The adapter now resolves the
+  executable explicitly (configured path / `CRISPCHESS_STOCKFISH_PATH`, an Android
+  asset if the build includes one, `PATH`, well-known install locations) and fails with a structured
+  `runtimeMissing` diagnostic that says how to install or configure it. iOS keeps
+  the user-downloaded stockfish.js 10.0.2 (WebKit) and now reports that
+  version, not 16.
+- **One initialization contract for every engine.** Stockfish (native, iOS,
+  web), Lynx (native, web), custom UCI engines and the model engines (Lc0, Maia3,
+  ChessMamba, Ghost, searchless, Chess LM) run their start-up through a shared
+  coordinator: `initialize()` returns only when the engine is ready, every
+  failure throws `EngineInitializationException` with engine, requested and
+  detected version, platform, backend, stage, failure kind, cause, stack, exit
+  code, stderr tail, runtime path, native code and duration; concurrent calls
+  share one attempt; a retry starts fresh; dispose during start-up never ends in
+  `ready`. A legitimate backend fallback (e.g. Lc0 ONNX native → Dart) still
+  happens but is recorded as the effective backend plus the reason, and puts the
+  measurement in its own cohort.
+- **Engine Preflight in the Engine Lab.** Before a benchmark, each selected
+  engine is checked for platform, runtime, initialization, readiness, identity,
+  options, a first search, a legal move and cleanup, with per-engine cards,
+  expandable and copyable diagnostics, retry and cancel. Nothing is downloaded
+  without consent. Results are bound to engine identity/fingerprint, platform,
+  benchmark settings and app build (for the built-in Stockfish also to the
+  executable found on the device) and go stale when any of them changes. A run
+  continues with the admitted engines (passed, or with warnings the user has
+  accepted) only after the user has reviewed the results; engines left out are listed with the reason on the Preflight screen,
+  never silently omitted. Model engines (Lc0, Maia3, Ghost, ChessMamba,
+  searchless, Chess LM) report what they would download, so Preflight asks
+  before any transfer. A gauntlet whose reference engine fails is not
+  re-centred on another engine. Automatic runs keep their own rules.
+- **Reports name the root cause.** Engine problems in a run report and the
+  Stability Probe show the structured failure kind and stage (one diagnostic per
+  distinct cause), stored redacted: no home directories or usernames in exports.
+- A UCI executable that exits immediately (wrong architecture, missing DLL, not
+  an engine) no longer raises an unhandled "Broken pipe" exception; it is
+  reported as a process exit with its exit code and stderr.
+- CI builds official Stockfish `sf_16` from source at a pinned commit (NNUE net
+  validated by content hash; never committed or bundled) and runs it through
+  the built-in adapter, Engine Preflight and the custom-UCI path; those tests
+  fail instead of skipping when the binary is missing.
+- The iOS App Store workflow no longer runs for development prerelease tags
+  (`v*-dev*`): the tag filter, the job and the upload/submit steps each exclude
+  them (the step guards no longer rely on a missing input comparing unequal to
+  `false`); stable tags and manual dispatch are unchanged, with a validation
+  test.
+
 ## 2.3.2-dev3 — Frozenight Windows runtime repair
 
 - Windows releases now build and bundle the locked `frozenight_ffi.dll`; the

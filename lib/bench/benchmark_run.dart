@@ -30,19 +30,33 @@ class EngineRunStatus {
   /// Games this engine actually finished.
   final int gamesCompleted;
 
+  /// Structured, redacted startup diagnostic (stage, failure kind, cause,
+  /// exit code, stderr tail, backend, versions — see
+  /// `EngineInitializationException.toJson`) when the engine failed to start.
+  ///
+  /// Optional and additive: runs stored before dev4 have none, and their
+  /// checksums are unaffected because the key is omitted when null.
+  final Map<String, dynamic>? diagnostic;
+
   const EngineRunStatus({
     required this.status,
     this.reason,
     this.gamesCompleted = 0,
+    this.diagnostic,
   });
 
   bool get isFailure =>
       status == 'failed' || status == 'skipped' || status == 'unsupported';
 
+  /// The failure kind id from [diagnostic] (`binaryMissing`,
+  /// `handshakeTimeout`, …), when there is one.
+  String? get failureKind => diagnostic?['kind'] as String?;
+
   Map<String, dynamic> toJson() => {
         'status': status,
         if (reason != null) 'reason': reason,
         'gamesCompleted': gamesCompleted,
+        if (diagnostic != null) 'diagnostic': diagnostic,
       };
 
   factory EngineRunStatus.fromJson(Map<String, dynamic> json) => EngineRunStatus(
@@ -51,6 +65,9 @@ class EngineRunStatus {
         gamesCompleted: json['gamesCompleted'] is num
             ? (json['gamesCompleted'] as num).toInt()
             : 0,
+        diagnostic: json['diagnostic'] is Map
+            ? Map<String, dynamic>.from(json['diagnostic'] as Map)
+            : null,
       );
 }
 

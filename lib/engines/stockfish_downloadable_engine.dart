@@ -1,17 +1,23 @@
-// Downloadable Stockfish engine for ALL platforms including iOS.
+// Downloadable Stockfish engine for iOS.
 //
 // Pattern: same as downloading a GGUF model for an LLM app.
 // 1. App code (MIT) acts as the "runtime/interpreter"
-// 2. stockfish.js/WASM (GPL) is downloaded as "data" at runtime
-// 3. Executed via platform JavaScript runtime (not linked into app)
+// 2. stockfish.js (GPL) is downloaded as "data" at runtime
+// 3. Executed in a Web Worker inside WebKit (StockfishJSBridge.swift), not
+//    linked into the app
 //
-// On iOS: uses JavaScriptCore (built into iOS) to run stockfish.js
-// On Android/Desktop: uses downloaded binary or bundled WASM
-// On Web: uses Web Worker (already handled by stockfish_web_engine.dart)
+// Desktop/Android use the native process engine (stockfish_engine.dart); the
+// web build uses stockfish_web_engine.dart.
 //
 // Legal basis: The app binary contains no GPL code. The GPL-licensed
 // stockfish.js is downloaded separately by user choice, like a browser
 // downloading and running a GPL web application.
+//
+// Initialization follows the shared contract (engine_initialization.dart):
+// it either completes with the engine ready or throws a structured
+// EngineInitializationException naming the failed step (download, loading the
+// WebKit harness, `uciok`, `readyok`). dev3 and earlier caught every error,
+// logged it and returned normally.
 
 import 'dart:async';
 import 'dart:io';
@@ -19,37 +25,49 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'uci_position.dart';
 import 'uci_search_coordinator.dart';
 
-/// Download URL for stockfish.js WASM build (GPL-3.0, downloaded separately)
+/// The stockfish.js build this engine downloads (GPL-3.0, never bundled).
+///
+/// This is **Stockfish 10** compiled to JavaScript (`stockfish.js@10.0.2`).
+/// dev3 and earlier labelled it "16 (downloaded)", which was not true of the
+/// artifact; the label now reports what the runtime says about itself.
+const String kStockfishJsPackageVersion = '10.0.2';
+const String kStockfishJsRequestedVersion = '10';
 const _stockfishJsUrl =
-    'https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js';
+    'https://cdn.jsdelivr.net/npm/stockfish.js@$kStockfishJsPackageVersion/stockfish.js';
 
 /// Status of the Stockfish download
 enum DownloadStatus { notDownloaded, downloading, ready, error }
 
-/// Stockfish engine that downloads its WASM binary on first use.
-///
-/// Works on all platforms:
-/// - iOS/macOS: Runs stockfish.js via JavaScriptCore framework
-/// - Android: Runs via WebView JavaScript bridge or Process
-/// - Desktop: Runs via system-installed binary or bundled WASM
-/// - Web: Handled by StockfishWebEngine (conditional import)
+/// Stockfish engine that downloads stockfish.js on first use and runs it in
+/// WebKit through the `crispchess/stockfish` bridge (iOS only; the web build
+/// uses StockfishWebEngine, desktop/Android the native process engine).
 class StockfishDownloadableEngine
     with UciSearchCoordinator
-    implements ChessEngine {
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
+  StockfishDownloadableEngine({
+    MethodChannel? channel,
+    Future<Directory> Function()? engineDirectory,
+    this.handshakeTimeout = const Duration(seconds: 20),
+    this.readinessTimeout = const Duration(seconds: 10),
+  })  : _channel = channel ?? const MethodChannel('crispchess/stockfish'),
+        _engineDirectory = engineDirectory ?? _defaultEngineDir;
+
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
   final _downloadStatus = ValueNotifier<DownloadStatus>(DownloadStatus.notDownloaded);
 
-  // Platform-specific engine implementation
-  // On iOS: uses MethodChannel to JavaScriptCore
-  // On Android: uses MethodChannel to WebView
-  // On Desktop: uses Process
-  static const _channel = MethodChannel('crispchess/stockfish');
+  final MethodChannel _channel;
+  final Future<Directory> Function() _engineDirectory;
+  final Duration handshakeTimeout;
+  final Duration readinessTimeout;
 
   final _evalController = StreamController<EvalInfo>.broadcast();
   bool _initialized = false;
+  String _detectedName = '';
 
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
   static final _mateRegex = RegExp(r'score mate (-?\d+)');
@@ -59,7 +77,8 @@ class StockfishDownloadableEngine
   @override
   String get name => 'Stockfish';
   @override
-  String get version => '16 (downloaded)';
+  String get version =>
+      detectedVersion ?? '$kStockfishJsRequestedVersion (stockfish.js)';
   @override
   String get license => 'GPL-3.0 (not linked)';
   @override
@@ -84,91 +103,166 @@ class StockfishDownloadableEngine
   // process-based StockfishEngine.
   static bool get isAvailable => !kIsWeb && Platform.isIOS;
 
+  @override
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => 'javascript-webkit';
+  @override
+  String? get fallbackReason => null;
+  @override
+  String? get requestedVersion => kStockfishJsRequestedVersion;
+  @override
+  String? get detectedVersion => _detectedName.isEmpty
+      ? null
+      : (RegExp(r'(\d+(?:\.\d+)*)').firstMatch(_detectedName)?.group(1) ??
+          _detectedName);
+
   Completer<void>? _uciOkCompleter;
   Completer<void>? _readyOkCompleter;
 
   /// Check if stockfish.js is already downloaded/available.
   Future<bool> isDownloaded() async {
     try {
-      final dir = await _getEngineDir();
+      final dir = await _engineDirectory();
       final file = File('${dir.path}/stockfish.js');
-      return file.existsSync();
+      return file.existsSync() && file.lengthSync() > 0;
     } catch (_) {
       return false;
     }
   }
 
-  /// Download stockfish.js to local storage.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async {
+    if (await isDownloaded()) return null;
+    return EngineDownloadRequirement(
+      description: 'stockfish.js $kStockfishJsPackageVersion (Stockfish '
+          '$kStockfishJsRequestedVersion compiled to JavaScript)',
+      source: Uri.parse(_stockfishJsUrl),
+      license: 'GPL-3.0',
+    );
+  }
+
+  /// Downloads stockfish.js to local storage. Throws when the download fails;
+  /// a partial or error response never replaces a usable file.
   Future<void> download({void Function(double)? onProgress}) async {
     _downloadStatus.value = DownloadStatus.downloading;
+    final client = HttpClient();
+    File? part;
     try {
-      final dir = await _getEngineDir();
+      final dir = await _engineDirectory();
       await dir.create(recursive: true);
       final targetFile = File('${dir.path}/stockfish.js');
+      part = File('${targetFile.path}.part');
 
       // Download from CDN (GPL-3.0, never bundled with app)
       debugPrint('[Stockfish] Downloading from $_stockfishJsUrl...');
-      final client = HttpClient();
-      try {
-        final request = await client.getUrl(Uri.parse(_stockfishJsUrl));
-        final response = await request.close();
-        await response.pipe(targetFile.openWrite());
-        debugPrint('[Stockfish] Downloaded to ${targetFile.path}');
-        _downloadStatus.value = DownloadStatus.ready;
-      } finally {
-        client.close();
+      final request = await client.getUrl(Uri.parse(_stockfishJsUrl));
+      final response = await request.close();
+      if (response.statusCode != 200) {
+        await response.drain<void>();
+        throw HttpException('HTTP ${response.statusCode}',
+            uri: Uri.parse(_stockfishJsUrl));
       }
+      final total = response.contentLength;
+      var received = 0;
+      final sink = part.openWrite();
+      try {
+        await for (final chunk in response) {
+          sink.add(chunk);
+          received += chunk.length;
+          if (total > 0) onProgress?.call(received / total);
+        }
+      } finally {
+        await sink.close();
+      }
+      if (received == 0 || (total > 0 && received != total)) {
+        throw HttpException('download truncated ($received of $total bytes)',
+            uri: Uri.parse(_stockfishJsUrl));
+      }
+      await part.rename(targetFile.path);
+      debugPrint('[Stockfish] Downloaded to ${targetFile.path}');
+      _downloadStatus.value = DownloadStatus.ready;
     } catch (e) {
       debugPrint('[Stockfish] Download failed: $e');
       _downloadStatus.value = DownloadStatus.error;
+      rethrow;
+    } finally {
+      client.close();
+      try {
+        if (part != null && part.existsSync()) part.deleteSync();
+      } catch (_) {}
     }
   }
 
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: version,
+        requestedVersion: kStockfishJsRequestedVersion,
+        backend: effectiveBackend,
+        body: _start,
+        cleanup: _teardown,
+      );
 
-    try {
-      // Ensure engine is downloaded (CDN — never bundled with the app binary).
-      if (!await isDownloaded()) {
-        await download();
-        if (_downloadStatus.value != DownloadStatus.ready) {
-          _stateNotifier.value = EngineState.error;
-          return;
-        }
-      } else {
-        _downloadStatus.value = DownloadStatus.ready;
+  Future<void> _start(EngineInitScope scope) async {
+    // Ensure engine is downloaded (CDN — never bundled with the app binary).
+    scope.stage = EngineInitStage.download;
+    if (!await isDownloaded()) {
+      await download();
+    } else {
+      _downloadStatus.value = DownloadStatus.ready;
+    }
+    scope.checkCancelled();
+
+    scope.stage = EngineInitStage.loadBackend;
+    final dir = await _engineDirectory();
+    final jsPath = '${dir.path}/stockfish.js';
+    scope.runtimePath = jsPath;
+
+    // Receive UCI output from the WebKit-hosted engine.
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onOutput') {
+        _handleOutput(call.arguments as String);
       }
+    });
 
-      final dir = await _getEngineDir();
-      final jsPath = '${dir.path}/stockfish.js';
+    // `ignore` marks an early error as handled until the await below. The
+    // locals keep the completers after _handleOutput or dispose() clears the
+    // fields: the bridge's onOutput call is not ordered with the reply to
+    // send/initialize, so `uciok` can arrive before `_send` returns.
+    final uciOk = Completer<void>()..future.ignore();
+    _uciOkCompleter = uciOk;
+    // Load stockfish.js into the WebView; completes once the harness is ready.
+    await _channel.invokeMethod('initialize', {'path': jsPath});
+    _initialized = true;
+    scope.checkCancelled();
 
-      // Receive UCI output from the WebKit-hosted engine.
-      _channel.setMethodCallHandler((call) async {
-        if (call.method == 'onOutput') {
-          _handleOutput(call.arguments as String);
-        }
-      });
+    // UCI handshake — wait for the engine's actual replies rather than a
+    // fixed delay (the Web Worker may still be compiling stockfish.js).
+    scope.stage = EngineInitStage.handshake;
+    await _send('uci');
+    await uciOk.future.timeout(handshakeTimeout);
+    scope.detectedVersion = detectedVersion;
+    scope.checkCancelled();
 
-      // Load stockfish.js into the WebView; completes once the harness is ready.
-      await _channel.invokeMethod('initialize', {'path': jsPath});
-      _initialized = true;
+    scope.stage = EngineInitStage.readiness;
+    final readyOk = Completer<void>()..future.ignore();
+    _readyOkCompleter = readyOk;
+    await _send('isready');
+    await readyOk.future.timeout(readinessTimeout);
+    debugPrint('[Stockfish] Initialized via WebKit JS runtime ($_detectedName)');
+  }
 
-      // UCI handshake — wait for the engine's actual replies rather than a
-      // fixed delay (the Web Worker may still be compiling stockfish.js).
-      _uciOkCompleter = Completer<void>();
-      await _send('uci');
-      await _uciOkCompleter!.future.timeout(const Duration(seconds: 20));
-
-      _readyOkCompleter = Completer<void>();
-      await _send('isready');
-      await _readyOkCompleter!.future.timeout(const Duration(seconds: 10));
-
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[Stockfish] Initialized via WebKit JS runtime');
+  Future<void> _teardown() async {
+    final wasInitialized = _initialized;
+    _initialized = false;
+    _uciOkCompleter = null;
+    _readyOkCompleter = null;
+    if (!wasInitialized) return;
+    try {
+      await _channel.invokeMethod('dispose');
     } catch (e) {
-      debugPrint('[Stockfish] Init failed: $e');
-      _stateNotifier.value = EngineState.error;
+      debugPrint('[Stockfish] dispose after failed start: $e');
     }
   }
 
@@ -181,15 +275,39 @@ class StockfishDownloadableEngine
     final t = line.trim();
     if (t.isEmpty) return;
 
+    if (t.startsWith('id name ')) {
+      _detectedName = t.substring(8).trim();
+      return;
+    }
     if (t == 'uciok') {
-      _uciOkCompleter?.complete();
+      final pending = _uciOkCompleter;
       _uciOkCompleter = null;
+      if (pending != null && !pending.isCompleted) pending.complete();
       return;
     }
     if (t == 'readyok') {
-      _readyOkCompleter?.complete();
+      final pending = _readyOkCompleter;
       _readyOkCompleter = null;
+      if (pending != null && !pending.isCompleted) pending.complete();
       return;
+    }
+    // The WebKit harness reports a failed Worker or script this way
+    // (StockfishJSBridge.swift). During startup it is the failure itself,
+    // not something to wait out until the handshake timeout.
+    if (t.startsWith('info string worker_error') ||
+        t.startsWith('info string harness_error')) {
+      final failure = EngineStartupFailure(
+          EngineFailureKind.backendInitializationFailed,
+          'the WebKit Stockfish worker reported an error',
+          cause: StateError(t.substring('info string '.length)));
+      for (final pending in [_uciOkCompleter, _readyOkCompleter]) {
+        if (pending != null && !pending.isCompleted) {
+          pending.completeError(failure);
+        }
+      }
+      _uciOkCompleter = null;
+      _readyOkCompleter = null;
+      if (_init.isInitializing) return;
     }
 
     if (t.startsWith('info') && t.contains('depth')) {
@@ -266,7 +384,11 @@ class StockfishDownloadableEngine
   @override
   void stop() {
     if (isSearching) _send('stop');
-    _stateNotifier.value = EngineState.ready;
+    // Only a live search goes back to `ready`: a failed or disposed engine
+    // must not be reported as usable.
+    if (_stateNotifier.value == EngineState.thinking) {
+      _stateNotifier.value = EngineState.ready;
+    }
   }
 
   @override
@@ -276,23 +398,36 @@ class StockfishDownloadableEngine
 
   @override
   void dispose() {
+    if (_init.disposed) return;
+    _init.markDisposed();
+    final cancelled = StateError('Stockfish was disposed during initialization');
+    for (final pending in [_uciOkCompleter, _readyOkCompleter]) {
+      if (pending != null && !pending.isCompleted) pending.completeError(cancelled);
+    }
+    _uciOkCompleter = null;
+    _readyOkCompleter = null;
     resetSearches();
-    _send('quit');
-    _channel.invokeMethod('dispose');
-    _evalController.close();
+    if (_initialized) {
+      unawaited(_send('quit').catchError((Object _) {}));
+      _channel.invokeMethod('dispose').catchError((Object e) {
+        debugPrint('[Stockfish] dispose: $e');
+      });
+    }
+    _initialized = false;
+    if (!_evalController.isClosed) _evalController.close();
     _stateNotifier.value = EngineState.disposed;
   }
 
   /// Delete downloaded engine files.
   Future<void> deleteDownload() async {
-    final dir = await _getEngineDir();
+    final dir = await _engineDirectory();
     if (await dir.exists()) {
       await dir.delete(recursive: true);
     }
     _downloadStatus.value = DownloadStatus.notDownloaded;
   }
 
-  static Future<Directory> _getEngineDir() async {
+  static Future<Directory> _defaultEngineDir() async {
     // App support dir — sandbox-correct on iOS (path_provider), unlike $HOME.
     final base = await getApplicationSupportDirectory();
     return Directory('${base.path}/engines');

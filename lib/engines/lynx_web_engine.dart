@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'uci_position.dart';
 import 'search_pacing.dart';
 import 'lynx_build.dart';
@@ -38,7 +39,8 @@ final _multipvRegex = RegExp(r'multipv (\d+)');
 /// ~3350 ELO (CCRL). MIT licensed.
 /// Uses .NET compiled to WebAssembly (Mono runtime).
 /// Async search — yields back to event loop during search.
-class LynxEngine implements ChessEngine {
+class LynxEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   /// Milliseconds a move costs outside the search, learned as play goes on.
   /// Zero until the first move has been timed, so nothing is assumed about the
   /// machine this is running on.
@@ -89,60 +91,117 @@ class LynxEngine implements ChessEngine {
     return result;
   }
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+  String _idName = '';
+  String _detected = '';
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
-    try {
-      debugPrint('[LynxWASM] Loading ${build.label} build (${build.directory})...');
-      await _lynxLoad(build.directory.toJS).toDart;
-      final loaded = _lynxLoadedBundle().toDart;
-      if (loaded != build.directory) {
-        // The runtime is a per-page singleton, so whichever build loaded first
-        // is the one running. Say so rather than reporting the wrong engine.
-        debugPrint('[LynxWASM] Note: $loaded is already loaded on this page; '
-            'reload to switch to ${build.directory}.');
-      }
+  EngineInitializationException? get initializationError => _init.lastFailure;
 
-      // Verify UCI handshake and parse version
-      final uciResponse = (await _lynxSendUci('uci'.toJS).toDart).toDart;
-      if (!uciResponse.contains('uciok')) {
-        throw StateError('UCI handshake failed: $uciResponse');
-      }
-      // Parse "id name Lynx 1.11.0-dev-2e4b458f" → "1.11.0-2e4b458f (WASM)"
-      final idMatch = RegExp(r'id name Lynx\s+(.+)').firstMatch(uciResponse);
-      if (idMatch != null) {
-        _version = '${idMatch.group(1)!.replaceAll('-dev', '')} (WASM)';
-      }
+  /// The WASM build actually running — the .NET runtime is a per-page
+  /// singleton, so it can differ from [build] until the page is reloaded.
+  @override
+  String get effectiveBackend => _init.effectiveBackend.isEmpty
+      ? 'wasm-${build.directory}'
+      : _init.effectiveBackend;
+  @override
+  String? get fallbackReason => _init.fallbackReason;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => _detected.isEmpty ? null : _detected;
 
-      // Force single-threaded mode
-      await _lynxSendUci('setoption name Threads value 1'.toJS).toDart;
-      // Disable online tablebases
-      await _lynxSendUci(
-          'setoption name OnlineTablebaseInRootPositions value false'.toJS)
-          .toDart;
-      await _lynxSendUci(
-          'setoption name OnlineTablebaseInSearch value false'.toJS)
-          .toDart;
+  /// The WASM bundle ships with the web app itself; nothing is fetched from a
+  /// third party.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async => null;
 
-      await _lynxSendUci('isready'.toJS).toDart;
+  /// Loads the WASM runtime and completes only once Lynx has answered `uciok`
+  /// and `readyok` and finished its warm-up search; otherwise throws a
+  /// structured [EngineInitializationException]. dev3 and earlier caught
+  /// every error and returned normally.
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: 'WASM',
+        backend: 'wasm-${build.directory}',
+        body: _start,
+        cleanup: () => _loaded = false,
+      );
 
-      // Warm the runtime up before handing the engine to the player. Mono
-      // tiers up as it runs, and the difference is not marginal: measured on
-      // this build, the first search of a session reaches depth 1 (57 nodes)
-      // in a second, while the same search after one throwaway search on a
-      // *different* position reaches depth 8 (10,574 nodes). Paying that here
-      // costs nothing the player notices — the UI is already showing
-      // "Loading" — instead of making their first move the slow, weak one.
-      await _lynxSendUci('position startpos'.toJS).toDart;
-      await _lynxSearch('go movetime 600'.toJS).toDart;
-
-      _loaded = true;
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[LynxWASM] Ready (~3350 ELO)');
-    } catch (e) {
-      debugPrint('[LynxWASM] Init failed: $e');
-      _stateNotifier.value = EngineState.error;
+  Future<void> _start(EngineInitScope scope) async {
+    scope.stage = EngineInitStage.loadBackend;
+    scope.runtimePath = build.directory;
+    debugPrint('[LynxWASM] Loading ${build.label} build (${build.directory})...');
+    await _lynxLoad(build.directory.toJS).toDart;
+    final loaded = _lynxLoadedBundle().toDart;
+    if (loaded != build.directory) {
+      // The runtime is a per-page singleton, so whichever build loaded first
+      // is the one running. Record that rather than reporting the wrong
+      // engine.
+      scope.backend = 'wasm-$loaded';
+      scope.fallbackReason = '$loaded is already loaded on this page; reload '
+          'to switch to ${build.directory}';
+      debugPrint('[LynxWASM] Note: ${scope.fallbackReason}.');
     }
+    scope.checkCancelled();
+
+    // Verify UCI handshake and parse version
+    scope.stage = EngineInitStage.handshake;
+    final uciResponse = (await _lynxSendUci('uci'.toJS).toDart).toDart;
+    // `uciok` as a token of its own, not inside an option name.
+    if (!RegExp(r'(^|\s)uciok(\s|$)').hasMatch(uciResponse)) {
+      throw EngineStartupFailure(EngineFailureKind.handshakeFailed,
+          'the WASM runtime did not answer "uci" with "uciok"',
+          cause: StateError('UCI handshake failed: '
+              '${uciResponse.length > 300 ? uciResponse.substring(0, 300) : uciResponse}'));
+    }
+    final idName = RegExp(r'id name ([^\r\n]+)').firstMatch(uciResponse);
+    if (idName != null) _idName = idName.group(1)!.trim();
+    // Parse "id name Lynx 1.11.0-dev-2e4b458f" → "1.11.0-2e4b458f (WASM)"
+    final idMatch = RegExp(r'id name Lynx\s+(.+)').firstMatch(uciResponse);
+    if (idMatch != null) {
+      _detected = idMatch.group(1)!.trim().replaceAll('-dev', '');
+      _version = '$_detected (WASM)';
+    }
+    scope.detectedVersion = detectedVersion;
+
+    scope.stage = EngineInitStage.configure;
+    // Force single-threaded mode
+    await _lynxSendUci('setoption name Threads value 1'.toJS).toDart;
+    // Disable online tablebases
+    await _lynxSendUci(
+        'setoption name OnlineTablebaseInRootPositions value false'.toJS)
+        .toDart;
+    await _lynxSendUci(
+        'setoption name OnlineTablebaseInSearch value false'.toJS)
+        .toDart;
+
+    scope.stage = EngineInitStage.readiness;
+    // The interop call returns once the command has been processed, so the
+    // reply carries no extra information about the bridge used here; the
+    // warm-up search below is the proof that the engine actually works.
+    await _lynxSendUci('isready'.toJS).toDart;
+    scope.checkCancelled();
+
+    // Warm the runtime up before handing the engine to the player. Mono
+    // tiers up as it runs, and the difference is not marginal: measured on
+    // this build, the first search of a session reaches depth 1 (57 nodes)
+    // in a second, while the same search after one throwaway search on a
+    // *different* position reaches depth 8 (10,574 nodes). Paying that here
+    // costs nothing the player notices — the UI is already showing
+    // "Loading" — instead of making their first move the slow, weak one.
+    scope.stage = EngineInitStage.warmUp;
+    await _lynxSendUci('position startpos'.toJS).toDart;
+    final warm = (await _lynxSearch('go movetime 600'.toJS).toDart).toDart;
+    if (_parseBestMove(warm) == null) {
+      throw EngineStartupFailure(EngineFailureKind.backendInitializationFailed,
+          'the warm-up search returned no bestmove',
+          cause: StateError('warm-up output had no bestmove'));
+    }
+
+    _loaded = true;
+    debugPrint('[LynxWASM] Ready (~3350 ELO, $_idName)');
   }
 
   @override
@@ -328,10 +387,12 @@ class LynxEngine implements ChessEngine {
 
   @override
   void dispose() {
+    if (_init.disposed) return;
+    _init.markDisposed();
     _stopping = true;
     if (_loaded) _lynxDispose();
     _loaded = false;
-    _evalController.close();
+    if (!_evalController.isClosed) _evalController.close();
     _stateNotifier.value = EngineState.disposed;
   }
 }

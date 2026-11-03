@@ -22,6 +22,7 @@ import 'package:chess/chess.dart' as chess;
 import 'package:flutter/foundation.dart';
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'lc0_dart/encoding.dart';
 import 'lc0_dart/inference_backend.dart';
 import 'lc0_dart/mcts.dart';
@@ -29,10 +30,12 @@ import 'lc0_dart/native_inference_backend.dart';
 import 'lc0_dart/policy_map.dart' as policy;
 import 'lc0_dart/variants.dart';
 import 'maia3_dart/onnx/model_fetch.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
 /// Lc0 for native platforms — MCTS over a Maia network.
-class Lc0Engine implements ChessEngine {
+class Lc0Engine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final String variantId;
 
@@ -102,38 +105,85 @@ class Lc0Engine implements ChessEngine {
 
   static bool get isAvailable => !kIsWeb;
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
-    try {
-      final variant = getLc0Variant(variantId);
-      debugPrint('[Lc0] Loading ${variant.displayName} from ${variant.url}');
-      final bytes = await fetchModelBytes(variant.url, '${variant.id}.onnx');
-      Lc0InferenceBackend model;
-      if (backend == 'dart') {
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => _init.effectiveBackend.isEmpty
+      ? backend == 'dart' ? 'onnx-dart' : 'onnx-native'
+      : _init.effectiveBackend;
+  @override
+  String? get fallbackReason => _init.fallbackReason;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => null;
+
+  /// Loads the network and completes only once it has evaluated a position;
+  /// otherwise throws a structured [EngineInitializationException]. An
+  /// automatic fall back from the native to the Dart runtime is allowed but
+  /// recorded ([effectiveBackend], [fallbackReason]) so the benchmark identity
+  /// says which runtime produced the numbers. dev3 and earlier swallowed
+  /// every failure and hid the fallback.
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: version,
+        backend: backend == 'dart' ? 'onnx-dart' : 'onnx-native',
+        body: _start,
+        cleanup: () {
+          _model?.dispose();
+          _model = null;
+        },
+      );
+
+  /// The network download [initialize] would start; asked by Engine
+  /// Preflight before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async {
+    final variant = getLc0Variant(variantId);
+    return pendingModelDownload(
+      description: 'Lc0 ${variant.displayName} network (about '
+          '${(variant.sizeBytes / 1e6).toStringAsFixed(1)} MB)',
+      files: [(variant.url, '${variant.id}.onnx')],
+      license: license,
+    );
+  }
+
+  Future<void> _start(EngineInitScope scope) async {
+    final variant = getLc0Variant(variantId);
+    debugPrint('[Lc0] Loading ${variant.displayName} from ${variant.url}');
+    scope.stage = EngineInitStage.download;
+    final bytes = await fetchModelBytes(variant.url, '${variant.id}.onnx');
+    scope.checkCancelled();
+    scope.stage = EngineInitStage.loadBackend;
+    Lc0InferenceBackend model;
+    if (backend == 'dart') {
+      model = await DartLc0InferenceBackend.create(bytes, isolateWorkers);
+      scope.backend = 'onnx-dart';
+      debugPrint('[Lc0] Using pure-Dart ONNX Runtime');
+    } else {
+      try {
+        scope.stage = EngineInitStage.loadLibrary;
+        model = NativeLc0InferenceBackend.create(bytes, isolateWorkers);
+        scope.backend = 'onnx-native';
+        debugPrint('[Lc0] Using native ONNX Runtime');
+      } catch (e) {
+        if (backend == 'native') rethrow;
+        debugPrint('[Lc0] Native runtime unavailable, using Dart: $e');
+        scope.stage = EngineInitStage.loadBackend;
+        scope.backend = 'onnx-dart';
+        scope.fallbackReason = 'native ONNX Runtime unavailable: ${_reasonOf(e)}';
         model = await DartLc0InferenceBackend.create(bytes, isolateWorkers);
-        debugPrint('[Lc0] Using pure-Dart ONNX Runtime');
-      } else {
-        try {
-          model = NativeLc0InferenceBackend.create(bytes, isolateWorkers);
-          debugPrint('[Lc0] Using native ONNX Runtime');
-        } catch (e) {
-          if (backend == 'native') rethrow;
-          debugPrint('[Lc0] Native runtime unavailable, using Dart: $e');
-          model = await DartLc0InferenceBackend.create(bytes, isolateWorkers);
-        }
       }
-      _model = model;
-      await _warmUp();
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[Lc0] Ready (${variant.displayName}, '
-          '~${variant.estimatedElo} ELO)');
-    } catch (e) {
-      _model?.dispose();
-      _model = null;
-      debugPrint('[Lc0] Init failed: $e');
-      _stateNotifier.value = EngineState.error;
     }
+    _model = model;
+    scope.checkCancelled();
+    scope.stage = EngineInitStage.warmUp;
+    await _warmUp();
+    debugPrint('[Lc0] Ready (${variant.displayName}, '
+        '~${variant.estimatedElo} ELO)');
   }
 
   Future<void> _warmUp() async {
@@ -426,7 +476,11 @@ class Lc0Engine implements ChessEngine {
 
   @override
   void stop() {
-    _stateNotifier.value = EngineState.ready;
+    // Only a live search goes back to `ready`: a failed or disposed engine
+    // must not be reported as usable.
+    if (_stateNotifier.value == EngineState.thinking) {
+      _stateNotifier.value = EngineState.ready;
+    }
   }
 
   @override
@@ -434,10 +488,18 @@ class Lc0Engine implements ChessEngine {
 
   @override
   void dispose() {
+    _init.markDisposed();
     _evaluationCache.clear();
     _searchRoot = null;
     _model?.dispose();
     _model = null;
     _stateNotifier.value = EngineState.disposed;
   }
+}
+
+/// First line of an error, for a fallback reason.
+String _reasonOf(Object error) {
+  final text = error.toString();
+  final cut = text.indexOf('\n');
+  return cut < 0 ? text : text.substring(0, cut);
 }

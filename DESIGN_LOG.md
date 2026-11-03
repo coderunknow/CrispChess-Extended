@@ -39,3 +39,18 @@ layout. The JNI Windows helper is excluded because it introduced an unnecessary
 jvm.dll import. CI integration tests are real Linux desktop tests under xvfb;
 headless runners are an environment constraint, not a reason to skip the UI and
 EngineService lifecycle assertions.
+
+## dev4 — one initialization contract, Preflight before measurement
+
+`initialize()` either returns ready or throws `EngineInitializationException`
+with a failure kind from a fixed taxonomy; a normal return while not ready is a
+contract violation reported as `readinessFailed`, never a bare StateError. One
+coordinator owns concurrency, retry and dispose-during-start for every engine,
+so adapters only describe their stages. GPL Stockfish stays outside the MIT
+binary: desktop resolves a user-installed runtime and names it when missing.
+Engine Preflight is a separate step whose results are bound to identity,
+platform, configuration and app build; stale or unreviewed results never admit
+an engine, and excluded engines are listed, not dropped. A gauntlet's
+reference is a precondition, not something to substitute. Late `info` lines of
+a stopped search remain delivered with their own colour; consumers that need
+one position's eval drain the previous search first.

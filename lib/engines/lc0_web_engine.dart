@@ -15,10 +15,12 @@ import 'package:chess/chess.dart' as chess;
 import 'package:flutter/foundation.dart';
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'lc0_dart/encoding.dart';
 import 'lc0_dart/mcts.dart';
 import 'lc0_dart/policy_map.dart' as policy;
 import 'lc0_dart/variants.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
 // JS bridge functions (defined in web/lc0_onnx_bridge.js)
@@ -33,7 +35,8 @@ external JSPromise<JSFloat32Array> _jsLc0Infer(JSFloat32Array inputPlanes);
 external JSPromise<JSAny?> _jsLc0Close();
 
 /// Lc0 engine for web — MCTS + neural network via ONNX Runtime Web.
-class Lc0Engine implements ChessEngine {
+class Lc0Engine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final String variantId;
 
@@ -75,24 +78,62 @@ class Lc0Engine implements ChessEngine {
   @override
   bool get canPonder => false;
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
-    try {
-      final variant = getLc0Variant(variantId);
-      debugPrint(
-          '[Lc0/Web] Loading ${variant.displayName} from ${variant.url}');
-      await _jsLc0Load(variant.url.toJS).toDart;
-      _modelLoaded = true;
-      await _warmUp();
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[Lc0/Web] Ready');
-    } catch (e) {
-      _modelLoaded = false;
-      await _jsLc0Close().toDart;
-      debugPrint('[Lc0/Web] Init failed: $e');
-      _stateNotifier.value = EngineState.error;
-    }
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => _init.effectiveBackend.isEmpty
+      ? 'onnx-web'
+      : _init.effectiveBackend;
+  @override
+  String? get fallbackReason => _init.fallbackReason;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => null;
+
+  /// Loads the network in ONNX Runtime Web and completes only once it has
+  /// evaluated a position; otherwise throws a structured
+  /// [EngineInitializationException] (dev3 and earlier returned normally).
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: version,
+        backend: 'onnx-web',
+        body: _start,
+        cleanup: () async {
+          _modelLoaded = false;
+          try {
+            await _jsLc0Close().toDart;
+          } catch (_) {}
+        },
+      );
+
+  /// The network download [initialize] would start; asked by Engine
+  /// Preflight before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async {
+    final variant = getLc0Variant(variantId);
+    return pendingModelDownload(
+      description: 'Lc0 ${variant.displayName} network (about '
+          '${(variant.sizeBytes / 1e6).toStringAsFixed(1)} MB)',
+      files: [(variant.url, '${variant.id}.onnx')],
+      license: license,
+    );
+  }
+
+  Future<void> _start(EngineInitScope scope) async {
+    final variant = getLc0Variant(variantId);
+    debugPrint('[Lc0/Web] Loading ${variant.displayName} from ${variant.url}');
+    scope.stage = EngineInitStage.loadBackend;
+    scope.runtimePath = variant.url;
+    await _jsLc0Load(variant.url.toJS).toDart;
+    _modelLoaded = true;
+    scope.checkCancelled();
+    scope.stage = EngineInitStage.warmUp;
+    await _warmUp();
+    debugPrint('[Lc0/Web] Ready');
   }
 
   Future<void> _warmUp() async {
@@ -429,7 +470,11 @@ class Lc0Engine implements ChessEngine {
 
   @override
   void stop() {
-    _stateNotifier.value = EngineState.ready;
+    // Only a live search goes back to `ready`: a failed or disposed engine
+    // must not be reported as usable.
+    if (_stateNotifier.value == EngineState.thinking) {
+      _stateNotifier.value = EngineState.ready;
+    }
   }
 
   @override
@@ -437,6 +482,7 @@ class Lc0Engine implements ChessEngine {
 
   @override
   void dispose() {
+    _init.markDisposed();
     _evaluationCache.clear();
     _searchRoot = null;
     _modelLoaded = false;

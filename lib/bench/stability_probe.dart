@@ -15,6 +15,7 @@ import 'dart:async';
 import 'package:chess/chess.dart' as chess;
 
 import '../engines/chess_engine.dart';
+import '../engines/engine_initialization.dart';
 import 'engine_identity.dart';
 import 'game_player.dart' show applyUciMove;
 
@@ -32,12 +33,18 @@ class StabilityCheck {
   /// Durations of the successful runs, in milliseconds.
   final List<int> durations;
 
+  /// Structured root causes (redacted `EngineInitializationException.toJson`
+  /// maps: stage, failure kind, cause, exit code, stderr tail, backend), one
+  /// per distinct startup failure. Empty when nothing failed to start.
+  final List<Map<String, dynamic>> diagnostics;
+
   const StabilityCheck({
     required this.name,
     required this.attempts,
     required this.passed,
     this.failures = const [],
     this.durations = const [],
+    this.diagnostics = const [],
   });
 
   bool get ok => attempts > 0 && passed == attempts && failures.isEmpty;
@@ -58,6 +65,7 @@ class StabilityCheck {
         if (failures.isNotEmpty) 'failures': failures,
         if (durations.isNotEmpty) 'medianMillis': medianMillis,
         if (durations.isNotEmpty) 'maxMillis': maxMillis,
+        if (diagnostics.isNotEmpty) 'diagnostics': diagnostics,
       };
 
   factory StabilityCheck.fromJson(Map<String, dynamic> json) {
@@ -70,12 +78,20 @@ class StabilityCheck {
     }
     int of(String key) => json[key] is num ? (json[key] as num).toInt() : 0;
     final median = of('medianMillis');
+    final diagnostics = <Map<String, dynamic>>[];
+    final rawDiagnostics = json['diagnostics'];
+    if (rawDiagnostics is List) {
+      for (final entry in rawDiagnostics) {
+        if (entry is Map) diagnostics.add(Map<String, dynamic>.from(entry));
+      }
+    }
     return StabilityCheck(
       name: (json['name'] as String?) ?? 'check',
       attempts: of('attempts'),
       passed: of('passed'),
       failures: failures,
       durations: median > 0 ? [median] : const [],
+      diagnostics: diagnostics,
     );
   }
 }
@@ -103,6 +119,15 @@ class StabilityReport {
 
   Duration get duration => finishedAt.difference(startedAt);
 
+  /// The first structured startup failure, when the engine failed to start:
+  /// the root cause the report leads with instead of a list of symptoms.
+  Map<String, dynamic>? get rootCause {
+    for (final check in checks) {
+      if (check.diagnostics.isNotEmpty) return check.diagnostics.first;
+    }
+    return null;
+  }
+
   String toMarkdown() {
     final out = StringBuffer();
     out.writeln('### ${identity.label} — '
@@ -114,6 +139,13 @@ class StabilityReport {
       out.writeln('| ${check.name} | ${check.passed}/${check.attempts} '
           '| ${check.medianMillis} ms | ${check.maxMillis} ms '
           '| ${check.failures.length} |');
+    }
+    final cause = rootCause;
+    if (cause != null) {
+      out.writeln();
+      out.writeln('Root cause: `${cause['kind']}` at `${cause['stage']}`'
+          '${cause['exitCode'] != null ? ' (exit code ${cause['exitCode']})' : ''}'
+          '${cause['backend'] != null ? ' — backend ${cause['backend']}' : ''}');
     }
     for (final failure in failures) {
       out.writeln();
@@ -197,23 +229,21 @@ class StabilityProbe {
     //    failure on a later cycle.
     final initDurations = <int>[];
     final initFailures = <String>[];
+    final initDiagnostics = <Map<String, dynamic>>[];
     var initPassed = 0;
     for (var cycle = 0; cycle < initialisationCycles; cycle++) {
       final engine = build();
       final stopwatch = Stopwatch()..start();
       try {
-        await engine.initialize().timeout(timeout);
+        await _initialize(engine);
         stopwatch.stop();
-        if (engine.state != EngineState.ready) {
-          initFailures.add('cycle ${cycle + 1}: initialise returned but state '
-              'is ${engine.state.name}');
-        } else {
-          initDurations.add(stopwatch.elapsedMilliseconds);
-          initPassed++;
-        }
-      } catch (error) {
+        initDurations.add(stopwatch.elapsedMilliseconds);
+        initPassed++;
+      } catch (error, stack) {
         stopwatch.stop();
-        initFailures.add('cycle ${cycle + 1}: ${_short(error)}');
+        final failure = _structured(engine, error, stack, identity);
+        initFailures.add('cycle ${cycle + 1}: ${_short(failure.summary)}');
+        _addDistinct(initDiagnostics, failure);
       } finally {
         try {
           engine.dispose();
@@ -229,16 +259,20 @@ class StabilityProbe {
       passed: initPassed,
       failures: initFailures,
       durations: initDurations,
+      diagnostics: initDiagnostics,
     ));
 
     // 2. Repeated searches on one instance, each move checked for legality.
     final engine = build();
     final searchDurations = <int>[];
     final searchFailures = <String>[];
+    final searchDiagnostics = <Map<String, dynamic>>[];
     var searchPassed = 0;
     var disposeOk = true;
+    var started = false;
     try {
-      await engine.initialize().timeout(timeout);
+      await _initialize(engine);
+      started = true;
       for (var cycle = 0; cycle < searchCycles; cycle++) {
         final board = chess.Chess();
         if (!board.load(positionFen)) {
@@ -268,9 +302,15 @@ class StabilityProbe {
           searchFailures.add('search ${cycle + 1}: ${_short(error)}');
         }
       }
-    } catch (error) {
-      searchFailures.add('initialisation for the search checks: '
-          '${_short(error)}');
+    } catch (error, stack) {
+      if (started) {
+        searchFailures.add('search checks: ${_short(error)}');
+      } else {
+        final failure = _structured(engine, error, stack, identity);
+        searchFailures.add('initialisation for the search checks: '
+            '${_short(failure.summary)}');
+        _addDistinct(searchDiagnostics, failure);
+      }
     } finally {
       try {
         engine.dispose();
@@ -290,6 +330,7 @@ class StabilityProbe {
       passed: searchPassed,
       failures: searchFailures,
       durations: searchDurations,
+      diagnostics: searchDiagnostics,
     ));
     checks.add(StabilityCheck(
       name: 'Clean shutdown',
@@ -309,9 +350,56 @@ class StabilityProbe {
       checks: checks,
     );
   }
+
+  /// Starts [engine] under the probe's timeout. A normal return that leaves
+  /// the engine anything but ready is a contract violation and reported as
+  /// one (with the adapter's recorded cause when it has one).
+  Future<void> _initialize(ChessEngine engine) async {
+    // Only the probe's own deadline is the probe giving up. An adapter's
+    // TimeoutException (no `uciok`, no `readyok`) is rethrown so that
+    // [_structured] finds the adapter's recorded diagnostic.
+    var probeTimedOut = false;
+    try {
+      await engine.initialize().timeout(timeout, onTimeout: () {
+        probeTimedOut = true;
+        throw TimeoutException(
+            'the Stability Probe stopped waiting for initialize()', timeout);
+      });
+    } on TimeoutException catch (error, stack) {
+      if (!probeTimedOut) rethrow;
+      throw EngineInitializationException(
+        engine: engine.name,
+        version: engine.version,
+        stage: EngineInitStage.initialize,
+        platform: enginePlatformLabel(),
+        cause: error,
+        causeStack: stack,
+        kind: EngineFailureKind.readinessTimeout,
+        detail: 'the Stability Probe stopped waiting after '
+            '${timeout.inSeconds}s',
+      );
+    }
+    requireEngineReady(engine, platform: enginePlatformLabel());
+  }
+
+  EngineInitializationException _structured(ChessEngine engine, Object error,
+          StackTrace stack, EngineIdentity identity) =>
+      engineFailureOf(engine, error, stack, engineId: identity.engineId);
+
+  /// One diagnostic per distinct (kind, stage, cause): three identical
+  /// failed cycles are one root cause, not three.
+  void _addDistinct(
+      List<Map<String, dynamic>> into, EngineInitializationException failure) {
+    final json = Map<String, dynamic>.from(failure.toJson());
+    final key = '${json['kind']}|${json['stage']}|${json['cause']}';
+    if (into.any((d) => '${d['kind']}|${d['stage']}|${d['cause']}' == key)) {
+      return;
+    }
+    into.add(json);
+  }
 }
 
 String _short(Object error) {
-  final text = error.toString().replaceAll('\n', ' ');
+  final text = redactPersonalPaths(error.toString()).replaceAll('\n', ' ');
   return text.length <= 200 ? text : '${text.substring(0, 200)}…';
 }

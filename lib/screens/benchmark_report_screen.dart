@@ -180,7 +180,7 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 for (final entry in run.engineStatus.entries)
-                  if (entry.value.isFailure)
+                  if (entry.value.isFailure) ...[
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
                       child: Text(
@@ -192,6 +192,27 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
                             color: Theme.of(context).colorScheme.error),
                       ),
                     ),
+                    // Structured root cause (stored redacted with the run).
+                    if (entry.value.diagnostic != null)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 12, bottom: 4),
+                        child: SelectableText(
+                          [
+                            '${l?.engineLabRootCause ?? 'Root cause'}: '
+                                '${entry.value.diagnostic!['kind']} @ '
+                                '${entry.value.diagnostic!['stage']}',
+                            if (entry.value.diagnostic!['backend'] != null)
+                              'backend: ${entry.value.diagnostic!['backend']}',
+                            if (entry.value.diagnostic!['exitCode'] != null)
+                              'exit code: ${entry.value.diagnostic!['exitCode']}',
+                            if (entry.value.diagnostic!['stderrTail'] is List)
+                              'stderr: ${(entry.value.diagnostic!['stderrTail'] as List).join(' | ')}',
+                          ].join('\n'),
+                          style: const TextStyle(
+                              fontSize: 11, fontFamily: 'monospace'),
+                        ),
+                      ),
+                  ],
               ],
             ),
           ),

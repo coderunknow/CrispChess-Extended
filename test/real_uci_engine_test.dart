@@ -37,10 +37,21 @@ const String _whiteMatesInOne = '7k/5K2/8/8/8/8/8/6R1 w - - 0 1';
 /// The same position mirrored: Black mates in one.
 const String _blackMatesInOne = '6r1/8/8/8/8/8/5k2/7K b - - 0 1';
 
+/// Set by CI jobs that provide a real engine: a missing engine is then a
+/// failure, not a skip, so the job cannot go green without running anything.
+final bool _required = Platform.environment['CRISP_UCI_ENGINE_REQUIRED'] == '1';
+
 void main() {
   final skipReason = _enginePath == null
       ? 'set CRISP_UCI_ENGINE to a UCI engine binary to run these'
       : false;
+
+  test('a real engine is present when the job requires one', () {
+    expect(_enginePath, isNotNull,
+        reason: 'CRISP_UCI_ENGINE_REQUIRED=1 but CRISP_UCI_ENGINE is not set');
+    expect(File(_enginePath!).existsSync(), isTrue,
+        reason: 'CRISP_UCI_ENGINE does not name an existing file');
+  }, skip: _required ? false : 'CRISP_UCI_ENGINE_REQUIRED is not set');
 
   group('real UCI engine', () {
     test('completes the handshake and reports what it is', () async {
@@ -123,6 +134,15 @@ void main() {
           .analyze('position fen $_whiteMatesInOne', depth: 6)
           .first
           .timeout(const Duration(seconds: 30));
+      // Let the first search finish before asking about the second position.
+      // The analysis stream is shared, and by design (see "an eval still
+      // arriving from the stopped search keeps its colour" in
+      // generic_uci_init_test.dart) the late `info` lines of a search being
+      // stopped are still delivered, converted with *their* position's colour.
+      // Without this wait `.first` below can pick up White's +mate line from
+      // the first search — which is what genuine Stockfish 16 does, being fast
+      // enough that its remaining lines are still queued when `.first` returns.
+      await engine.drainSearch();
       final black = await engine
           .analyze('position fen $_blackMatesInOne', depth: 6)
           .first

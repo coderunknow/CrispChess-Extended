@@ -14,6 +14,10 @@ Future<Uint8List> fetchModelBytes(String url, String cacheFileName) async {
   return buffer.toDart.asUint8List();
 }
 
+/// The browser's HTTP cache cannot be queried, so a model is never known to be
+/// present: Engine Preflight asks before loading one.
+Future<bool> isModelCached(String url, String cacheFileName) async => false;
+
 /// No file system on the web; native libraries that load a model from disk
 /// are not available there either.
 Future<String> fetchModelFile(String url, String cacheFileName,

@@ -172,10 +172,17 @@ class EngineService {
       if (_disposed) return false;
       requireEngineReady(_engine, platform: 'application');
       return true;
-    } catch (e) {
+    } catch (e, stack) {
       if (!_disposed) {
-        _eventController.add(
-            EngineErrorEvent('Init failed: $e', kind: EngineFailure.startup));
+        // The structured summary leads (engine, failed step, why — "…
+        // could not start: no Stockfish executable was found …"); the full
+        // local details (stage=, library/runtime path, exit code) follow, as
+        // they did before. This event stays on the device; exported reports
+        // use the redacted toJson() instead.
+        final failure = engineFailureOf(_engine, e, stack);
+        _eventController.add(EngineErrorEvent(
+            'Init failed: ${failure.summary}\nDetails: $failure',
+            kind: EngineFailure.startup));
       }
       return false;
     }

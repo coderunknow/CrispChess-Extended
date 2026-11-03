@@ -10,6 +10,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../engines/chess_engine.dart' show ChessEngine;
+import '../engines/engine_initialization.dart' show RuntimeDigestSource;
 import '../engines/engine_registry.dart';
 import '../engines/frozenight_engine.dart' if (dart.library.js_interop) '../engines/frozenight_web_engine.dart';
 import 'benchmark_fingerprint.dart';
@@ -24,6 +26,7 @@ import 'benchmark_settings.dart';
 import 'benchmark_store.dart';
 import 'calibration.dart';
 import 'engine_identity.dart';
+import 'engine_preflight.dart';
 import 'opening_suite.dart';
 import 'stability_probe.dart';
 
@@ -119,6 +122,13 @@ class BenchmarkService {
 
   BenchmarkRunner? _active;
   bool _creatingRunner = false;
+  bool _preflighting = false;
+
+  /// Latest Engine Preflight results, which decide which engines a run may
+  /// use (see [preflightAdmission]).
+  final PreflightGate preflightGate = PreflightGate();
+
+  bool get isPreflighting => _preflighting;
   Future<String>? _appVersion;
 
   bool get isRunning => _active != null;
@@ -254,12 +264,31 @@ class BenchmarkService {
     RatingAnchor? anchor,
     List<RatingAnchor> anchors = const [],
     String? trigger,
+    bool requirePreflight = false,
   }) async {
     if (_active != null || _creatingRunner) {
       throw StateError('A benchmark is already running or being prepared.');
     }
+    if (_preflighting) {
+      throw StateError('Engine Preflight is still running.');
+    }
     _creatingRunner = true;
     try {
+    // Checked while this preparation holds the service, so no preflight can
+    // change the results between the check and the run.
+    if (requirePreflight) {
+      // The Lab's manual runs: only engines whose current Preflight result
+      // admits them. Never silently narrowed — the caller passes exactly the
+      // engines the user approved, and anything else is an error.
+      final admission = await preflightAdmission(engineIds, config);
+      if (!admission.allAdmitted) {
+        final known = await profiles();
+        final refused = admission.excluded.entries
+            .map((e) => '${engineLabelForId(e.key, known)} (${e.value})')
+            .join(', ');
+        throw StateError('Engine Preflight does not admit: $refused');
+      }
+    }
     if (engineIds.length < 2) {
       throw ArgumentError('A benchmark needs at least two engines.');
     }
@@ -323,6 +352,9 @@ class BenchmarkService {
     // createRunner awaits profile/fingerprint IO, so two callers may both
     // finish construction before either reserves the shared service.
     if (_active != null || _creatingRunner) throw StateError('A benchmark is already running or being prepared.');
+    // A Preflight started between createRunner() and here is still starting
+    // and stopping engines; a run must not overlap it.
+    if (_preflighting) throw StateError('Engine Preflight is still running.');
     _active = runner;
     try {
       final run = await runner.run();
@@ -369,6 +401,128 @@ class BenchmarkService {
       identity: identity,
       build: () => createEngineForId(engineId, profiles: all),
     );
+  }
+
+  // ---------------------------------------------------------------- preflight
+
+  /// What a preflight result for [engineId] would have to be bound to now.
+  /// Null when the engine cannot be built here.
+  Future<PreflightBinding?> preflightBindingFor(
+      String engineId, BenchmarkConfig config) async {
+    try {
+      final identity = await identityFor(engineId);
+      return PreflightBinding.of(identity, config,
+          appBuild: await appVersion(),
+          runtimeDigest: await runtimeDigestFor(engineId));
+    } on EngineUnavailableException {
+      return null;
+    }
+  }
+
+  /// Which executable a built-in engine that starts one found on the device
+  /// (native Stockfish) would start now; null for every other engine. Custom
+  /// engines are already identified by their file's SHA-256.
+  Future<String?> runtimeDigestFor(String engineId) async {
+    if (isCustomEngineId(engineId) || builtInNameFromId(engineId) == null) {
+      return null;
+    }
+    final ChessEngine engine =
+        createEngineForId(engineId, profiles: const []);
+    try {
+      return engine is RuntimeDigestSource
+          ? await (engine as RuntimeDigestSource).runtimeDigest()
+          : null;
+    } catch (_) {
+      return null;
+    } finally {
+      engine.dispose();
+    }
+  }
+
+  /// Runs Engine Preflight for every engine in [engineIds], one at a time,
+  /// and records the results in [preflightGate]. Every engine gets a result —
+  /// unsupported, not installed and cancelled ones included.
+  ///
+  /// [consent] is asked before any engine downloads something; declining
+  /// makes that engine `notInstalled` without downloading.
+  Future<List<EnginePreflightResult>> preflight({
+    required List<String> engineIds,
+    required BenchmarkConfig config,
+    required PreflightDownloadConsent consent,
+    EnginePreflight checker = const EnginePreflight(),
+    PreflightCancellation? cancellation,
+    void Function(String engineId)? onEngineStarted,
+    void Function(String engineId, PreflightStepResult step)? onStep,
+    void Function(EnginePreflightResult result)? onResult,
+  }) async {
+    if (_active != null || _creatingRunner) {
+      throw StateError('A benchmark is already running or being prepared.');
+    }
+    if (_preflighting) throw StateError('Engine Preflight is already running.');
+    _preflighting = true;
+    try {
+      final all = await profiles();
+      final byId = {for (final c in await candidates()) c.engineId: c};
+      final appBuild = await appVersion();
+      final results = <EnginePreflightResult>[];
+      for (final engineId in engineIds) {
+        final candidate = byId[engineId];
+        final label = candidate?.label ?? engineLabelForId(engineId, all);
+        if (cancellation?.isCancelled ?? false) {
+          final result =
+              EnginePreflightResult.notReached(engineId: engineId, label: label);
+          preflightGate.record(result);
+          results.add(result);
+          onResult?.call(result);
+          continue;
+        }
+        onEngineStarted?.call(engineId);
+        EngineIdentity? identity;
+        String? reason = candidate == null
+            ? 'This engine is no longer available.'
+            : candidate.unavailableReason;
+        String? runtimeDigest;
+        if (candidate != null && candidate.available) {
+          try {
+            identity = await identityFor(engineId);
+            runtimeDigest = await runtimeDigestFor(engineId);
+          } on EngineUnavailableException catch (error) {
+            reason = error.reason;
+          }
+        }
+        final result = await checker.check(
+          engineId: engineId,
+          label: label,
+          available: identity != null,
+          unavailableReason: reason,
+          build: () => createEngineForId(engineId, profiles: all),
+          identity: identity,
+          config: config,
+          appBuild: appBuild,
+          consent: consent,
+          runtimeDigest: runtimeDigest,
+          cancellation: cancellation,
+          onStep: onStep == null ? null : (step) => onStep(engineId, step),
+        );
+        preflightGate.record(result);
+        results.add(result);
+        onResult?.call(result);
+      }
+      return results;
+    } finally {
+      _preflighting = false;
+    }
+  }
+
+  /// Which of [engineIds] the latest preflight admits for [config], and why
+  /// each other one is not admitted.
+  Future<PreflightAdmission> preflightAdmission(
+      List<String> engineIds, BenchmarkConfig config) async {
+    final bindings = <String, PreflightBinding?>{};
+    for (final engineId in engineIds) {
+      bindings[engineId] = await preflightBindingFor(engineId, config);
+    }
+    return preflightGate.admission(engineIds, bindings);
   }
 
   // ------------------------------------------------------------------ history
@@ -571,8 +725,9 @@ class BenchmarkService {
     final identity = decision.identity;
     final config = decision.config;
     if (!decision.shouldRun || identity == null || config == null) return null;
-    if (_active != null || _creatingRunner) {
-      debugPrint('[EngineLab] automatic run skipped: a benchmark is running or being prepared');
+    if (_active != null || _creatingRunner || _preflighting) {
+      debugPrint('[EngineLab] automatic run skipped: a benchmark or Engine '
+          'Preflight is running');
       return null;
     }
     final engineIds = [identity.engineId, ...decision.opponents];

@@ -16,12 +16,14 @@ import 'package:chess/chess.dart' as chess;
 import 'package:flutter/foundation.dart';
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'chessmamba/native_step_model_stub.dart'
     if (dart.library.ffi) 'chessmamba/native_step_model.dart';
 import 'chessmamba/search.dart';
 import 'chessmamba/step_model.dart';
 import 'dart_engine.dart';
 import 'maia3_dart/onnx/model_fetch.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
 const String chessMambaModelUrl =
@@ -38,7 +40,8 @@ double mambaValueToPawns(double value, {required bool whiteToMove}) {
   return whiteToMove ? pawns : -pawns;
 }
 
-class ChessMambaEngine implements ChessEngine {
+class ChessMambaEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
 
   /// Try native ONNX Runtime first where it exists.
@@ -86,23 +89,68 @@ class ChessMambaEngine implements ChessEngine {
   /// Which runtime the model runs on, for diagnostics.
   String get backendName => _native ? 'native ONNX Runtime' : 'pure Dart';
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+
+  /// Why the preferred runtime was not used, when the engine fell back.
+  String? _fallbackNote;
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
-    try {
-      _model = modelFactory != null ? await modelFactory!() : await _load();
-      _searcher = MambaSearcher(_model!);
-      await _startNode();
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[ChessMamba] Ready ($backendName)');
-    } catch (e) {
-      debugPrint('[ChessMamba] Init failed: $e');
-      _stateNotifier.value = EngineState.error;
-    }
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => _init.effectiveBackend.isEmpty
+      ? backendName
+      : _init.effectiveBackend;
+  @override
+  String? get fallbackReason => _init.fallbackReason;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => null;
+
+  /// Loads the model and runs its first step; completes only when that
+  /// worked, otherwise throws a structured [EngineInitializationException]
+  /// (dev3 and earlier returned normally). A runtime fall back is recorded.
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: version,
+        backend: backendName,
+        body: _start,
+        cleanup: () {
+          _model?.dispose();
+          _model = null;
+        },
+      );
+
+  /// The model download [initialize] would start; asked by Engine Preflight
+  /// before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async =>
+      modelFactory != null
+          ? null
+          : pendingModelDownload(
+              description: 'ChessMamba model (about 67 MB)',
+              files: [(chessMambaModelUrl, _modelFile)],
+              license: license,
+            );
+
+  Future<void> _start(EngineInitScope scope) async {
+    scope.stage = EngineInitStage.loadBackend;
+    _fallbackNote = null;
+    _model = modelFactory != null ? await modelFactory!() : await _load(scope);
+    scope.backend = backendName;
+    scope.fallbackReason = _fallbackNote;
+    _searcher = MambaSearcher(_model!);
+    scope.checkCancelled();
+    scope.stage = EngineInitStage.warmUp;
+    await _startNode();
+    debugPrint('[ChessMamba] Ready ($backendName)');
   }
 
-  Future<MambaStepModel> _load() async {
+  Future<MambaStepModel> _load(EngineInitScope scope) async {
+    scope.stage = EngineInitStage.download;
     final bytes = await fetchModelBytes(chessMambaModelUrl, _modelFile);
+    scope.stage = EngineInitStage.loadBackend;
     if (preferNative && NativeMambaStepModel.isSupported) {
       try {
         final native = NativeMambaStepModel.create(bytes);
@@ -110,6 +158,7 @@ class ChessMambaEngine implements ChessEngine {
         return native;
       } catch (e) {
         debugPrint('[ChessMamba] Native runtime unavailable, using Dart: $e');
+        _fallbackNote = 'native ONNX Runtime unavailable: ${_reasonOf(e)}';
       }
     }
     return DartMambaStepModel(bytes);
@@ -290,10 +339,18 @@ class ChessMambaEngine implements ChessEngine {
 
   @override
   void dispose() {
+    _init.markDisposed();
     _stopRequested = true;
     _model?.dispose();
     _model = null;
     _fallback?.dispose();
     _stateNotifier.value = EngineState.disposed;
   }
+}
+
+/// First line of an error, for a fallback reason.
+String _reasonOf(Object error) {
+  final text = error.toString();
+  final cut = text.indexOf('\n');
+  return cut < 0 ? text : text.substring(0, cut);
 }

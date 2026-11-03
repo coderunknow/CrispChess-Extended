@@ -20,6 +20,7 @@ import 'package:chess/chess.dart' as chess;
 import 'package:flutter/foundation.dart';
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'chesslm/kv_model.dart';
 import 'chesslm/native_kv_model_stub.dart'
     if (dart.library.ffi) 'chesslm/native_kv_model.dart';
@@ -28,6 +29,7 @@ import 'chesslm/scorer.dart';
 import 'chesslm/tokenizer.dart';
 import 'dart_engine.dart';
 import 'maia3_dart/onnx/model_fetch.dart';
+import 'model_download.dart';
 import 'uci_position.dart';
 
 const String _zooBase = 'https://huggingface.co/cstr/chess-lm-zoo-onnx/resolve/main';
@@ -74,7 +76,8 @@ class ChessLmSpec {
   String get tokenizerUrl => '$_zooBase/$folder/tokenizer.json';
 }
 
-class ChessLmEngine implements ChessEngine {
+class ChessLmEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final ChessLmSpec spec;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final math.Random _random;
@@ -112,26 +115,74 @@ class ChessLmEngine implements ChessEngine {
 
   String get backendName => _native ? 'native ONNX Runtime' : 'pure Dart';
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+
+  /// Why the preferred runtime was not used, when the engine fell back.
+  String? _fallbackNote;
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
-    try {
-      final (model, tokenizer) = loader != null ? await loader!() : await _load();
-      _model = model;
-      _scorer = ChessLmScorer(model, tokenizer, spec.format,
-          contextLength: spec.contextLength);
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[ChessLm] ${spec.name} ready ($backendName)');
-    } catch (e) {
-      debugPrint('[ChessLm] ${spec.name} failed to load: $e');
-      _stateNotifier.value = EngineState.error;
-    }
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => _init.effectiveBackend.isEmpty
+      ? backendName
+      : _init.effectiveBackend;
+  @override
+  String? get fallbackReason => _init.fallbackReason;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => null;
+
+  /// Loads the model; completes only when it is usable, otherwise throws a
+  /// structured [EngineInitializationException] (dev3 and earlier returned
+  /// normally). A runtime fall back is recorded.
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: version,
+        backend: backendName,
+        body: _start,
+        cleanup: () {
+          _scorer = null;
+          _model?.dispose();
+          _model = null;
+        },
+      );
+
+  /// The model download [initialize] would start; asked by Engine Preflight
+  /// before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async => loader != null
+      ? null
+      : pendingModelDownload(
+          description: '${spec.name} language model',
+          files: [
+            (spec.tokenizerUrl, '${spec.folder}_tokenizer.json'),
+            (spec.onnxUrl, '${spec.folder}_${spec.onnxFile}'),
+          ],
+          license: spec.license,
+        );
+
+  Future<void> _start(EngineInitScope scope) async {
+    scope.stage = EngineInitStage.loadBackend;
+    _fallbackNote = null;
+    final (model, tokenizer) =
+        loader != null ? await loader!() : await _load(scope);
+    _model = model;
+    _scorer = ChessLmScorer(model, tokenizer, spec.format,
+        contextLength: spec.contextLength);
+    scope.backend = backendName;
+    scope.fallbackReason = _fallbackNote;
+    debugPrint('[ChessLm] ${spec.name} ready ($backendName)');
   }
 
-  Future<(KvLanguageModel, ChessLmTokenizer)> _load() async {
+  Future<(KvLanguageModel, ChessLmTokenizer)> _load(
+      EngineInitScope scope) async {
+    scope.stage = EngineInitStage.download;
     final tokenizer = ChessLmTokenizer.fromJson(utf8.decode(await fetchModelBytes(
         spec.tokenizerUrl, '${spec.folder}_tokenizer.json')));
     final bytes = await fetchModelBytes(spec.onnxUrl, '${spec.folder}_${spec.onnxFile}');
+    scope.stage = EngineInitStage.loadBackend;
     if (preferNative && NativeKvLanguageModel.isSupported) {
       try {
         final m = NativeKvLanguageModel.create(bytes,
@@ -143,6 +194,7 @@ class ChessLmEngine implements ChessEngine {
         return (m as KvLanguageModel, tokenizer);
       } catch (e) {
         debugPrint('[ChessLm] Native runtime unavailable, using Dart: $e');
+        _fallbackNote = 'native ONNX Runtime unavailable: ${_reasonOf(e)}';
       }
     }
     return (
@@ -239,6 +291,7 @@ class ChessLmEngine implements ChessEngine {
 
   @override
   void dispose() {
+    _init.markDisposed();
     _model?.dispose();
     _model = null;
     _fallback?.dispose();
@@ -373,3 +426,10 @@ bool chessLmAvailable(ChessLmSpec spec) {
 /// Names of the zoo bots offered on this platform.
 List<String> get availableChessLmNames =>
     [for (final s in chessLmZoo) if (chessLmAvailable(s)) s.name];
+
+/// First line of an error, for a fallback reason.
+String _reasonOf(Object error) {
+  final text = error.toString();
+  final cut = text.indexOf('\n');
+  return cut < 0 ? text : text.substring(0, cut);
+}

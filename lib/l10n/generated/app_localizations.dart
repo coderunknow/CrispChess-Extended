@@ -3198,7 +3198,127 @@ abstract class AppLocalizations {
   String get copied;
   String get engineLabImportEmpty;
   String get engineLabImported;
-  String get engineLabImportRenamed;}
+  String get engineLabImportRenamed;
+  /// `enginePreflight`.
+  String get enginePreflight;
+
+  /// `enginePreflightSubtitle`.
+  String get enginePreflightSubtitle;
+
+  /// `enginePreflightRun`.
+  String get enginePreflightRun;
+
+  /// `enginePreflightRetry`.
+  String get enginePreflightRetry;
+
+  /// `enginePreflightCopy`.
+  String get enginePreflightCopy;
+
+  /// `enginePreflightContinue`.
+  String get enginePreflightContinue;
+
+  /// `enginePreflightReviewed`.
+  String get enginePreflightReviewed;
+
+  /// `enginePreflightAcceptWarnings`.
+  String get enginePreflightAcceptWarnings;
+
+  /// `enginePreflightNeedTwo`.
+  String get enginePreflightNeedTwo;
+
+  /// `enginePreflightCancel`.
+  String get enginePreflightCancel;
+
+  /// `enginePreflightDownloadTitle`.
+  String get enginePreflightDownloadTitle;
+
+  /// `enginePreflightDownloadBody`.
+  String get enginePreflightDownloadBody;
+
+  /// `enginePreflightDownloadAllow`.
+  String get enginePreflightDownloadAllow;
+
+  /// `enginePreflightDownloadDeny`.
+  String get enginePreflightDownloadDeny;
+
+  /// `enginePreflightSource`.
+  String get enginePreflightSource;
+
+  /// `enginePreflightLicense`.
+  String get enginePreflightLicense;
+
+  /// `enginePreflightStale`.
+  String get enginePreflightStale;
+
+  /// `enginePreflightDiagnostics`.
+  String get enginePreflightDiagnostics;
+
+  /// `enginePreflightExcluded`.
+  String get enginePreflightExcluded;
+
+  /// `enginePreflightPassedCount`.
+  String get enginePreflightPassedCount;
+
+  /// `enginePreflightStatusPending`.
+  String get enginePreflightStatusPending;
+
+  /// `enginePreflightStatusPassed`.
+  String get enginePreflightStatusPassed;
+
+  /// `enginePreflightStatusWarning`.
+  String get enginePreflightStatusWarning;
+
+  /// `enginePreflightStatusFailed`.
+  String get enginePreflightStatusFailed;
+
+  /// `enginePreflightStatusUnsupported`.
+  String get enginePreflightStatusUnsupported;
+
+  /// `enginePreflightStatusNotInstalled`.
+  String get enginePreflightStatusNotInstalled;
+
+  /// `enginePreflightStatusTimedOut`.
+  String get enginePreflightStatusTimedOut;
+
+  /// `enginePreflightStatusCancelled`.
+  String get enginePreflightStatusCancelled;
+
+  /// `enginePreflightStatusSkipped`.
+  String get enginePreflightStatusSkipped;
+
+  /// `enginePreflightStepPlatform`.
+  String get enginePreflightStepPlatform;
+
+  /// `enginePreflightStepRuntime`.
+  String get enginePreflightStepRuntime;
+
+  /// `enginePreflightStepInitialization`.
+  String get enginePreflightStepInitialization;
+
+  /// `enginePreflightStepReadiness`.
+  String get enginePreflightStepReadiness;
+
+  /// `enginePreflightStepIdentity`.
+  String get enginePreflightStepIdentity;
+
+  /// `enginePreflightStepOptions`.
+  String get enginePreflightStepOptions;
+
+  /// `enginePreflightStepFirstSearch`.
+  String get enginePreflightStepFirstSearch;
+
+  /// `enginePreflightStepLegalMove`.
+  String get enginePreflightStepLegalMove;
+
+  /// `enginePreflightStepCleanup`.
+  String get enginePreflightStepCleanup;
+
+  /// `engineLabRootCause`.
+  String get engineLabRootCause;
+
+  /// `enginePreflightReferenceExcluded`.
+  String get enginePreflightReferenceExcluded;
+}
 
 class _AppLocalizationsDelegate
     extends LocalizationsDelegate<AppLocalizations> {

@@ -1,0 +1,89 @@
+name: Stockfish initialization RCA
+
+# Reproduces "Stockfish 16: failed — Bad state: initialize returned with state
+# error" on the dev3 baseline and shows what the candidate reports instead, on
+# the same runners, with the same harness (tool/rca/stockfish_lab_repro_test.dart):
+# the real Engine Lab runner, the real built-in Stockfish adapter and the
+# built-in Dart engine, on a machine without a Stockfish executable — which is
+# every desktop release, because GPL Stockfish is not bundled.
+#
+# Read-only: no secrets, no publication, no writes to the repository.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/engines/stockfish_engine.dart'
+      - 'lib/engines/engine_initialization.dart'
+      - 'lib/bench/benchmark_runner.dart'
+      - 'tool/rca/**'
+      - '.github/workflows/stockfish-rca.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: ${{ matrix.tree }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        tree: [baseline, candidate]
+    steps:
+      - name: Harness (this revision)
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+      - name: Tree under test
+        uses: actions/checkout@v4
+        with:
+          path: target
+          # dev3 baseline: the merge commit v2.3.2-dev3 was tagged from.
+          ref: ${{ matrix.tree == 'baseline' && '5ee20cd9eeb10c9df581620fc8452929e0e23ad3' || github.sha }}
+          persist-credentials: false
+      - name: No Stockfish on this runner
+        shell: bash
+        run: |
+          if command -v stockfish >/dev/null 2>&1; then
+            echo "::error::a stockfish executable is installed; the reproduction needs a runner without one"; exit 1
+          fi
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Run the reproduction
+        shell: bash
+        working-directory: target
+        env:
+          RCA_EXPECT: ${{ matrix.tree }}
+        run: |
+          set -o pipefail
+          flutter pub get
+          cp ../harness/tool/rca/stockfish_lab_repro_test.dart test/zz_stockfish_lab_repro_test.dart
+          flutter test test/zz_stockfish_lab_repro_test.dart --reporter expanded --file-reporter json:rca-tests.json 2>&1 | tee rca.log
+      - name: What the Engine Lab recorded
+        if: always()
+        shell: bash
+        working-directory: target
+        run: |
+          python3 - <<'PYTHON'
+          import json, pathlib
+          p = pathlib.Path('rca-result.json')
+          if p.exists():
+              data = json.loads(p.read_text())
+              s = data['stockfish']
+              diag = s.get('diagnostic') or {}
+              msg = (f"{data['expect']} on {data['os']}: status={s.get('status')}; "
+                     f"reason={s.get('reason')}; kind={diag.get('kind')}; stage={diag.get('stage')}")
+              print('::notice title=Stockfish RCA::' + msg.replace('%', '%25').replace('\n', '%0A'))
+              pathlib.Path('rca-summary.md').write_text('```json\n' + json.dumps(data, indent=2) + '\n```\n')
+          else:
+              print('::warning title=Stockfish RCA::no result written')
+          PYTHON
+          if [ -f rca-summary.md ]; then cat rca-summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          python3 ../harness/tool/ci/annotate_test_failures.py rca-tests.json 'Stockfish RCA'

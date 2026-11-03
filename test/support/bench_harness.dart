@@ -15,6 +15,7 @@ import 'package:crispchess/bench/benchmark_run.dart';
 import 'package:crispchess/bench/benchmark_runner.dart';
 import 'package:crispchess/bench/engine_identity.dart';
 import 'package:crispchess/engines/chess_engine.dart';
+import 'package:crispchess/engines/engine_initialization.dart';
 import 'package:crispchess/engines/search_telemetry.dart';
 import 'package:crispchess/engines/uci_capabilities.dart';
 import 'package:flutter/foundation.dart';
@@ -254,4 +255,41 @@ Future<({
   );
   final run = await runner.run();
   return (run: run, runner: runner, alpha: first, beta: second);
+}
+
+/// An adapter whose own handshake timed out quickly (like a custom UCI engine
+/// that never says `uciok`): it records the structured diagnostic and throws
+/// the raw TimeoutException, which callers must not mistake for their own
+/// deadline.
+class AdapterTimeoutEngine extends ScriptedEngine implements EngineRuntimeReport {
+  AdapterTimeoutEngine(super.name);
+
+  EngineInitializationException? _error;
+
+  @override
+  EngineInitializationException? get initializationError => _error;
+  @override
+  String get effectiveBackend => 'native-process';
+  @override
+  String? get fallbackReason => null;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => null;
+
+  @override
+  Future<void> initialize() async {
+    initialised.add(name);
+    final timeout = TimeoutException(
+        'No UCI handshake response within 10ms', const Duration(milliseconds: 10));
+    _error = EngineInitializationException(
+      engine: name,
+      version: version,
+      stage: EngineInitStage.handshake,
+      platform: 'test',
+      cause: timeout,
+      kind: EngineFailureKind.handshakeTimeout,
+    );
+    throw timeout;
+  }
 }

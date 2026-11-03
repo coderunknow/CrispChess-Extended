@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'generic_uci_engine_stub.dart';
 import 'search_telemetry.dart';
 import 'uci_capabilities.dart';
@@ -24,8 +25,38 @@ export 'chess_engine.dart' show EngineProcessDiedException;
 
 class GenericUciEngine
     with UciSearchCoordinator, UciProcessLifecycle
-    implements ChessEngine, SearchTelemetry, UciOptionAware, SearchDrainableEngine, NodeLimitedEngine {
+    implements ChessEngine, SearchTelemetry, UciOptionAware, SearchDrainableEngine, NodeLimitedEngine, EngineRuntimeReport {
   final EngineProfile profile;
+
+  /// Structured diagnostic of the last failed [initialize].
+  ///
+  /// The exception that [initialize] throws keeps its original type
+  /// (`FileSystemException`, `ProcessException`, `TimeoutException`,
+  /// [EngineProcessDiedException], …) because the Engine Manager and existing
+  /// callers rely on it; this records the same failure with its stage, failure
+  /// kind, exit code and stderr tail. `cause` is the very object that was
+  /// thrown, so `engineFailureOf` can pair them up.
+  EngineInitializationException? _initializationError;
+
+  /// Step of the handshake currently running, for [_initializationError].
+  String _initStage = EngineInitStage.idle;
+
+  @override
+  EngineInitializationException? get initializationError =>
+      _initializationError;
+
+  @override
+  String get effectiveBackend => 'native-process';
+
+  @override
+  String? get fallbackReason => null;
+
+  @override
+  String? get requestedVersion => null;
+
+  @override
+  String? get detectedVersion =>
+      _detectedVersion.isEmpty ? null : _detectedVersion;
 
   Process? _process;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
@@ -83,6 +114,9 @@ class GenericUciEngine
 
   /// Whether the engine answered `uciok` in the last handshake.
   bool _handshakeComplete = false;
+
+  /// The wait for `uciok` in flight, released by [dispose].
+  Completer<void>? _handshakeReady;
 
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
   static final _mateRegex = RegExp(r'score mate (-?\d+)');
@@ -172,6 +206,9 @@ class GenericUciEngine
   Future<void> _initializeOnce() async {
     _stateNotifier.value = EngineState.initializing;
     await _teardownProcess(announce: false);
+    final watch = Stopwatch()..start();
+    _initializationError = null;
+    _initStage = EngineInitStage.resolveRuntime;
 
     try {
       final file = File(profile.path);
@@ -179,10 +216,23 @@ class GenericUciEngine
         throw FileSystemException('Engine binary not found', profile.path);
       }
 
+      _initStage = EngineInitStage.launchProcess;
+      if (_isDisposed) {
+        throw StateError('Engine disposed during initialization');
+      }
       _process = await Process.start(profile.path, []);
+      if (_isDisposed) {
+        // Disposed while the process was starting: dispose() could not kill
+        // it, and nothing would release a handshake started now.
+        await _teardownProcess(announce: false);
+        throw StateError('Engine disposed during initialization');
+      }
       watchProcess(_process!);
+      _initStage = EngineInitStage.handshake;
 
-      final ready = Completer<void>();
+      // Kept in a field so that dispose() can release this wait too: it
+      // cancels the stdout subscription, whose onDone would otherwise do it.
+      final ready = _handshakeReady = Completer<void>();
       _handshakeComplete = false;
       options.clear();
       _detectedName = '';
@@ -223,6 +273,12 @@ class GenericUciEngine
         );
       }
 
+      if (_isDisposed) {
+        // Disposed while the handshake was running: a cancellation, not a
+        // handshake timeout or a dead process.
+        throw StateError('Engine disposed during initialization');
+      }
+
       if (!_handshakeComplete) {
         // stdout ended before `uciok`: the process died during the handshake.
         // Report that rather than falling through to a false "ready".
@@ -231,6 +287,7 @@ class GenericUciEngine
         throw death;
       }
 
+      _initStage = EngineInitStage.configure;
       // Apply saved option overrides
       for (final entry in profile.optionOverrides.entries) {
         _send('setoption name ${entry.key} value ${entry.value}');
@@ -253,6 +310,7 @@ class GenericUciEngine
       // command was written let the first `position`/`go` overtake an engine
       // still working through them.
       //
+      _initStage = EngineInitStage.readiness;
       await synchronizeOptions();
       if (_isDisposed) {
         // Disposed while the handshake was running: the caller is gone and the
@@ -265,14 +323,66 @@ class GenericUciEngine
       // caller told it started. That is the "a failing engine is saved as a
       // working one" defect this class exists to prevent.
       if (processGone) throw await processDeathReport();
+      _initStage = EngineInitStage.verifyReady;
       _stateNotifier.value = EngineState.ready;
       debugPrint('[UCI] $name ready (${options.length} options)');
-    } catch (e) {
+    } catch (e, stack) {
       debugPrint('[UCI] Init failed: $e');
+      EngineProcessDiedException? death;
+      if (e is EngineProcessDiedException) {
+        death = e;
+      } else if (e is StateError && processGone && !_disposedByCaller) {
+        // "Engine lost during readiness synchronization" says only that the
+        // wait ended; the exit code and stderr say why. The thrown exception
+        // stays the original so callers matching on its type still can.
+        death = await processDeathReport();
+      }
+      _initializationError =
+          _describeInitFailure(e, stack, watch, death: death);
       await _teardownProcess();
       _setState(EngineState.error);
       rethrow;
     }
+  }
+
+  EngineInitializationException _describeInitFailure(
+      Object error, StackTrace stack, Stopwatch watch,
+      {EngineProcessDiedException? death}) {
+    final stage = _initStage;
+    EngineFailureKind? kind;
+    if (_disposedByCaller) {
+      // The caller went away; however the wait ended, it is not a fault.
+      kind = EngineFailureKind.cancelled;
+    } else if (error is FileSystemException &&
+        stage == EngineInitStage.resolveRuntime) {
+      kind = EngineFailureKind.binaryMissing;
+    } else if (error is ProcessException) {
+      // EACCES (13) on POSIX, ERROR_ACCESS_DENIED (5) on Windows.
+      final code = error.errorCode;
+      kind = code == 13 || (Platform.isWindows && code == 5)
+          ? EngineFailureKind.permissionDenied
+          : EngineFailureKind.processLaunchFailed;
+    } else if (death != null || (error is StateError && processGone)) {
+      kind = EngineFailureKind.processExited;
+    } else if (error is StateError && stage == EngineInitStage.readiness) {
+      kind = EngineFailureKind.readinessFailed;
+    }
+    final died = death;
+    return EngineInitializationException(
+      engine: name,
+      version: _detectedVersion,
+      stage: stage,
+      platform: Platform.operatingSystem,
+      cause: error,
+      causeStack: stack,
+      backend: effectiveBackend,
+      detectedVersion: detectedVersion,
+      kind: kind,
+      exitCode: died?.exitCode,
+      stderrTail: died?.stderrTail ?? const [],
+      runtimePath: profile.path,
+      elapsedMicros: watch.elapsedMicroseconds,
+    );
   }
 
   @override
@@ -292,9 +402,11 @@ class GenericUciEngine
     if (processGone) return;
     try {
       _process?.stdin.writeln(command);
-    } on SocketException catch (e) {
-      // Writing to a pipe whose far end is gone. The exit watcher reports it.
-      debugPrint('[UCI] ${profile.path} write failed: $e');
+    } catch (e) {
+      // Writing to a pipe whose far end is gone (a SocketException, or a
+      // StateError once the sink has closed on that error). The exit watcher
+      // reports the death with its exit code and stderr.
+      debugPrint('[UCI] ${redactPersonalPaths(profile.path)} write failed: $e');
     }
   }
 
@@ -318,7 +430,7 @@ class GenericUciEngine
       }
     } catch (_) {
       // A late response must never acknowledge a subsequent operation.
-      dispose();
+      _disposeNow();
       rethrow;
     } finally {
       if (identical(_readyOk, ack)) _readyOk = null;
@@ -607,13 +719,26 @@ class GenericUciEngine
     resetSearches();
   }
 
+  /// Set when [dispose] was called from outside, as opposed to the internal
+  /// teardown after a failed readiness barrier; only the former is a
+  /// cancellation.
+  bool _disposedByCaller = false;
+
   @override
   void dispose() {
+    if (_stateNotifier.value != EngineState.disposed) _disposedByCaller = true;
+    _disposeNow();
+  }
+
+  void _disposeNow() {
     if (_stateNotifier.value == EngineState.disposed) return;
     beginProcessDispose();
     final ready = _readyOk;
     _readyOk = null;
     if (ready != null && !ready.isCompleted) ready.complete();
+    final handshake = _handshakeReady;
+    _handshakeReady = null;
+    if (handshake != null && !handshake.isCompleted) handshake.complete();
     resetSearches();
     _send('quit');
     _stdoutSub?.cancel();

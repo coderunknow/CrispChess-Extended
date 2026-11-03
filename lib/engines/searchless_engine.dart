@@ -16,7 +16,9 @@ import 'package:chess/chess.dart' as chess;
 import 'package:flutter/foundation.dart';
 
 import 'chess_engine.dart';
+import 'engine_initialization.dart';
 import 'maia3_dart/onnx/model_fetch.dart';
+import 'model_download.dart';
 import 'searchless/model.dart';
 import 'searchless/native_model_stub.dart'
     if (dart.library.ffi) 'searchless/native_model.dart';
@@ -42,7 +44,8 @@ enum SearchlessSize {
   String get engineName => 'Searchless $label';
 }
 
-class SearchlessEngine implements ChessEngine {
+class SearchlessEngine
+    implements ChessEngine, EngineRuntimeReport, DownloadAwareEngine {
   final SearchlessSize size;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   final math.Random _random;
@@ -82,25 +85,72 @@ class SearchlessEngine implements ChessEngine {
   String _backend = 'pure Dart';
   String get backendName => _backend;
 
+  late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+
+  /// Why the preferred runtime was not used, when the engine fell back.
+  String? _fallbackNote;
+
   @override
-  Future<void> initialize() async {
-    _stateNotifier.value = EngineState.initializing;
-    try {
-      final (model, actions, buckets) =
-          loader != null ? await loader!() : await _load();
-      _model = model;
-      _actionOf = {for (var i = 0; i < actions.length; i++) actions[i]: i};
-      _buckets = buckets;
-      _stateNotifier.value = EngineState.ready;
-      debugPrint('[Searchless] ${size.label} ready ($backendName)');
-    } catch (e) {
-      debugPrint('[Searchless] ${size.label} failed: $e');
-      _stateNotifier.value = EngineState.error;
-    }
+  EngineInitializationException? get initializationError => _init.lastFailure;
+  @override
+  String get effectiveBackend => _init.effectiveBackend.isEmpty
+      ? _backend
+      : _init.effectiveBackend;
+  @override
+  String? get fallbackReason => _init.fallbackReason;
+  @override
+  String? get requestedVersion => null;
+  @override
+  String? get detectedVersion => null;
+
+  /// Loads the model; completes only when it is usable, otherwise throws a
+  /// structured [EngineInitializationException] (dev3 and earlier returned
+  /// normally). A fall back to another runtime is recorded.
+  @override
+  Future<void> initialize() => _init.run(
+        engine: name,
+        version: version,
+        backend: _backend,
+        body: _start,
+        cleanup: () {
+          _model?.dispose();
+          _model = null;
+        },
+      );
+
+  Future<void> _start(EngineInitScope scope) async {
+    scope.stage = EngineInitStage.loadBackend;
+    _fallbackNote = null;
+    final (model, actions, buckets) =
+        loader != null ? await loader!() : await _load(scope);
+    _model = model;
+    _actionOf = {for (var i = 0; i < actions.length; i++) actions[i]: i};
+    _buckets = buckets;
+    scope.backend = _backend;
+    scope.fallbackReason = _fallbackNote;
+    debugPrint('[Searchless] ${size.label} ready ($backendName)');
   }
 
-  Future<(SearchlessModel, List<String>, List<double>)> _load() async {
+  /// The model download [initialize] would start; asked by Engine Preflight
+  /// before anything is downloaded.
+  @override
+  Future<EngineDownloadRequirement?> pendingDownload() async => loader != null
+      ? null
+      : pendingModelDownload(
+          description: '${size.engineName} model',
+          files: [
+            ('$_base/actions.json', 'searchless_actions.json'),
+            ('$_base/bucket_values.json', 'searchless_bucket_values.json'),
+            ('$_base/${size.file}',
+                'searchless_${size.label}_${size.file.split('/').last}'),
+          ],
+          license: license,
+        );
+
+  Future<(SearchlessModel, List<String>, List<double>)> _load(
+      EngineInitScope scope) async {
     List<T> json<T>(Uint8List b) => (jsonDecode(utf8.decode(b)) as List).cast<T>();
+    scope.stage = EngineInitStage.download;
     final actions = json<String>(
         await fetchModelBytes('$_base/actions.json', 'searchless_actions.json'));
     final buckets = [
@@ -116,10 +166,12 @@ class SearchlessEngine implements ChessEngine {
         return (m as SearchlessModel, actions, buckets);
       } catch (e) {
         debugPrint('[Searchless] ONNX Runtime Web unavailable, using Dart: $e');
+        _fallbackNote = 'ONNX Runtime Web unavailable: ${_reasonOf(e)}';
       }
     }
     final bytes = await fetchModelBytes('$_base/${size.file}',
         'searchless_${size.label}_${size.file.split('/').last}');
+    scope.stage = EngineInitStage.loadBackend;
     if (preferNative && NativeSearchlessModel.isSupported) {
       try {
         final m = NativeSearchlessModel.create(bytes);
@@ -127,6 +179,7 @@ class SearchlessEngine implements ChessEngine {
         return (m as SearchlessModel, actions, buckets);
       } catch (e) {
         debugPrint('[Searchless] Native runtime unavailable, using Dart: $e');
+        _fallbackNote = 'native ONNX Runtime unavailable: ${_reasonOf(e)}';
       }
     }
     return (DartSearchlessModel(bytes) as SearchlessModel, actions, buckets);
@@ -234,6 +287,7 @@ class SearchlessEngine implements ChessEngine {
 
   @override
   void dispose() {
+    _init.markDisposed();
     _model?.dispose();
     _model = null;
     _stateNotifier.value = EngineState.disposed;
@@ -255,4 +309,11 @@ SearchlessSize? searchlessSizeNamed(String name) {
     if (s.engineName == name) return s;
   }
   return null;
+}
+
+/// First line of an error, for a fallback reason.
+String _reasonOf(Object error) {
+  final text = error.toString();
+  final cut = text.indexOf('\n');
+  return cut < 0 ? text : text.substring(0, cut);
 }
