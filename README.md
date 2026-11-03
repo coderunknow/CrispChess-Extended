@@ -157,8 +157,8 @@ silently substituted engine.
   (platform, runtime, start-up, readiness, identity, options, a first search, a
   legal move, clean shutdown) with a card per engine, copyable diagnostics and
   retry; results are tied to the engine identity, platform and settings and go
-  stale when they change; the run continues with the passed engines only after
-  you have reviewed the result, and the Preflight screen lists those left out
+  stale when they change; the run continues with the admitted engines (passed,
+  or with warnings you accepted) only after you have reviewed the result, and the Preflight screen lists those left out
   with the reason. Engines that would download a model or binary ask first.
   (Automatic runs keep their own budget and refusal rules.)
 - **Stability diagnostics** — repeated start-up and repeated searches, with

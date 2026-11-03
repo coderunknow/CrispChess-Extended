@@ -320,6 +320,14 @@ Review 5741003831 on the exact head fdc726d: no Major findings, one Minor. CI on
 |---|---|---|
 | A Preflight result for the built-in Stockfish was bound to its build-based identity only, so replacing the executable or changing `CRISPCHESS_STOCKFISH_PATH` after the check kept the result current and let a manual run admit a different binary | Minor | Fixed in the binding, not the identity. `PreflightBinding` gains an optional `runtimeDigest`: SHA-256 over the executable's location and its contents' SHA-256, so no path is exposed. It comes from the new `RuntimeDigestSource` interface, implemented only by the native Stockfish adapter, which resolves the executable without starting it. It is null on iOS and Web, and for every other engine. A different digest makes the result stale ("the engine executable changed"). The stored run identity is deliberately unchanged: switching the built-in Stockfish fingerprint from `builtin-build` to `sha256`, as suggested, would mark every stored Stockfish measurement as "binary changed" and trigger automatic re-benchmarks. That is a separate, pre-existing identity limitation, already noted in the prior audit. Tests: stale and JSON round-trip in `engine_preflight_test.dart`; digest stability, path and contents sensitivity, no start, and null when missing in `stockfish_runtime_test.dart` |
 
+### Twelfth full review (5f3e6a4)
+
+Review 5747483903 on the exact head 5f3e6a4: no Major findings, one Minor.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Release notes, CHANGELOG and README said a run continues with "the passed engines only", but an engine whose warnings were accepted is admitted too | Minor | Fixed: "the admitted engines (passed, or with warnings you accepted)". The Preflight button label "Continue with passed engines" keeps the specification's wording. The engines whose warnings were accepted are the ones the user explicitly reviewed on that screen |
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned
