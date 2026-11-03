@@ -274,6 +274,25 @@ void main() {
       expect(redactPersonalPaths(r'C:\Users\carol\sf.exe'), r'~\sf.exe');
       expect(redactPath('/opt/engines/stockfish'), '…/stockfish');
     });
+
+    test('summary and the redacted diagnostic text redact the detail too', () {
+      final failure = EngineInitializationException(
+        engine: 'Stockfish',
+        version: '16',
+        stage: EngineInitStage.launchProcess,
+        platform: 'linux',
+        kind: EngineFailureKind.processLaunchFailed,
+        cause: StateError('launch failed'),
+        detail: 'cleanup after the failed start also failed: '
+            'FileSystemException: Cannot delete, path = '
+            "'/home/alice/.local/engines/stockfish.part'",
+      );
+      expect(failure.summary, isNot(contains('alice')));
+      expect(failure.summary, contains('~/.local/engines/stockfish.part'));
+      expect(failure.toDiagnosticText(), isNot(contains('alice')));
+      expect(failure.toDiagnosticText(redact: false), contains('alice'),
+          reason: 'the local, unredacted view keeps the full path');
+    });
   });
 
   group('EngineSlot', () {

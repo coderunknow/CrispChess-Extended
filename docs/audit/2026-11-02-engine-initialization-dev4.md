@@ -328,6 +328,14 @@ Review 5747483903 on the exact head 5f3e6a4: no Major findings, one Minor.
 |---|---|---|
 | Release notes, CHANGELOG and README said a run continues with "the passed engines only", but an engine whose warnings were accepted is admitted too | Minor | Fixed: "the admitted engines (passed, or with warnings you accepted)". The Preflight button label "Continue with passed engines" keeps the specification's wording. The engines whose warnings were accepted are the ones the user explicitly reviewed on that screen |
 
+### Thirteenth full review (f555e5f)
+
+Review 5747867848 on the exact head f555e5f: no Major findings, one Minor (Security & Privacy). CI on f555e5f was green, including real Stockfish 16 11/11 (job 125739163314).
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| `EngineInitializationException.summary` (documented as redacted) inserted `detail` unredacted. A cleanup error such as a `FileSystemException` could carry a home-directory path into the summary and into the header of `toDiagnosticText(redact: true)`. The JSON field was already redacted | Minor | Fixed: `detail` is passed through `redactPersonalPaths` in `summary`. Test: a home path in the detail is absent from `summary` and from the redacted diagnostic text, and kept in the local unredacted text |
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned

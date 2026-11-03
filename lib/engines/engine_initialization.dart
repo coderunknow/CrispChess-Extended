@@ -354,7 +354,7 @@ class EngineInitializationException implements Exception {
   String get summary {
     final what = detail == null || detail!.isEmpty
         ? kind.explanation
-        : '${kind.explanation} — $detail';
+        : '${kind.explanation} — ${redactPersonalPaths(detail!)}';
     final code = exitCode == null ? '' : ' (exit code $exitCode)';
     final causeText = cause is EngineStartupFailure
         ? ''
