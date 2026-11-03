@@ -90,3 +90,63 @@ location; iOS uses sandboxed model/JavaScript assets and never executes
 downloaded native code; web uses browser-managed cache storage, not a pretended
 POSIX directory. See `docs/audit/2026-11-03-dev5-reconnaissance.md` for the
 verification matrix and confirmed source-level defects.
+
+## dev5 verification round: what the compiler and the tests changed
+
+The Lab diagnostics workflow turned out to be the only readable CI channel in
+this environment (Actions logs redirect to a blob host that is unreachable
+here), so each round was driven by its PR comment rather than by guessing. Four
+rounds, in order of what they exposed:
+
+1. `flutter analyze` reported 35 issues including 9 errors. Every one was real:
+   a getter two files assumed existed, an import for a top-level function that
+   is not a method, a `const` suite that reads another suite's field (illegal in
+   a constant expression), a nonexistent `sha256OfFile`, a duplicate
+   `redactPath` with two different meanings, three files importing `dart:io`
+   from a build target that cannot link it, a parameter that never existed, and
+   a cancel callback whose type did not match the transport.
+2. The compiler then reported what the analyzer's `show` clauses had hidden:
+   `Abi` without `dart:ffi` (which broke the *loading* of 31 test files, not the
+   tests themselves) and a non-exhaustive switch over the new
+   `TournamentFormat.intelligent`.
+3. Behaviour: 10 failures. Six were defects in the tests I wrote — a
+   colour-reversed pair that sampled the winner from a per-colour probability and
+   so cancelled the strength difference it was meant to measure, a 50% draw rate
+   applied on top of that probability, a covariance sign asserted backwards, a
+   cluster count that assumed the old per-pairing key, and a refusal asserted by
+   the wrong field. Four were defects in the code: the draw prior was validated
+   as if it were evidence, so a separated replicate counted as a clean sample;
+   `fitElo` rated participants that had played nothing; a stored run could not be
+   `jsonEncode`d at all once any uncertainty was unbounded; and the pilot priced
+   its whole cluster target before admitting a single opponent.
+4. Two more: a pilot that demanded 40 games before selecting anyone (a two-game
+   budget selected nobody), and `90%` printed as `90.0%`.
+
+Decisions worth keeping:
+
+* The prior keeps the displayed estimate *and* its interval finite — that is a
+  documented contract and an existing test. What it must not do is hide that the
+  record was perfect, so `separated` travels with the fit, and the bootstrap
+  validates replicates with **no** prior. A resample the prior rescued is not
+  evidence.
+* The pilot is the minimum connected schedule (one colour-reversed unit per
+  spanning-tree edge). Reaching `minClusters` belongs to the adaptive phase,
+  which can stop when the budget runs out instead of failing before the first
+  game. The target is still computed and reported, clamped to the number of
+  distinct openings the suite holds, because a repeat is not a new cluster.
+* The cluster key is the line of chess, not the (suite, opening) pair: two
+  pairings that play the same moves are one cluster of evidence.
+* A stored run is JSON, and JSON has no Infinity. Every non-finite value is
+  written as `null` with a marker on the map that held it, and the readers
+  restore it as an infinity rather than failing a cast.
+* `engine_storage`, `download_manager` and the Lynx install path reach the
+  filesystem only through conditional-import seams (`storage_fs.dart`,
+  `download_io.dart`). `Build Web (WASM)` now compiles and links, which is the
+  evidence that the seam is right.
+
+Verification at the final SHA `6147fea`: all seven workflows green — CI (every
+job, including Linux/macOS/Windows/iOS/Android and the WASM web build), Engine
+Lab, Lab diagnostics (`flutter analyze` exit 0, `flutter test` exit 0), Release,
+Stockfish RCA, Frozenight release validation, Engine latency, Secret scan.
+`tool/bench/verify_cluster_bootstrap.py` passes all 7 statistical checks and
+`verify_rating_math.py --trials 50` passes 25/25.
