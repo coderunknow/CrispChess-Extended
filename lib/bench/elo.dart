@@ -517,7 +517,16 @@ class EloFit {
       anchorEngineId: json['anchorEngineId'] as String?,
       components: components,
       warnings: warnings,
-      covariance: [for (final row in (json['covariance'] as List? ?? [])) [for (final v in row as List) (v as num).toDouble()]],
+      // A non-finite covariance cell is stored as null (JSON has no Infinity):
+      // unbounded information stays unbounded when it comes back, instead of
+      // throwing on a cast that a saved dev5 run would carry forever.
+      covariance: [
+        for (final row in (json['covariance'] as List? ?? []))
+          [
+            for (final v in (row as List))
+              v is num ? v.toDouble() : double.infinity,
+          ],
+      ],
       covarianceIds: [for (final id in (json['covarianceIds'] as List? ?? [])) '$id'],
       bootstrap: json['bootstrap'] is Map ? ClusterBootstrapReport.fromJson(Map<String, dynamic>.from(json['bootstrap'] as Map)) : null,
       pairwiseScope: PairwiseIntervalScope.fromId(json['pairwiseScope'] as String?),

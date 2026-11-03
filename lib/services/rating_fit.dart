@@ -366,9 +366,16 @@ _ComponentFit _fitComponent(
   // Ford's condition: an engine with no points or a perfect observed record
   // sends the unregularized MLE to infinity. The prior keeps the displayed
   // estimate finite, but never turns that into statistical information.
+  //
+  // The test is deliberately run on the *observed* tallies, before the prior is
+  // added: once the pseudo-counts are mixed in, "wins >= games" can no longer
+  // be true, and a perfect record would be reported as an ordinary finite SE.
   var separated = false;
   for (var i = 0; i < n; i++) {
-    final games = tally.observed[i].fold(0.0, (a, b) => a + b);
+    var games = 0.0;
+    for (var j = 0; j < n; j++) {
+      if (i != j) games += tally.observed[i][j];
+    }
     if (games > 0 && (tally.wins[i] <= 0 || tally.wins[i] >= games)) {
       separated = true;
     }
@@ -412,7 +419,14 @@ _ComponentFit _fitComponent(
     }
   }
   final raw = [for (final g in gamma) _scale * math.log(g)];
-  final covariance = _jointCovariance(tally.observed, gamma);
+  // A separated component has no finite observed information: its MLE runs to
+  // infinity and the inverse Laplacian is meaningless. Reporting the priored
+  // curvature's inverse would produce a plausible, finite, entirely fictional
+  // standard error, so every entry is marked unbounded and the point estimate
+  // alone carries a number.
+  final covariance = separated
+      ? List.generate(n, (_) => List<double>.filled(n, double.infinity))
+      : _jointCovariance(tally.observed, gamma);
   final shift = anchorPlayer != null && players.contains(anchorPlayer)
       ? anchor - raw[players.indexOf(anchorPlayer)]
       : anchor - raw.fold(0.0, (a, b) => a + b) / n;

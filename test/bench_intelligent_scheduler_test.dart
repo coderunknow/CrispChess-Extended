@@ -132,9 +132,18 @@ void main() {
       expect(entry.value[0].openingId, entry.value[1].openingId);
       expect(entry.value[0].clusterId, entry.value[1].clusterId);
     }
-    // Opening clusters are globally distinct across the pilot.
+    // Opening clusters are globally distinct across the pilot: an edit to the
+    // per-edge opening list can never reuse a line and quietly double-count one
+    // cluster as two independent observations.
     final clusters = plan.games.map((g) => g.clusterId).toSet();
     expect(clusters.length, plan.games.length ~/ 2);
+    // The cluster is the line of chess, so it is stable for the same opening no
+    // matter which pairing plays it.
+    final suite = openingSuiteById('cluster-40');
+    for (final game in plan.games) {
+      final opening = suite.openings.firstWhere((o) => o.id == game.openingId);
+      expect(game.clusterId, suite.clusterIdFor(opening));
+    }
   });
 
   test('the same seed produces the same pilot', () {
@@ -163,8 +172,22 @@ void main() {
     expect(s.selectedOpponents, isNot(contains('builtin:Beta')));
   });
 
+  test('a budget that cannot hold one opening pair is refused, not thrown at',
+      () {
+    // One game cannot hold a colour-reversed pair, so the pilot is impossible.
+    // That is an argument error about the budget, not a StateError about
+    // opponents — and it names what would have been needed.
+    final starved = scheduler(cfg: config(maxGames: 1));
+    expect(starved.hasRoomForAnOpeningUnit, isFalse);
+    expect(starved.buildPilotPlan, throwsA(isA<ArgumentError>()));
+    // Two games is exactly one unit, and the scheduler plans it.
+    final minimal = scheduler(cfg: config(maxGames: 2));
+    expect(minimal.hasRoomForAnOpeningUnit, isTrue);
+    expect(minimal.buildPilotPlan().games.length, lessThanOrEqualTo(2));
+  });
+
   test('adaptive decisions stop truthfully at the game budget', () {
-    final s = scheduler(cfg: config(maxGames: 10));
+    final s = scheduler(cfg: config(maxGames: 400));
     final plan = s.buildPilotPlan();
     final fit = fitElo(
       games: [for (final g in plan.games) (white: g.whiteId, black: g.blackId, score: 0.5)],
@@ -175,8 +198,9 @@ void main() {
       games: const <BenchGame>[],
       fit: fit,
       bootstrap: null,
-      state: const SchedulerState(gamesPlayed: 9),
-      finalBootstrapReserveMillis: 1000,
+      // The last affordable two-game unit has been played.
+      state: const SchedulerState(gamesPlayed: 399),
+      finalBootstrapReserveMillis: 0,
     );
     expect(decision.stop, isTrue);
     expect(decision.reason, contains('budget'));

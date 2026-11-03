@@ -598,7 +598,16 @@ class BenchmarkRun {
   /// calibration/environment) is unchanged; everything dev5 adds is an
   /// additional key, so older readers keep working and older documents keep
   /// loading.
-  Map<String, dynamic> toJson() => {
+  /// A stored run is JSON, and JSON has no Infinity or NaN.
+  ///
+  /// Uncertainty genuinely can be unbounded — an engine that never lost, a
+  /// singular fit, an engine in its own component — so the encoder is not
+  /// allowed to fail on it. Every non-finite number in the document becomes
+  /// null, and the map that held it says so.
+  Map<String, dynamic> toJson() =>
+      _jsonSafe(_toJsonObject()) as Map<String, dynamic>;
+
+  Map<String, Object?> _toJsonObject() => {
         'id': id,
         'startedAt': startedAt.toIso8601String(),
         'finishedAt': finishedAt.toIso8601String(),
@@ -621,6 +630,32 @@ class BenchmarkRun {
         if (schedulerReport != null) 'scheduler': schedulerReport,
         if (precisionEvaluation != null) 'precision': precisionEvaluation!.toJson(),
       };
+
+  /// Replaces non-finite doubles with null, recursively, and marks every map
+  /// that held one. A stored run that cannot be encoded is worse than one that
+  /// records "this number was unbounded" in the place the number belonged.
+  static Object? _jsonSafe(Object? value) {
+    if (value is double) return value.isFinite ? value : null;
+    if (value is Map) {
+      final out = <String, Object?>{};
+      var unbounded = false;
+      value.forEach((key, entry) {
+        if (_containsNonFinite(entry)) unbounded = true;
+        out['$key'] = _jsonSafe(entry);
+      });
+      if (unbounded) out['hasNonFiniteValues'] = true;
+      return out;
+    }
+    if (value is Iterable) return [for (final entry in value) _jsonSafe(entry)];
+    return value;
+  }
+
+  static bool _containsNonFinite(Object? value) {
+    if (value is double) return !value.isFinite;
+    if (value is Map) return value.values.any(_containsNonFinite);
+    if (value is Iterable) return value.any(_containsNonFinite);
+    return false;
+  }
   factory BenchmarkRun.fromJson(Map<String, dynamic> json) {
     List<Map<String, dynamic>> mapsOf(String key) {
       final raw = json[key];

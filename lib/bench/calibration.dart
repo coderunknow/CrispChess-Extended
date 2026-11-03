@@ -255,7 +255,12 @@ class CalibrationOutcome {
       anchorEngineId: json['anchorEngineId'] as String?,
       anchorLabel: json['anchorLabel'] as String?,
       calibrated: calibrated,
-      calibratedStdErr: {for (final e in (json['calibratedStdErr'] as Map? ?? {}).entries) '${e.key}': (e.value as num).toDouble()},
+      // Likewise: a null standard error means "unbounded", which is how it was
+      // written, not a corrupt document.
+      calibratedStdErr: {
+        for (final e in (json['calibratedStdErr'] as Map? ?? {}).entries)
+          '${e.key}': e.value is num ? (e.value as num).toDouble() : double.infinity,
+      },
       warnings: warnings,
     );
   }

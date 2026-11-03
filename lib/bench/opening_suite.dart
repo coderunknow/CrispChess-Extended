@@ -110,8 +110,13 @@ class OpeningSuite {
 
   /// A position-level cluster key. The same opening used by several pairings
   /// or repetitions belongs to one cluster, never several independent ones.
+  ///
+  /// Deliberately *not* keyed on the pairing or the suite: the sampling unit is
+  /// the line of chess, so two different pairings that play the same moves are
+  /// one cluster of evidence. Only the starting position, which every first
+  /// move shares, is identified by its position rather than by a move list.
   String clusterIdFor(Opening opening) =>
-      '$id|${opening.id}|${opening.rootFen}|${opening.moves.join(' ')}';
+      opening.id == 'startpos' ? 'startpos' : opening.moves.join(' ');
 
   /// A deterministic permutation: no opening repeats within one cycle for a
   /// pairing. Adaptive allocation stops adding a pair when its cycle is spent.

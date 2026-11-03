@@ -266,7 +266,10 @@ BootstrapBatchResult computeBootstrapBatch(BootstrapBatchRequest request) {
       final draw = random.nextInt(request.clusterTallies.length);
       tally.addFrom(request.clusterTallies[draw]);
     }
-    final fit = fitRatingModelFromTally(tally, prior: 0.3, maxIterations: 2000);
+    // No pseudo-count prior: a prior would keep a separated replicate's rating
+    // finite, and this loop would file it as valid evidence. The point prior
+    // belongs only to the displayed point estimate.
+    final fit = fitRatingModelFromTally(tally, prior: 0, maxIterations: 2000);
     String? failure;
     if (!fit.converged) failure = 'nonconverged';
     if (fit.separated) failure = 'separated';

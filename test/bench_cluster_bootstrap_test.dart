@@ -24,15 +24,27 @@ List<ClusteredRatedGame> simulate({
     final cluster = 'opening-$c';
     for (final edge in edges) {
       final a = trueRatings[edge.$1]!, b = trueRatings[edge.$2]!;
-      final p = 1 / (1 + math.pow(10, (b - a) / 400));
+      // A's *expected score*, which is what a rating difference predicts.
+      final expectedA = 1 / (1 + math.pow(10, (b - a) / 400));
+      // Draws must not erase the strength difference: a game is drawn with
+      // probability [drawRate] and otherwise decided by the stronger player at
+      // exactly the rate that keeps E[score] = [expectedA]. Sampling the winner
+      // from [expectedA] directly would count the drawn half of every game as
+      // "no information", shrinking a true 100-Elo gap to about 49 and making a
+      // coverage test unwinnable.
+      final decisiveA = drawRate >= 1
+          ? 0.5
+          : ((expectedA - drawRate / 2) / (1 - drawRate)).clamp(0.0, 1.0);
       for (final whiteFirst in [true, false]) {
+        // The pair is colour-reversed, so the *player* carries the strength, not
+        // the colour.
         final white = whiteFirst ? edge.$1 : edge.$2;
         final black = whiteFirst ? edge.$2 : edge.$1;
+        final aWins = random.nextDouble() < decisiveA;
         final score = random.nextDouble() < drawRate
             ? 0.5
-            : random.nextDouble() < p
-                ? 1.0
-                : 0.0;
+            // White's score: A won on White, or B won on Black.
+            : (aWins == whiteFirst) ? 1.0 : 0.0;
         games.add(ClusteredRatedGame(
           clusterId: cluster, white: white, black: black, score: score,
         ));
@@ -59,11 +71,23 @@ void main() {
       final covarianceVariance = model.covariance[a][a] +
           model.covariance[c][c] -
           2 * model.covariance[a][c];
-      expect(model.covariance[a][c], isNot(0),
-          reason: 'joint covariance must not be diagonal');
       final independence = model.covariance[a][a] + model.covariance[c][c];
-      expect(covarianceVariance, lessThan(independence),
-          reason: 'ignoring covariance overstates the pairwise interval');
+      // The sign is the whole point, and it is not the intuitive one: A and C
+      // are both pinned relative to B, so their errors move together. Ignoring
+      // the positive covariance *understates* Var(A - C) — the pairwise interval
+      // is wider than two independent intervals would make it.
+      expect(model.covariance[a][c], greaterThan(0),
+          reason: 'joint covariance must not be diagonal');
+      expect(covarianceVariance, greaterThan(independence),
+          reason: 'ignoring a positive covariance understates the pairwise '
+              'interval');
+      // A-B and B-C each have variance 1/w, and Var(A-C) = 1/w + 1/w exactly
+      // because the shared B cancels. Checked against the closed form, not
+      // against another implementation of the same formula.
+      final w = 40.0 * 0.25;
+      final scale = ratingEloScale;
+      expect(covarianceVariance,
+          closeTo(2 / w * scale * scale, 1e-6));
       final viaFit = model.contrastVariance({'a': 1.0, 'c': -1.0});
       expect(viaFit, closeTo(covarianceVariance, 1e-6));
     });
@@ -78,12 +102,20 @@ void main() {
     });
 
     test('a perfect record is flagged separated and never given a finite SE', () {
+      // The default fit carries a small draw prior for the *displayed* point
+      // estimate. Separation must still be detected on the observed tallies,
+      // otherwise the prior quietly turns a perfect record into ordinary
+      // evidence with a finite standard error.
       final model = fitRatingModel([
         for (var i = 0; i < 30; i++) (white: 'a', black: 'b', score: 1.0),
       ]);
       expect(model.separated, isTrue);
       final a = model.ratingFor('a')!;
       expect(a.stdErr.isFinite, isFalse);
+      expect(a.hasUsableEstimate, isFalse);
+      // The point estimate is still finite, so the report can show a number and
+      // say it is unbounded rather than refusing to show anything.
+      expect(a.rating.isFinite, isTrue);
     });
 
     test('participants with no games are kept with an unknown rating', () {
@@ -112,10 +144,15 @@ void main() {
         precision: const PrecisionSettings(),
         settings: const BootstrapSettings(replicates: 200, minValidReplicates: 99),
       );
+      // 4 clusters is below the 20-cluster minimum, so no interval may be
+      // published at all: a narrow interval from four openings would be a
+      // precision claim the data cannot support.
       expect(report.reliable, isFalse);
-      expect(report.completed, isTrue);
+      expect(report.completed, isFalse);
+      expect(report.attemptedReplicates, 0);
       expect(report.warnings.join(' '), contains('clusters'));
       expect(report.individual, isEmpty);
+      expect(report.pairwise, isEmpty);
     });
 
     test('replicate failures are counted, not silently dropped', () async {

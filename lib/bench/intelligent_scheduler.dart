@@ -351,10 +351,25 @@ class IntelligentScheduler {
     return selected;
   }
 
+  /// Distinct openings the suite can offer before a pairing's cycle repeats.
+  /// One cycle is all the independence the pilot can buy from that edge.
+  int get _openingsPerPairing => math.max(1, suite.openings.length);
+
+  /// Opening units the pilot can give each tree edge without repeating an
+  /// opening. The clamp is the point: `minClusters / edges` alone promises more
+  /// independent openings than the suite contains, and a repeat is not a new
+  /// cluster.
+  int _pilotUnitsPerEdge(int edgeCount) => math.max(
+      1,
+      math.min(
+        (bootstrapSettings.minClusters / math.max(1, edgeCount)).ceil(),
+        _openingsPerPairing,
+      ));
+
   double _pilotCost(List<String> ids) {
     if (ids.length < 2) return double.infinity;
     final edges = _spanningEdges(ids);
-    final unitsPerEdge = math.max(1, (bootstrapSettings.minClusters / math.max(1, edges.length)).ceil());
+    final unitsPerEdge = _pilotUnitsPerEdge(edges.length);
     return edges.fold(0.0, (sum, e) => sum + unitsPerEdge * _pairCost(e.$1, e.$2)) +
         ids.fold(0.0, (sum, id) => sum + _byId[id]!.startupMillis);
   }
@@ -363,7 +378,7 @@ class IntelligentScheduler {
     final cost = _pilotCost(ids);
     final maxGames = config.maxGames;
     final edges = math.max(1, ids.length - 1);
-    final unitsPerEdge = math.max(1, (bootstrapSettings.minClusters / edges).ceil());
+    final unitsPerEdge = _pilotUnitsPerEdge(edges);
     final games = 2 * edges * unitsPerEdge;
     if (maxGames != null && games + config.warmUpGames > maxGames) return false;
     final maxDuration = config.maxDuration;
@@ -398,13 +413,28 @@ class IntelligentScheduler {
     return edges;
   }
 
+  /// Whether at least one colour-reversed opening pair fits the recorded-game
+  /// cap. A cap of one game cannot hold a pair, and no schedule can.
+  bool get hasRoomForAnOpeningUnit {
+    final cap = effectiveRecordedGameCap(config);
+    return cap == null || cap >= 2;
+  }
+
   BenchmarkPlan buildPilotPlan() {
     if (participantIds.length < 2) {
-      throw StateError('The scheduler could not afford a connected pilot with any compatible opponent.');
+      throw StateError('The scheduler needs at least one compatible opponent '
+          'to build a connected pilot.');
+    }
+    final recordedCap = effectiveRecordedGameCap(config);
+    if (recordedCap != null && recordedCap < 2) {
+      throw ArgumentError(
+          'A budget of ${config.maxGames} game(s) cannot hold one '
+          'colour-reversed opening pair; the pilot needs at least 2. Nothing '
+          'was scheduled.');
     }
     final identities = [for (final id in participantIds) _byId[id]!.identity];
     final edges = _spanningEdges(participantIds);
-    final unitsPerEdge = math.max(1, (bootstrapSettings.minClusters / math.max(1, edges.length)).ceil());
+    final unitsPerEdge = _pilotUnitsPerEdge(edges.length);
     final games = <PlannedGame>[];
     final maxRecorded = effectiveRecordedGameCap(config) ?? 1 << 30;
     var pairingIndex = 0;
@@ -428,14 +458,19 @@ class IntelligentScheduler {
     }
     _nextIndex = games.length + 1;
     _nextPairing = pairingIndex;
+    final plannedClusters = _usedClusters.length;
     decisions.add({
       'phase': 'pilot',
-      'reason': 'Connected maximum-information/cost pilot; '
+      'reason': 'Connected maximum-information/cost pilot; up to '
           '$unitsPerEdge opening unit(s) per tree edge to approach '
-          '${bootstrapSettings.minClusters} independent clusters.',
+          '${bootstrapSettings.minClusters} independent clusters; '
+          '$plannedClusters planned before any cluster repeated'
+          '${plannedClusters < bootstrapSettings.minClusters ? ' (below the minimum, so a precision claim will need the adaptive phase)' : ''}.',
       'participants': participantIds,
       'opponents': selectedOpponents,
       'games': games.length,
+      'clusters': plannedClusters,
+      'unitsPerEdge': unitsPerEdge,
     });
     return BenchmarkPlan(
       config: config, format: TournamentFormat.intelligent,

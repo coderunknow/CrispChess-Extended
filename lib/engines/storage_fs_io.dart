@@ -6,11 +6,22 @@ Future<void> storageCreateDirectory(String path) =>
     Directory(path).create(recursive: true).then((_) {});
 
 /// Throws unless [path] can actually be written to; leaves nothing behind.
+///
+/// The probe file is removed in a `finally`: a read-only directory that lets the
+/// create succeed and the delete fail must not accumulate marker files, and a
+/// failed probe must not leave the layout half-initialised.
 Future<void> storageWriteProbe(String path) async {
-  final dir = Directory(path);
-  final probe = File('${dir.path}/.crispchess-write-check');
-  await probe.writeAsString('ok', flush: true);
-  await probe.delete();
+  final probe = File('${Directory(path).path}/.crispchess-write-check');
+  try {
+    await probe.writeAsString('ok', flush: true);
+  } finally {
+    try {
+      if (await probe.exists()) await probe.delete();
+    } catch (_) {
+      // A marker that cannot be removed is not a reason to reject the root;
+      // the write itself is what was being tested.
+    }
+  }
 }
 
 /// Copies every file below [from] into [to], keeping relative paths.
