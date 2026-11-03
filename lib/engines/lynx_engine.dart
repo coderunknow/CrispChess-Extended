@@ -12,9 +12,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
-import 'download_manager.dart';
+import 'download_io.dart' show hashFile;
+import 'engine_storage.dart' show EngineStorage, EngineStorageError;
 import 'engine_artifacts.dart';
-import 'engine_storage.dart';
 import 'engine_initialization.dart';
 import 'uci_position.dart';
 import 'uci_process_lifecycle.dart';
@@ -505,7 +505,7 @@ class LynxEngine
 
       final published = kLynxPublishedSha256[asset.url];
       if (published != null) {
-        final actual = await sha256OfFile(zipFile);
+        final actual = await hashFile(zipFile.path);
         if (actual != published) {
           throw const EngineStorageError(
               'The downloaded Lynx archive did not match the checksum '

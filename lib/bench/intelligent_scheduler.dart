@@ -194,7 +194,9 @@ PrecisionEvaluation evaluatePrecision({
       for (var j = i + 1; j < ids.length; j++) {
         final a = ids[i], b = ids[j];
         if (precision.comparisonSet == PairwiseComparisonSet.targetPairs &&
-            !(targetIds.contains(a) && targetIds.contains(b))) continue;
+            !(targetIds.contains(a) && targetIds.contains(b))) {
+          continue;
+        }
         final interval = report.pairwise[pairwiseKey(a, b)];
         final half = interval?.interval(precision.pairwiseScope).halfWidth ?? double.infinity;
         pairwise[pairwiseKey(a, b)] = half;
@@ -527,9 +529,8 @@ class IntelligentScheduler {
         final ia = model.players.indexOf(a), ib = model.players.indexOf(b);
         final u = List<double>.filled(model.players.length, 0);
         u[ia] = 1; u[ib] = -1;
-        var cu = 0.0, uu = 0.0;
+        var uu = 0.0;
         for (var x = 0; x < u.length; x++) {
-          cu += model.covariance[ia][x] * u[x];
           for (var y = 0; y < u.length; y++) {
             uu += u[x] * model.covariance[x][y] * u[y];
           }
@@ -574,27 +575,29 @@ class IntelligentScheduler {
         }
       }
     }
-    if (bestA == null || bestUtility <= 0) {
+    if (bestA == null || bestB == null || bestUtility <= 0) {
       final needsMoreClusters = _usedClusters.length < bootstrapSettings.minClusters;
       return _stop(needsMoreClusters ? 'insufficient independent openings' : 'no affordable informative matchup',
           needsMoreClusters
               ? 'No remaining matchup can add the independent opening clusters required for a reliable bootstrap.'
               : 'Every affordable matchup has exhausted its opening cycle or offers no remaining precision gain.');
     }
-    final key = pairwiseKey(bestA, bestB!);
+    // Promotion from the guard above: these are non-null from here on.
+    final engineA = bestA, engineB = bestB, cluster = bestCluster!;
+    final key = pairwiseKey(engineA, engineB);
     _pairOpenings[key]!.remove(bestOpening);
-    _usedClusters.add(bestCluster!);
+    _usedClusters.add(cluster);
     final unit = _pairUnits[key] ?? 0;
     _pairUnits[key] = unit + 1;
     final pairingIndex = _nextPairing++;
     final pairId = 'adaptive/$pairingIndex/$unit';
     final batch = [
-      PlannedGame(index: _nextIndex++, whiteId: bestA, blackId: bestB!, pairingIndex: pairingIndex,
-          gameInPairing: 0, openingId: bestOpening, clusterId: bestCluster, pairId: pairId),
-      PlannedGame(index: _nextIndex++, whiteId: bestB!, blackId: bestA, pairingIndex: pairingIndex,
-          gameInPairing: 1, openingId: bestOpening, clusterId: bestCluster, pairId: pairId),
+      PlannedGame(index: _nextIndex++, whiteId: engineA, blackId: engineB, pairingIndex: pairingIndex,
+          gameInPairing: 0, openingId: bestOpening, clusterId: cluster, pairId: pairId),
+      PlannedGame(index: _nextIndex++, whiteId: engineB, blackId: engineA, pairingIndex: pairingIndex,
+          gameInPairing: 1, openingId: bestOpening, clusterId: cluster, pairId: pairId),
     ];
-    decisions.add({'phase': 'adaptive', 'a': bestA, 'b': bestB, 'reason': bestReason, 'utility': bestUtility, 'expectedCostMillis': bestCost});
+    decisions.add({'phase': 'adaptive', 'a': engineA, 'b': engineB, 'reason': bestReason, 'utility': bestUtility, 'expectedCostMillis': bestCost});
     return SchedulerDecision(stop: false, reason: 'next most informative affordable opening unit',
         games: batch, matchupReason: bestReason, expectedCostMillis: bestCost, utility: bestUtility);
   }

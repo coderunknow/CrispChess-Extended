@@ -29,10 +29,10 @@ import 'calibration.dart';
 import 'engine_identity.dart';
 import 'engine_preflight.dart';
 import 'opening_suite.dart';
+import 'precision.dart';
 import 'stability_probe.dart';
 import 'cluster_bootstrap.dart';
 import 'intelligent_scheduler.dart';
-import 'precision.dart';
 import '../engines/uci_capabilities.dart';
 
 /// One engine the Lab could measure, and whether it can run here.

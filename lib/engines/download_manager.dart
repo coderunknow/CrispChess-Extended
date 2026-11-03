@@ -8,8 +8,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io' show File;
 
 import 'package:crypto/crypto.dart';
 
@@ -151,7 +149,7 @@ class EngineDownloadManager {
   Stream<DownloadProgress> get progress => _events.stream;
 
   Future<DownloadResult> download(EngineArtifact artifact,
-      {String? platform, String? arch, void Function()? cancelled}) async {
+      {String? platform, String? arch, bool Function()? cancelled}) async {
     final targetPlatform = platform ?? currentPlatformName();
     final targetArch = arch ?? currentArchName();
     final key = '${artifact.engineId}/${artifact.version}/$targetPlatform/$targetArch';
@@ -167,7 +165,7 @@ class EngineDownloadManager {
   }
 
   Future<DownloadResult> _download(EngineArtifact artifact, String platform,
-      String arch, void Function()? cancelled) async {
+      String arch, bool Function()? cancelled) async {
     void emit(DownloadState state,
         {int received = 0, int? total, String message = '', String? error}) {
       if (_events.isClosed) return;
@@ -194,31 +192,28 @@ class EngineDownloadManager {
           message: 'Browser downloads are managed by Cache Storage; use the '
               'web fetch path.');
     }
-    final dir = Directory(artifactDir(location, artifact));
-    await dir.create(recursive: true);
-    final target = File('${dir.path}/${source.effectiveName}');
+    await ensureDirectory(artifactDir(location, artifact));
+    final targetPath = artifactPathFor(
+        location, artifact.engineId, artifact.version, source.effectiveName);
     // Unique per artifact/version/platform: two artifacts never share a part.
-    final partial = File('${target.path}.part');
-    final meta = File('${target.path}.json');
+    final partialPath = '$targetPath.part';
 
-    if (await target.exists() && await meta.exists()) {
-      try {
-        final data = jsonDecode(await meta.readAsString()) as Map;
-        final hash = data['sha256'] as String?;
-        if (hash != null && await hashFile(target.path) == hash) {
-          emit(DownloadState.installed, received: await target.length(),
-              total: await target.length(), message: 'Already verified.');
-          return DownloadResult(true, path: target.path, sha256: hash,
-              message: 'Already downloaded and verified.');
-        }
-      } catch (_) {
-        // A corrupt sidecar means re-download, not trust.
+    if (await fileExists(targetPath)) {
+      // A corrupt or missing sidecar means re-download, not trust.
+      final data = await readSidecar(targetPath);
+      final hash = data?['sha256'] as String?;
+      if (hash != null && await hashFile(targetPath) == hash) {
+        final bytes = await fileLength(targetPath) ?? 0;
+        emit(DownloadState.installed, received: bytes, total: bytes,
+            message: 'Already verified.');
+        return DownloadResult(true, path: targetPath, sha256: hash,
+            message: 'Already downloaded and verified.');
       }
     }
 
     final streamed = await streamToFile(
       uri: uri,
-      partPath: partial.path,
+      partPath: partialPath,
       maxBytes: maxBytes,
       expectedBytes: source.bytes,
       cancelled: cancelled,
@@ -226,7 +221,7 @@ class EngineDownloadManager {
           emit(DownloadState.running, received: received, total: total),
     );
     if (!streamed.ok) {
-      await deleteQuietly(partial.path);
+      await deleteQuietly(partialPath);
       emit(streamed.cancelled ? DownloadState.cancelled : DownloadState.failed,
           error: streamed.message);
       return DownloadResult(streamed.cancelled, message: streamed.message);
@@ -235,14 +230,14 @@ class EngineDownloadManager {
     final localHash = streamed.sha256!;
     if (source.publishedSha256 != null &&
         source.publishedSha256!.toLowerCase() != localHash) {
-      await deleteQuietly(partial.path);
+      await deleteQuietly(partialPath);
       emit(DownloadState.failed, error: 'checksum mismatch');
       return const DownloadResult(false,
           message: 'Published checksum did not match the downloaded bytes; '
               'the file was discarded.');
     }
-    await installFile(partial.path, target.path);
-    await writeSidecar(target.path, {
+    await installFile(partialPath, targetPath);
+    await writeSidecar(targetPath, {
       'url': source.url,
       'sha256': localHash,
       'bytes': streamed.bytes,
@@ -251,12 +246,12 @@ class EngineDownloadManager {
       'at': DateTime.now().toUtc().toIso8601String(),
       'license': source.license,
     });
-    _verifiedHashes[target.path] = localHash;
+    _verifiedHashes[targetPath] = localHash;
     emit(DownloadState.installed, received: streamed.bytes, total: streamed.bytes,
         message: source.publishedSha256 != null
             ? 'Verified against the published checksum.'
             : 'Downloaded; only a local hash is available for this artifact.');
-    return DownloadResult(true, path: target.path, sha256: localHash,
+    return DownloadResult(true, path: targetPath, sha256: localHash,
         message: source.publishedSha256 != null
             ? 'Verified against the published checksum.'
             : 'Installed with a local hash; upstream publishes no checksum.');
@@ -298,7 +293,7 @@ class ArtifactStatus {
   Map<String, dynamic> toJson() => {
     'installed': installed, 'verified': verified,
     'upstreamAuthenticated': upstreamAuthenticated,
-    'path': path == null ? null : redactPath(path!),
+    'path': path == null ? null : redactStoragePath(path!),
     if (sha256 != null) 'sha256': sha256,
     if (bytes != null) 'bytes': bytes,
     'detail': detail,
@@ -325,31 +320,24 @@ Future<ArtifactStatus> inspectArtifact(
     );
   }
   final path = '${artifactDir(location, artifact)}/${source.effectiveName}';
-  final file = File(path);
-  final meta = File('$path.json');
-  if (!await file.exists()) {
+  if (!await fileExists(path)) {
     return ArtifactStatus(
       installed: false, verified: false,
       upstreamAuthenticated: source.publishedSha256 != null,
       detail: 'Not downloaded.', bytes: source.bytes,
     );
   }
-  String? recorded;
-  bool authenticated = false;
-  try {
-    final data = jsonDecode(await meta.readAsString()) as Map;
-    recorded = data['sha256'] as String?;
-    authenticated = data['authenticated'] == true;
-  } catch (_) {
-    recorded = null;
-  }
+  final data = await readSidecar(path);
+  final recorded = data?['sha256'] as String?;
+  final authenticated = data?['authenticated'] == true;
   final actual = await hashFile(path);
-  final sizeOk = source.bytes == null || await file.length() == source.bytes;
+  final length = await fileLength(path);
+  final sizeOk = source.bytes == null || length == source.bytes;
   return ArtifactStatus(
     installed: sizeOk,
     verified: sizeOk && recorded != null && recorded == actual,
     upstreamAuthenticated: authenticated && source.publishedSha256 != null,
-    path: path, sha256: actual, bytes: await file.length(),
+    path: path, sha256: actual, bytes: length,
     detail: recorded == null
         ? 'Installed without a recorded hash; re-download to verify.'
         : recorded == actual && sizeOk

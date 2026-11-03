@@ -83,6 +83,11 @@ class EloRating {
 
   double get intervalHalfWidth => (ciHigh - ciLow) / 2;
 
+  /// Whether this rating can be reported at all: at least two rated games and
+  /// a finite interval. An engine with no usable evidence is reported as such
+  /// rather than ranked.
+  bool get hasUsableEstimate => games >= 2 && stdErr.isFinite;
+
   /// Points scored per game, 0..1.
   double get score => games == 0 ? 0 : (wins + draws / 2) / games;
 

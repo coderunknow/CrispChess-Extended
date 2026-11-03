@@ -31,6 +31,8 @@ Future<StreamedFile> streamToFile({
           'browser-managed storage by the engine loader.',
     );
 
+Future<void> ensureDirectory(String path) async {}
+
 Future<String?> hashFile(String path) async => null;
 
 Future<bool> fileExists(String path) async => false;

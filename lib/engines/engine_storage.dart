@@ -14,7 +14,6 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Directory, File, HttpClient;
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -22,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../bench/benchmark_storage_base.dart';
 import 'platform_paths.dart';
+import 'storage_fs.dart';
 
 enum EngineStorageMode {
   /// The user-selected absolute directory is authoritative (desktop).
@@ -87,7 +87,7 @@ class EngineStorageLocation {
   };
 
   Map<String, dynamic> toJson() => {
-    'rootPath': rootPath.isNotEmpty ? redactPath(rootPath) : '',
+    'rootPath': rootPath.isNotEmpty ? redactStoragePath(rootPath) : '',
     'mode': mode.name,
     'userSelected': userSelected,
     'layout': layoutSummary,
@@ -101,7 +101,11 @@ String _safe(String value) {
 
 /// Removes the user's home/project identifiers from any string that leaves the
 /// app: diagnostics, reports and support bundles.
-String redactPath(String path) {
+///
+/// Deliberately not named `redactPath`: `engine_initialization.redactPath`
+/// reduces a path to its last component, and two functions with the same name
+/// and different meanings cannot be imported side by side.
+String redactStoragePath(String path) {
   if (path.isEmpty || kIsWeb) return path;
   var result = path;
   final home = platformPathRedactionHome();
@@ -215,18 +219,15 @@ class EngineStorage {
     if (!path.startsWith('/') && !RegExp(r'^[A-Za-z]:[\\/]').hasMatch(path)) {
       throw const EngineStorageError('Choose an absolute directory path.');
     }
-    final dir = Directory(path);
     try {
-      await dir.create(recursive: true);
-      final probe = File('${dir.path}/.crispchess-write-check');
-      await probe.writeAsString('ok', flush: true);
-      await probe.delete();
-    } on FileSystemException catch (error) {
+      await storageCreateDirectory(path);
+      await storageWriteProbe(path);
+    } catch (error) {
       throw EngineStorageError(
-          'That directory is not writable: ${redactPath(error.message)}');
+          'That directory is not writable: ${redactStoragePath('$error')}');
     }
     return EngineStorageLocation(
-      rootPath: dir.path,
+      rootPath: path,
       mode: _mode,
       userSelected: true,
     );
@@ -245,56 +246,37 @@ class EngineStorage {
     _location = candidate;
     if (!migrate || previous.rootPath == candidate.rootPath) {
       return EngineStorageMigration(
-          moved: 0, skipped: 0, source: redactPath(previous.rootPath),
-          destination: redactPath(candidate.rootPath), complete: true);
+          moved: 0, skipped: 0, source: redactStoragePath(previous.rootPath),
+          destination: redactStoragePath(candidate.rootPath), complete: true);
     }
-    var moved = 0, skipped = 0;
-    final source = Directory(previous.rootPath);
-    if (await source.exists()) {
-      onProgress?.call('Copying existing engines');
-      await for (final entity in source.list(recursive: true, followLinks: false)) {
-        if (entity is! File) continue;
-        final relative = entity.path.substring(source.path.length + 1);
-        final target = File('${candidate.rootPath}/$relative');
-        try {
-          if (await target.exists() && await target.length() == await entity.length()) {
-            skipped++;
-            continue;
-          }
-          await target.parent.create(recursive: true);
-          await entity.copy(target.path);
-          if (await target.length() != await entity.length()) {
-            throw const EngineStorageError('copy is shorter than its source');
-          }
-          moved++;
-        } catch (error) {
-          onProgress?.call('Could not copy ${redactPath(relative)}: $error');
-          await _markMigration(previous.rootPath, candidate.rootPath, complete: false);
-          return EngineStorageMigration(
-            moved: moved, skipped: skipped, source: redactPath(previous.rootPath),
-            destination: redactPath(candidate.rootPath), complete: false,
-            error: '$error',
-          );
-        }
-      }
+    final copied = await storageCopyTree(
+        previous.rootPath, candidate.rootPath, onProgress: onProgress);
+    final moved = copied.moved, skipped = copied.skipped;
+    if (copied.error != null) {
+      onProgress?.call(
+          'Could not copy ${redactStoragePath(copied.error!)}');
+      await _markMigration(previous.rootPath, candidate.rootPath, complete: false);
+      return EngineStorageMigration(
+        moved: moved, skipped: skipped, source: redactStoragePath(previous.rootPath),
+        destination: redactStoragePath(candidate.rootPath), complete: false,
+        error: copied.error,
+      );
     }
     await _markMigration(previous.rootPath, candidate.rootPath, complete: true);
-    onProgress?.call('Old files were kept at ${redactPath(previous.rootPath)}; '
+    onProgress?.call('Old files were kept at ${redactStoragePath(previous.rootPath)}; '
         'remove them manually once the new location is verified.');
     return EngineStorageMigration(
-      moved: moved, skipped: skipped, source: redactPath(previous.rootPath),
-      destination: redactPath(candidate.rootPath), complete: true);
+      moved: moved, skipped: skipped, source: redactStoragePath(previous.rootPath),
+      destination: redactStoragePath(candidate.rootPath), complete: true);
   }
 
   Future<void> _markMigration(String from, String to, {required bool complete}) async {
     if (kIsWeb) return;
     try {
-      final dir = Directory(to);
-      await dir.create(recursive: true);
-      await File('${dir.path}/.migration.json').writeAsString(jsonEncode({
-        'from': redactPath(from), 'complete': complete,
+      await storageWriteMigrationMarker(to, {
+        'from': redactStoragePath(from), 'complete': complete,
         'at': DateTime.now().toUtc().toIso8601String(),
-      }));
+      });
     } catch (_) {
       // The marker is diagnostic; a failed write must not undo a good copy.
     }
@@ -304,35 +286,29 @@ class EngineStorage {
   Future<EngineStorageMigration?> resumeMigration() async {
     if (kIsWeb) return null;
     final current = await location();
-    final marker = File('${current.rootPath}/.migration.json');
-    if (!await marker.exists()) return null;
-    try {
-      final data = jsonDecode(await marker.readAsString()) as Map;
-      if (data['complete'] == true) return null;
-      final from = data['from'] as String?;
-      if (from == null) return null;
-      final source = Directory(from.replaceFirst('~', '${fallbackHomeDirectory()}'));
-      if (!await source.exists()) return null;
-      return setRoot(current.rootPath, migrate: true);
-    } catch (_) {
+    final data = await storageReadMigrationMarker(current.rootPath);
+    if (data == null || data['complete'] == true) return null;
+    final from = data['from'] as String?;
+    if (from == null) return null;
+    if (!await storageDirectoryExists(
+        from.replaceFirst('~', fallbackHomeDirectory()))) {
       return null;
     }
+    return setRoot(current.rootPath, migrate: true);
   }
 
   /// Removes an engine's installed files, but only below the managed root and
   /// only after checking the resolved path is still inside it.
   Future<void> removeEngine(String engineId, String version) async {
     if (kIsWeb) return;
-    final root = Directory((await location()).rootPath);
-    for (final dir in [
-      Directory((await location()).engineDir(engineId, version)),
-    ]) {
-      final resolved = dir.absolute.path;
-      final rootPath = root.absolute.path;
-      if (!resolved.startsWith('$rootPath/')) {
-        throw const EngineStorageError('Refusing to delete outside the engine root.');
-      }
-      if (await dir.exists()) await dir.delete(recursive: true);
+    final current = await location();
+    try {
+      // Sanitised through engineDir: a traversal-shaped id can never name a
+      // path outside the managed root, so this can only be a no-op for it.
+      await storageRemoveEngine(current.rootPath, current.engineDir(engineId, version));
+    } on ArgumentError {
+      throw const EngineStorageError(
+          'Refusing to delete outside the engine root.');
     }
   }
 }

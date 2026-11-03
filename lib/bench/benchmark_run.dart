@@ -18,7 +18,7 @@ import 'calibration.dart';
 import 'elo.dart';
 import 'engine_identity.dart';
 import 'game_record.dart';
-import 'intelligent_scheduler.dart' show PrecisionEvaluation;
+import 'intelligent_scheduler.dart' show PrecisionEvaluation, evaluatePrecision;
 
 /// What happened to one engine in the run.
 class EngineRunStatus {

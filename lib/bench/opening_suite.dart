@@ -370,7 +370,10 @@ const OpeningSuite kDiverseSuite = OpeningSuite(
 
 /// Forty project-original lines for opening-cluster inference. The lines are
 /// standard opening theory, not a copied third-party suite compilation.
-const OpeningSuite kClusterSuite = OpeningSuite(
+///
+/// Not `const`: the suite reuses the diverse lines, and Dart forbids reading a
+/// field off a constant object inside a constant expression.
+final OpeningSuite kClusterSuite = OpeningSuite(
   id: 'cluster-40',
   name: 'Cluster bootstrap (40 openings)',
   description: 'Forty legal, varied lines. Independent opening clusters are '
@@ -429,7 +432,7 @@ const OpeningSuite kClusterSuite = OpeningSuite(
 );
 
 /// Suites that ship with the app, by id.
-const Map<String, OpeningSuite> kBuiltInOpeningSuites = {
+final Map<String, OpeningSuite> kBuiltInOpeningSuites = {
   'startpos': kStartPositionSuite,
   'balanced-8': kBalancedSuite,
   'diverse-16': kDiverseSuite,

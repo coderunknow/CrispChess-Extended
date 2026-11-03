@@ -1,5 +1,6 @@
 /// Native download transport: HTTPS streaming to a private part file.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -111,6 +112,10 @@ class _DigestSink implements Sink<Digest> {
   @override
   void close() {}
 }
+
+/// Creates [path] (and its parents) before a download starts.
+Future<void> ensureDirectory(String path) =>
+    Directory(path).create(recursive: true).then((_) {});
 
 Future<String?> hashFile(String path) async {
   final file = File(path);

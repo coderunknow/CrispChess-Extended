@@ -615,9 +615,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     });
     try {
       await _service.setLastConfig(_intelligentConfig);
+      // The intelligent runner picks its own anchor from the prepared set;
+      // passing one here would bypass the compatibility check.
       final runner = await _service.createIntelligentRunner(
         preparation: preparation,
-        anchors: _anchors,
         requirePreflight: true,
       );
       _attachRunner(runner);

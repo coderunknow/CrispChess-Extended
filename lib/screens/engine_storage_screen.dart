@@ -188,7 +188,7 @@ class _EngineStorageScreenState extends State<EngineStorageScreen> {
                   label: l?.engineStorageLocation ?? 'Location',
                   value: location.isBrowserManaged
                       ? 'Browser-managed Cache Storage'
-                      : redactPath(location.rootPath),
+                      : redactStoragePath(location.rootPath),
                 ),
               if (location != null && location.mode == EngineStorageMode.userDirectoryAndroid)
                 Padding(

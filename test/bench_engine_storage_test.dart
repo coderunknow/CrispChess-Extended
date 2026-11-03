@@ -63,7 +63,7 @@ void main() {
 
   test('paths are redacted before they leave the app', () {
     final home = Platform.environment['HOME'] ?? '/home/nobody';
-    expect(redactPath('$home/.crispchess/engines'), startsWith('~'));
+    expect(redactStoragePath('$home/.crispchess/engines'), startsWith('~'));
   });
 
   test('published checksums are recorded only where upstream publishes them', () {

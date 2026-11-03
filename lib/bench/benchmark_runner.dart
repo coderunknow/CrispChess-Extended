@@ -34,8 +34,6 @@ import 'game_record.dart';
 import 'cluster_bootstrap.dart';
 import 'elo.dart';
 import 'intelligent_scheduler.dart';
-import 'opening_suite.dart';
-import 'precision.dart';
 
 /// An engine the runner may build, with the identity it starts from.
 class BenchEngineSlot {
@@ -204,8 +202,6 @@ class BenchmarkRunner {
   final List<String> _warnings = [];
   final List<PlannedGame> _schedule = [];
   ClusterBootstrapReport? _latestBootstrap;
-  EloFit? _latestFit;
-  PrecisionEvaluation? _latestPrecision;
   int _engineMillis = 0;
   int _bootstrapMillis = 0;
   int _adaptiveBatches = 0;
@@ -882,8 +878,6 @@ class BenchmarkRunner {
       participantIds: controller.participantIds,
       targetIds: plan.targetEngineIds, ratedGames: fit.ratedGames,
     );
-    _latestFit = fit;
-    _latestPrecision = evaluation;
     if (!_events.isClosed) {
       _events.add(BenchmarkStatisticsEvent(
         fit: fit, precision: evaluation,
@@ -989,14 +983,12 @@ class BenchmarkRunner {
     );
     final bootstrap = _latestBootstrap;
     if (bootstrap != null) ratings = ratings.withBootstrap(bootstrap);
-    _latestFit = ratings;
     final precisionEvaluation = plan.format == TournamentFormat.intelligent
         ? evaluatePrecision(
             fit: ratings, precision: config.precision,
             participantIds: [for (final e in plan.engines) e.engineId],
             targetIds: plan.targetEngineIds, ratedGames: ratings.ratedGames)
         : null;
-    _latestPrecision = precisionEvaluation;
     final calibration = calibrateElo(
       fit: ratings,
       anchor: anchor ?? selectCompatibleAnchor(anchors, identities, config),
