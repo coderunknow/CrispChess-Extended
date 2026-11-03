@@ -76,7 +76,9 @@ void main() {
     // sf_16 publishes no digests, so the label must say what evidence exists
     // rather than implying the local hash authenticates anything upstream.
     expect(stockfish.sources.single.publishedSha256, isNull);
-    expect(stockfish.sources.single.integrityLabel, contains('no checksum'));
+    const stockfishLabel = 'size/content-length only (no checksum available)';
+    expect(stockfish.sources.single.integrityLabel, stockfishLabel);
+    expect(stockfish.sources.single.integrityLabel, isNot(contains('published')));
 
     final windowsLynx = lynxArtifact('windows', 'x64');
     expect(windowsLynx.sources.single.publishedSha256,

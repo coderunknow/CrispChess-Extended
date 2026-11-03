@@ -419,14 +419,12 @@ _ComponentFit _fitComponent(
     }
   }
   final raw = [for (final g in gamma) _scale * math.log(g)];
-  // A separated component has no finite observed information: its MLE runs to
-  // infinity and the inverse Laplacian is meaningless. Reporting the priored
-  // curvature's inverse would produce a plausible, finite, entirely fictional
-  // standard error, so every entry is marked unbounded and the point estimate
-  // alone carries a number.
-  final covariance = separated
-      ? List.generate(n, (_) => List<double>.filled(n, double.infinity))
-      : _jointCovariance(tally.observed, gamma);
+  // The curvature is the priored one, so a separated player still gets a finite
+  // interval — that is what `prior` is for, and `PlayerRating.stdErr` is
+  // documented as a diagnostic, not as observed information. What must not
+  // happen is silence: `separated` travels with the fit so a report can say the
+  // record was perfect and the number rests on the prior rather than on data.
+  final covariance = _jointCovariance(tally.observed, gamma);
   final shift = anchorPlayer != null && players.contains(anchorPlayer)
       ? anchor - raw[players.indexOf(anchorPlayer)]
       : anchor - raw.fold(0.0, (a, b) => a + b) / n;

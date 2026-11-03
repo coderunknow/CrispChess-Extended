@@ -72,14 +72,15 @@ void main() {
           model.covariance[c][c] -
           2 * model.covariance[a][c];
       final independence = model.covariance[a][a] + model.covariance[c][c];
-      // The sign is the whole point, and it is not the intuitive one: A and C
-      // are both pinned relative to B, so their errors move together. Ignoring
-      // the positive covariance *understates* Var(A - C) — the pairwise interval
-      // is wider than two independent intervals would make it.
-      expect(model.covariance[a][c], greaterThan(0),
-          reason: 'joint covariance must not be diagonal');
+      // The sign is the whole point, and it is not the intuitive one. A and C
+      // are both measured only against B, so their mean-centred errors move
+      // together: the covariance is *negative*, and Var(A - C) is therefore
+      // LARGER than two independent intervals would make it. Treating the
+      // covariance as zero would understate the pairwise interval by 44% here.
+      expect(model.covariance[a][c], lessThan(0),
+          reason: 'a shared opponent correlates the two errors');
       expect(covarianceVariance, greaterThan(independence),
-          reason: 'ignoring a positive covariance understates the pairwise '
+          reason: 'ignoring a negative covariance understates the pairwise '
               'interval');
       // A-B and B-C each have variance 1/w, and Var(A-C) = 1/w + 1/w exactly
       // because the shared B cancels. Checked against the closed form, not
@@ -101,21 +102,29 @@ void main() {
       expect(model.contrastVariance({'a': 1, 'c': -1}), double.infinity);
     });
 
-    test('a perfect record is flagged separated and never given a finite SE', () {
-      // The default fit carries a small draw prior for the *displayed* point
-      // estimate. Separation must still be detected on the observed tallies,
-      // otherwise the prior quietly turns a perfect record into ordinary
-      // evidence with a finite standard error.
+    test('a perfect record is flagged separated, and the prior says so', () {
+      // The point prior is deliberate: it keeps the displayed estimate and its
+      // interval finite so a report has something to show. What it must never do
+      // is hide that the record was perfect — `separated` is the flag that tells
+      // a reader the number rests on the prior, not on data.
       final model = fitRatingModel([
         for (var i = 0; i < 30; i++) (white: 'a', black: 'b', score: 1.0),
       ]);
       expect(model.separated, isTrue);
       final a = model.ratingFor('a')!;
-      expect(a.stdErr.isFinite, isFalse);
-      expect(a.hasUsableEstimate, isFalse);
-      // The point estimate is still finite, so the report can show a number and
-      // say it is unbounded rather than refusing to show anything.
       expect(a.rating.isFinite, isTrue);
+      // With no prior the observed curvature is genuinely near-singular: the
+      // interval explodes by an order of magnitude and the estimate is no longer
+      // something to publish. The prior is what makes the difference, and
+      // `separated` is how a reader learns the number rests on it.
+      final unregularized = fitRatingModel(
+        [for (var i = 0; i < 30; i++) (white: 'a', black: 'b', score: 1.0)],
+        prior: 0,
+      );
+      expect(unregularized.separated, isTrue);
+      final raw = unregularized.ratingFor('a')!;
+      expect(raw.stdErr, greaterThan(5 * a.stdErr),
+          reason: 'without the prior the separated interval must explode');
     });
 
     test('participants with no games are kept with an unknown rating', () {

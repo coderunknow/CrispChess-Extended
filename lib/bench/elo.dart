@@ -570,7 +570,16 @@ EloFit fitElo({
     anchorPlayer: anchorPlayer,
     prior: prior,
   );
-  final fitted = model.ratings;
+  // A participant with no rated game is rostered, not rated: an entry of
+  // "1500 ±Infinity, insufficient" is not evidence and must not be read as a
+  // rating. With nothing rated at all, `ratings` is empty by design.
+  final ratedIds = <String>{
+    for (final game in eligible) ...[game.white, game.black],
+  };
+  final fitted = [
+    for (final player in model.ratings)
+      if (ratedIds.contains(player.name)) player,
+  ];
 
   final opponents = <String, Set<String>>{};
   final playedPairs = <String, int>{};
