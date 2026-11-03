@@ -642,7 +642,9 @@ class IntelligentScheduler {
         for (var j = i + 1; j < participantIds.length; j++) {
           final a = participantIds[i], b = participantIds[j];
           if (precision.comparisonSet == PairwiseComparisonSet.targetPairs &&
-              !(targetIds.contains(a) && targetIds.contains(b))) continue;
+              !(targetIds.contains(a) && targetIds.contains(b))) {
+            continue;
+          }
           final weight = targetIds.contains(a) && targetIds.contains(b) ? 3.0
               : targetIds.contains(a) || targetIds.contains(b) ? 1.5 : 1.0;
           result.add(_Contrast({a: 1.0, b: -1.0},

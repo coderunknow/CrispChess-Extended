@@ -178,7 +178,8 @@ class EngineDownloadManager {
     if (source == null) {
       emit(DownloadState.failed, error: 'no artifact for $platform/$arch',
           message: 'No officially distributed artifact for this platform.');
-      return DownloadResult(false, message: 'No official artifact for platform.');
+      return const DownloadResult(false,
+          message: 'No official artifact for platform.');
     }
     final uri = Uri.tryParse(source.url);
     if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {

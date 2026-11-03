@@ -29,7 +29,6 @@ import 'calibration.dart';
 import 'engine_identity.dart';
 import 'engine_preflight.dart';
 import 'opening_suite.dart';
-import 'precision.dart';
 import 'stability_probe.dart';
 import 'cluster_bootstrap.dart';
 import 'intelligent_scheduler.dart';
@@ -587,7 +586,9 @@ class BenchmarkService {
         final run = await store.loadRun(summary.id);
         if (run == null) continue;
         if (run.environment.platform != identity.platform ||
-            run.environment.host != BenchmarkEnvironment.capture().host) continue;
+            run.environment.host != BenchmarkEnvironment.capture().host) {
+          continue;
+        }
         final old = run.identityFor(identity.engineId);
         if (old == null || !old.matchesVersionOf(identity)) continue;
         if (run.config.timePerMove != config.timePerMove ||
@@ -595,7 +596,9 @@ class BenchmarkService {
             run.config.nodeLimit != config.nodeLimit ||
             run.config.threads != config.threads ||
             run.config.hashMb != config.hashMb ||
-            run.config.openingSuiteId != config.openingSuiteId) continue;
+            run.config.openingSuiteId != config.openingSuiteId) {
+          continue;
+        }
         final rating = run.ratings.ratingFor(identity.engineId);
         final aggregate = run.aggregates()[identity.engineId];
         if (rating != null && rating.stdErr.isFinite) {

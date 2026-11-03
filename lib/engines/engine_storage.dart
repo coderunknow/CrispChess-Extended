@@ -68,7 +68,7 @@ class EngineStorageLocation {
       '${engineDir(engineId, version)}/metadata';
 
   String binaryDir(String engineId, String version) =>
-      '${executableRoot}/${engineDir(engineId, version)}/bin';
+      '$executableRoot/${engineDir(engineId, version)}/bin';
 
   String modelsDir(String engineId, String version) =>
       '$rootPath/${engineDir(engineId, version)}/models';

@@ -40,9 +40,9 @@ EngineArtifact lynxArtifact(String platform, String arch) {
     _ => null,
   };
   if (suffix == null) {
-    return EngineArtifact(
+    return const EngineArtifact(
       engineId: 'lynx', label: 'Lynx', version: kLynxVersion,
-      kind: 'binary', executable: true, sources: const [],
+      kind: 'binary', executable: true, sources: [],
     );
   }
   final url = '$_lynxBase/Lynx-$kLynxVersion-$suffix.zip';

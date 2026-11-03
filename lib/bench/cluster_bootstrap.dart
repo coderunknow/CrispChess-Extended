@@ -374,7 +374,9 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
         final a = ids[i], b = ids[j];
         if (!original.connected(a, b)) continue;
         if (precision.comparisonSet == PairwiseComparisonSet.targetPairs &&
-            !(targetIds.contains(a) && targetIds.contains(b))) continue;
+            !(targetIds.contains(a) && targetIds.contains(b))) {
+          continue;
+        }
         pairs.add((a, b));
       }
     }

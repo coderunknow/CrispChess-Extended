@@ -249,7 +249,7 @@ class EloDelta {
   int get suggestedAdditionalGames {
     if (!stdErr.isFinite || stdErr <= 0) return 0;
     // Aim at ±20 Elo on the difference.
-    final target = 20.0;
+    const target = 20.0;
     if (stdErr <= target) return 0;
     final factor = (stdErr / target) * (stdErr / target);
     return (factor - 1).ceil() * 20;

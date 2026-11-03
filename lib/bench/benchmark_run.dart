@@ -559,7 +559,7 @@ class BenchmarkRun {
       final statusText = status == null
           ? ''
           : ', status ${status.status}'
-              '${status.reason == null ? '' : ' (' + status.reason! + ')'}';
+              '${status.reason == null ? '' : ' (${status.reason!})'}';
       out.writeln('- **${_md(engine.label)}** — id `${engine.engineId}`, '
           'backend ${engine.backend}, platform ${engine.platform}, '
           'fingerprint ${engine.fingerprintKind} ${engine.shortFingerprint}'
@@ -591,7 +591,7 @@ class BenchmarkRun {
   String _excludedSummary() {
     final counts = ratings.excludedByOutcome;
     if (counts.isEmpty) return 'none were excluded.';
-    return counts.entries.map((e) => '${e.value} ${e.key}').join(', ') + '.';
+    return '${counts.entries.map((e) => '${e.value} ${e.key}').join(', ')}.';
   }
 
   /// Complete JSON document. The dev2 document (config/games/ratings/

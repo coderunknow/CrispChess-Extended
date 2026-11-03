@@ -761,7 +761,9 @@ class BenchmarkRunner {
     );
     if (fit.ratings.length != plan.engines.length ||
         fit.components.length != 1 ||
-        fit.ratedGames < config.minGamesBeforeStopping) return false;
+        fit.ratedGames < config.minGamesBeforeStopping) {
+      return false;
+    }
     for (final rating in fit.ratings) {
       if (!rating.stdErr.isFinite || rating.stdErr > target) return false;
     }
