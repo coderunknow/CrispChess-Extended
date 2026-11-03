@@ -18,6 +18,7 @@ import 'calibration.dart';
 import 'elo.dart';
 import 'engine_identity.dart';
 import 'game_record.dart';
+import 'intelligent_scheduler.dart' show PrecisionEvaluation;
 
 /// What happened to one engine in the run.
 class EngineRunStatus {
@@ -96,6 +97,12 @@ class BenchmarkRun {
   /// When set, this run was produced by one of the automatic triggers.
   final String? trigger;
 
+  /// Actual executed schedule, including adaptive additions. Null in legacy
+  /// documents, which stored only games and a format.
+  final BenchmarkPlan? plan;
+  final Map<String, dynamic>? schedulerReport;
+  final PrecisionEvaluation? precisionEvaluation;
+
   const BenchmarkRun({
     required this.id,
     required this.startedAt,
@@ -112,6 +119,9 @@ class BenchmarkRun {
     this.warnings = const [],
     this.validationWarnings = const [],
     this.trigger,
+    this.plan,
+    this.schedulerReport,
+    this.precisionEvaluation,
   });
 
   /// Games that produced a rating-eligible result.
@@ -201,6 +211,9 @@ class BenchmarkRun {
       'black_id',
       'black',
       'opening',
+      'opening_id',
+      'cluster_id',
+      'pair_id',
       'outcome',
       'forfeit_reason',
       'forfeited_by',
@@ -224,6 +237,9 @@ class BenchmarkRun {
         _csvEscape(game.blackId),
         _csvEscape(game.blackLabel),
         _csvEscape(game.openingName),
+        _csvEscape(game.openingId),
+        _csvEscape(game.clusterId ?? ''),
+        _csvEscape(game.pairId ?? ''),
         game.outcome.id,
         game.forfeitReason.id,
         _csvEscape(game.forfeitedBy ?? ''),
@@ -333,7 +349,11 @@ class BenchmarkRun {
     out.writeln();
     out.writeln('## Standings');
     out.writeln();
-    out.writeln('| # | Engine | Relative rating | 95% CI | Quality | Games '
+    final bootstrap = ratings.bootstrap;
+    final intervalLabel = bootstrap != null && bootstrap.reliable
+        ? '${(bootstrap.confidenceLevel * 100).toStringAsFixed(0)}% cluster bootstrap CI'
+        : 'Fisher diagnostic CI (no reliable cluster bootstrap)';
+    out.writeln('| # | Engine | Relative rating | $intervalLabel | Quality | Games '
         '| W/D/L | Score | Notes |');
     out.writeln('|---|---|---|---|---|---|---|---|---|');
     var place = 0;
@@ -347,7 +367,7 @@ class BenchmarkRun {
       ].join('; ');
       out.writeln('| $place | ${_md(aggregate.label)} '
           '| ${rating == null ? '—' : rating.rating.toStringAsFixed(0)} '
-          '| ${rating == null ? '—' : '±${(kZ95 * rating.stdErr).toStringAsFixed(0)}'} '
+          '| ${rating == null ? '—' : '±${rating.intervalHalfWidth.isFinite ? rating.intervalHalfWidth.toStringAsFixed(0) : '∞'} (${rating.intervalMethod == 'opening-cluster-bootstrap' ? 'bootstrap' : 'Fisher'})'} '
           '| ${rating?.quality.id ?? '—'} '
           '| ${aggregate.ratedGames} '
           '| ${aggregate.wins}/${aggregate.draws}/${aggregate.losses} '
@@ -365,9 +385,11 @@ class BenchmarkRun {
       for (final aggregate in standings()) {
         final calibrated = calibration.ratingFor(aggregate.engineId);
         final relative = ratings.ratingFor(aggregate.engineId);
+        final calibratedSe = calibration.standardErrorFor(aggregate.engineId);
         out.writeln('| ${_md(aggregate.label)} '
             '| ${relative == null ? '—' : relative.rating.toStringAsFixed(0)} '
-            '| ${calibrated == null ? '—' : calibrated.toStringAsFixed(0)} |');
+            '| ${calibrated == null ? '—' : calibrated.toStringAsFixed(0)}'
+            '${calibratedSe != null && calibratedSe.isFinite ? ' ±${(kZ95 * calibratedSe).toStringAsFixed(0)}' : ''} |');
       }
       out.writeln();
       for (final warning in calibration.warnings) {
@@ -381,16 +403,91 @@ class BenchmarkRun {
       out.writeln();
     }
 
+    out.writeln('## Participants');
+    out.writeln();
+    out.writeln('All engines admitted to the schedule are listed, including ones '
+        'with no usable evidence. An engine that failed, was disconnected or '
+        'has too little data is marked here rather than removed.');
+    out.writeln();
+    out.writeln('| Engine | Status | Rated games | Rating reportable | Cohort |');
+    out.writeln('|---|---|---|---|---|');
+    for (final engine in engines) {
+      final status = engineStatus[engine.engineId];
+      final rating = ratings.ratingFor(engine.engineId);
+      final aggregate = aggregates()[engine.engineId];
+      final rated = aggregate?.ratedGames ?? 0;
+      final reportable = rating != null && rating.hasUsableEstimate && rated >= 2;
+      out.writeln('| ${_md(engine.label)} '
+          '| ${status?.status ?? (rated > 0 ? 'completed' : 'no usable games')}'
+          '${status?.reason == null ? '' : ': ${_md(status!.reason!)}'} '
+          '| $rated '
+          '| ${reportable ? 'yes' : 'no (insufficient evidence)'} '
+          '| ${_md(engine.cohortKey)} |');
+    }
+    out.writeln();
+
     out.writeln('## Rating methodology');
     out.writeln();
     out.writeln('Bradley–Terry maximum likelihood over every rated game, '
         'centred on ${ratings.anchor.toStringAsFixed(0)} on average (relative '
-        'scale). The 95% interval is `rating ± 1.96 × standard error`, where the '
-        'standard error comes from the Fisher information of the fit. '
-        'Aborted, cancelled and forfeited games are excluded. '
+        'scale). Aborted, cancelled and forfeited games are excluded. '
         '${config.countAdjudicatedAsDraws ? 'Adjudicated games are included as statistical draws (0.5), not terminal chess results.' : 'Adjudicated games are excluded.'} '
         'Excluded: ${_excludedSummary()}');
     out.writeln();
+    if (bootstrap != null) {
+      out.writeln('### Opening-cluster bootstrap');
+      out.writeln();
+      out.writeln('- Clusters: ${bootstrap.clusters} · replicates '
+          '${bootstrap.validReplicates}/${bootstrap.attemptedReplicates} valid '
+          '(${bootstrap.failedReplicates} failed)');
+      out.writeln('- Reliable precision claim: '
+          '${bootstrap.reliable ? 'yes' : 'no'} · seed ${bootstrap.seed} · '
+          'compute ${bootstrap.computeMillis} ms');
+      out.writeln('- Method: ${bootstrap.method}');
+      for (final warning in bootstrap.warnings) {
+        out.writeln('- $warning');
+      }
+      out.writeln();
+    } else {
+      out.writeln('No opening-cluster bootstrap is stored for this run; the '
+          'intervals are Fisher-information diagnostics and do not account for '
+          'shared openings.');
+      out.writeln();
+    }
+    final evaluation = precisionEvaluation ??
+        (plan != null
+            ? evaluatePrecision(
+                fit: ratings, precision: config.precision,
+                participantIds: [for (final e in plan!.engines) e.engineId],
+                targetIds: plan!.targetEngineIds, ratedGames: ratings.ratedGames)
+            : null);
+    if (evaluation != null) {
+      out.writeln('### Precision objective');
+      out.writeln();
+      out.writeln('- Requested: ${config.precision.summary}');
+      out.writeln('- Achieved: ${evaluation.achieved ? 'yes' : 'no'}');
+      for (final unmet in evaluation.unmet) {
+        out.writeln('- Unmet: $unmet');
+      }
+      if (evaluation.additionalGamesEstimate != null) {
+        out.writeln('- Additional games under the current design: '
+            '≈${evaluation.additionalGamesEstimate}');
+      }
+      out.writeln();
+    }
+    if (schedulerReport != null) {
+      out.writeln('### Scheduling decisions');
+      out.writeln();
+      final decisions = schedulerReport!['decisions'];
+      if (decisions is List) {
+        for (final entry in decisions) {
+          if (entry is Map) {
+            out.writeln('- ${entry['phase']}: ${entry['reason'] ?? entry['explanation'] ?? ''}');
+          }
+        }
+      }
+      out.writeln();
+    }
     if (ratings.warnings.isNotEmpty) {
       out.writeln('### Rating warnings');
       out.writeln();
@@ -497,6 +594,10 @@ class BenchmarkRun {
     return counts.entries.map((e) => '${e.value} ${e.key}').join(', ') + '.';
   }
 
+  /// Complete JSON document. The dev2 document (config/games/ratings/
+  /// calibration/environment) is unchanged; everything dev5 adds is an
+  /// additional key, so older readers keep working and older documents keep
+  /// loading.
   Map<String, dynamic> toJson() => {
         'id': id,
         'startedAt': startedAt.toIso8601String(),
@@ -516,8 +617,10 @@ class BenchmarkRun {
         if (validationWarnings.isNotEmpty)
           'validationWarnings': validationWarnings,
         if (trigger != null) 'trigger': trigger,
+        if (plan != null) 'plan': plan!.toJson(),
+        if (schedulerReport != null) 'scheduler': schedulerReport,
+        if (precisionEvaluation != null) 'precision': precisionEvaluation!.toJson(),
       };
-
   factory BenchmarkRun.fromJson(Map<String, dynamic> json) {
     List<Map<String, dynamic>> mapsOf(String key) {
       final raw = json[key];
@@ -565,9 +668,7 @@ class BenchmarkRun {
       config: configJson is Map
           ? BenchmarkConfig.fromJson(Map<String, dynamic>.from(configJson))
           : BenchmarkConfig.standard,
-      format: (json['format'] as String?) == 'gauntlet'
-          ? TournamentFormat.gauntlet
-          : TournamentFormat.roundRobin,
+      format: TournamentFormat.fromId(json['format'] as String?),
       engines: [
         for (final engine in mapsOf('engines')) EngineIdentity.fromJson(engine),
       ],
@@ -588,6 +689,13 @@ class BenchmarkRun {
       warnings: stringsOf('warnings'),
       validationWarnings: stringsOf('validationWarnings'),
       trigger: json['trigger'] as String?,
+      schedulerReport: json['scheduler'] is Map ? Map<String, dynamic>.from(json['scheduler'] as Map) : null,
+      precisionEvaluation: json['precision'] is Map ? PrecisionEvaluation(
+        achieved: (json['precision'] as Map)['achieved'] == true,
+        individualHalfWidths: const {}, pairwiseHalfWidths: const {},
+        unmet: [for (final u in ((json['precision'] as Map)['unmet'] as List? ?? [])) '$u'],
+        explanation: (json['precision'] as Map)['explanation'] as String? ?? '',
+      ) : null,
     );
   }
 
@@ -670,6 +778,14 @@ class BenchmarkRunSummary {
         'calibrated': calibrated,
         'cohortKeys': cohortKeys,
       };
+
+  /// Whether this run can be pushed onto the same relative scale as [other]:
+  /// one shared cohort, a common anchor and at least one engine in common.
+  bool comparableWith(BenchmarkRunSummary other) =>
+      isComparableAcrossCohorts &&
+      other.isComparableAcrossCohorts &&
+      cohortKeys.join(',') == other.cohortKeys.join(',') &&
+      engineIds.any(other.engineIds.contains);
 
   factory BenchmarkRunSummary.fromJson(Map<String, dynamic> json) {
     Map<String, double> doublesOf(String key) {
@@ -759,6 +875,7 @@ EloFit fitRunRatings({
     anchor: anchor,
     anchorPlayer: anchorEngineId,
     excludedByOutcome: excluded,
+    participants: labels.keys,
   );
 }
 

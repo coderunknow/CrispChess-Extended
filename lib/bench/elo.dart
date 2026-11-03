@@ -18,6 +18,8 @@ library;
 import 'dart:math' as math;
 
 import '../services/rating_fit.dart';
+import 'cluster_bootstrap.dart';
+import 'precision.dart';
 
 /// How much a rating can be trusted.
 enum RatingQuality {
@@ -57,6 +59,10 @@ class EloRating {
   /// Number of distinct opponents this rating rests on.
   final int opponents;
 
+  /// Provenance of ciLow/ciHigh. stdErr remains the Fisher diagnostic.
+  final String intervalMethod;
+  final double confidenceLevel;
+
   const EloRating({
     required this.engineId,
     required this.label,
@@ -69,9 +75,13 @@ class EloRating {
     required this.losses,
     required this.quality,
     required this.opponents,
+    this.intervalMethod = 'fisher-diagnostic',
+    this.confidenceLevel = 0.95,
   });
 
   int get games => wins + draws + losses;
+
+  double get intervalHalfWidth => (ciHigh - ciLow) / 2;
 
   /// Points scored per game, 0..1.
   double get score => games == 0 ? 0 : (wins + draws / 2) / games;
@@ -96,6 +106,8 @@ class EloRating {
         'scorePercent': scorePercent,
         'quality': quality.id,
         'opponents': opponents,
+        'intervalMethod': intervalMethod,
+        'confidenceLevel': confidenceLevel,
       };
 
   factory EloRating.fromJson(Map<String, dynamic> json) {
@@ -128,6 +140,8 @@ class EloRating {
         orElse: () => RatingQuality.insufficient,
       ),
       opponents: intOf('opponents'),
+      intervalMethod: json['intervalMethod'] as String? ?? 'fisher-diagnostic',
+      confidenceLevel: (json['confidenceLevel'] as num?)?.toDouble() ?? 0.95,
     );
   }
 
@@ -291,6 +305,14 @@ class EloFit {
 
   final List<String> warnings;
 
+  /// Joint observed-Fisher covariance in Elo², aligned with [covarianceIds].
+  final List<List<double>> covariance;
+  final List<String> covarianceIds;
+
+  /// Primary opening-cluster intervals when reliable; null for legacy runs.
+  final ClusterBootstrapReport? bootstrap;
+  final PairwiseIntervalScope pairwiseScope;
+
   const EloFit({
     required this.ratings,
     required this.ratedGames,
@@ -299,6 +321,10 @@ class EloFit {
     this.anchorEngineId,
     this.components = const [],
     this.warnings = const [],
+    this.covariance = const [],
+    this.covarianceIds = const [],
+    this.bootstrap,
+    this.pairwiseScope = PairwiseIntervalScope.pointwise,
   });
 
   static const EloFit empty = EloFit(
@@ -333,47 +359,98 @@ class EloFit {
     final b = ratingFor(bId);
     if (a == null || b == null) return null;
     final difference = a.rating - b.rating;
-    // Joint-fit ratings are correlated (anti-correlated for two players).
-    // Independence would UNDERSTATE uncertainty. Without stored covariance,
-    // use the Cauchy-Schwarz upper bound; exact for a centered two-player fit.
     final connected = inSameComponent(aId, bId);
-    final se = connected ? a.stdErr + b.stdErr : double.infinity;
     final warnings = <String>[];
-    if (!inSameComponent(aId, bId)) {
+    double se;
+    double low, high;
+    final boot = bootstrap;
+    final bootPair = boot == null ? null : boot.pairwise[pairwiseKey(aId, bId)];
+    if (connected && boot != null && boot.reliable && bootPair != null) {
+      final interval = bootPair.interval(pairwiseScope);
+      low = interval.low;
+      high = interval.high;
+      se = interval.standardError ?? (high - low) / (2 * kZ95);
+      warnings.add('Opening-cluster bootstrap ${pairwiseScope.id} interval; '
+          'the two ratings are fitted jointly.');
+    } else if (connected && covarianceIds.contains(aId) && covarianceIds.contains(bId)) {
+      final i = covarianceIds.indexOf(aId), j = covarianceIds.indexOf(bId);
+      final variance = covariance[i][i] + covariance[j][j] - 2 * covariance[i][j];
+      se = variance >= 0 ? math.sqrt(variance) : double.nan;
+      low = difference - kZ95 * se;
+      high = difference + kZ95 * se;
+      warnings.add('Fisher covariance is an independent-game diagnostic, not '
+          'the primary opening-cluster interval.');
+    } else {
+      // Legacy documents have no covariance. Cauchy–Schwarz is a conservative
+      // bound, never the independence formula sqrt(SE_A² + SE_B²).
+      se = connected ? a.stdErr + b.stdErr : double.infinity;
+      low = difference - kZ95 * se;
+      high = difference + kZ95 * se;
+      if (connected) warnings.add('Legacy conservative bound: joint covariance was not stored.');
+    }
+    if (!connected) {
       warnings.add('These engines are not connected by games in this run; the '
           'difference rests on the fit prior, not on a match.');
     }
-    if (a.quality == RatingQuality.insufficient ||
-        b.quality == RatingQuality.insufficient) {
+    if (a.quality == RatingQuality.insufficient || b.quality == RatingQuality.insufficient) {
       warnings.add('At least one of these ratings is too uncertain to rank.');
     }
-    final probability = se <= 0
-        ? (difference > 0 ? 1.0 : 0.0)
-        : normalCdf(difference / se);
-    final low = difference - kZ95 * se;
-    final high = difference + kZ95 * se;
+    final probability = !se.isFinite ? 0.5 : (se <= 0 ? (difference > 0 ? 1.0 : 0.0) : normalCdf(difference / se));
     final String verdict;
-    if (!connected) {
-      verdict = 'not comparable (disconnected pools)';
-    } else if (se <= 0) {
-      verdict = 'identical';
+    if (!connected || !low.isFinite || !high.isFinite) {
+      verdict = 'not comparable (insufficient or disconnected evidence)';
     } else if (low > 0) {
-      verdict = 'A is stronger (95% interval excludes zero)';
+      verdict = 'A is stronger (${pairwiseScope.id} interval excludes zero)';
     } else if (high < 0) {
-      verdict = 'B is stronger (95% interval excludes zero)';
+      verdict = 'B is stronger (${pairwiseScope.id} interval excludes zero)';
     } else {
       verdict = 'no reliable difference';
     }
     return EloComparison(
-      aId: aId,
-      bId: bId,
-      difference: difference,
-      stdErr: se,
-      ciLow: low,
-      ciHigh: high,
-      probabilityAGreater: probability,
-      verdict: verdict,
-      warnings: warnings,
+      aId: aId, bId: bId, difference: difference, stdErr: se,
+      ciLow: low, ciHigh: high, probabilityAGreater: probability,
+      verdict: verdict, warnings: warnings,
+    );
+  }
+
+  /// Replace displayed intervals with validated cluster-bootstrap intervals.
+  /// Fisher standard errors remain visible as diagnostics; unreliable bootstrap
+  /// results never shrink or replace them.
+  EloFit withBootstrap(ClusterBootstrapReport report) {
+    if (!report.reliable) {
+      return EloFit(
+        ratings: ratings, ratedGames: ratedGames,
+        excludedByOutcome: excludedByOutcome, anchor: anchor,
+        anchorEngineId: anchorEngineId, components: components,
+        warnings: [...warnings, ...report.warnings],
+        covariance: covariance, covarianceIds: covarianceIds,
+        bootstrap: report, pairwiseScope: report.precision.pairwiseScope,
+      );
+    }
+    final updated = [
+      for (final rating in ratings)
+        () {
+          final interval = report.individual[rating.engineId];
+          if (interval == null || !interval.isFinite) return rating;
+          return EloRating(
+            engineId: rating.engineId, label: rating.label,
+            rating: rating.rating, stdErr: rating.stdErr,
+            ciLow: interval.low, ciHigh: interval.high,
+            wins: rating.wins, draws: rating.draws, losses: rating.losses,
+            quality: gradeRating(rating.games, interval.halfWidth / kZ95),
+            opponents: rating.opponents,
+            intervalMethod: 'opening-cluster-bootstrap',
+            confidenceLevel: report.confidenceLevel,
+          );
+        }(),
+    ];
+    return EloFit(
+      ratings: updated, ratedGames: ratedGames,
+      excludedByOutcome: excludedByOutcome, anchor: anchor,
+      anchorEngineId: anchorEngineId, components: components,
+      warnings: [...warnings, ...report.warnings],
+      covariance: covariance, covarianceIds: covarianceIds,
+      bootstrap: report, pairwiseScope: report.precision.pairwiseScope,
     );
   }
 
@@ -385,6 +462,10 @@ class EloFit {
         'ratings': [for (final rating in ratings) rating.toJson()],
         'components': components,
         'warnings': warnings,
+        if (covariance.isNotEmpty) 'covariance': covariance,
+        if (covarianceIds.isNotEmpty) 'covarianceIds': covarianceIds,
+        if (bootstrap != null) 'bootstrap': bootstrap!.toJson(),
+        'pairwiseScope': pairwiseScope.id,
       };
 
   factory EloFit.fromJson(Map<String, dynamic> json) {
@@ -431,6 +512,10 @@ class EloFit {
       anchorEngineId: json['anchorEngineId'] as String?,
       components: components,
       warnings: warnings,
+      covariance: [for (final row in (json['covariance'] as List? ?? [])) [for (final v in row as List) (v as num).toDouble()]],
+      covarianceIds: [for (final id in (json['covarianceIds'] as List? ?? [])) '$id'],
+      bootstrap: json['bootstrap'] is Map ? ClusterBootstrapReport.fromJson(Map<String, dynamic>.from(json['bootstrap'] as Map)) : null,
+      pairwiseScope: PairwiseIntervalScope.fromId(json['pairwiseScope'] as String?),
     );
   }
 }
@@ -448,10 +533,12 @@ EloFit fitElo({
   String? anchorPlayer,
   double prior = 0.3,
   Map<String, int> excludedByOutcome = const {},
+  Iterable<String> participants = const [],
 }) {
   final excluded = Map<String, int>.from(excludedByOutcome);
   final eligible = List<RatedGame>.of(games);
-  if (eligible.isEmpty) {
+  final allIds = <String>{...participants, ...labels.keys, for (final g in eligible) ...[g.white, g.black]};
+  if (eligible.isEmpty && allIds.isEmpty) {
     return EloFit(
       ratings: const [],
       ratedGames: 0,
@@ -462,12 +549,14 @@ EloFit fitElo({
     );
   }
 
-  final fitted = fitRatings(
+  final model = fitRatingModel(
     eligible,
+    participants: allIds,
     anchor: anchor,
     anchorPlayer: anchorPlayer,
     prior: prior,
   );
+  final fitted = model.ratings;
 
   final opponents = <String, Set<String>>{};
   final playedPairs = <String, int>{};
@@ -527,6 +616,8 @@ EloFit fitElo({
     anchorEngineId: anchorPlayer,
     components: components,
     warnings: warnings,
+    covariance: model.covariance,
+    covarianceIds: model.players,
   );
 }
 

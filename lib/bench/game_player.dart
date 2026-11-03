@@ -190,6 +190,8 @@ Future<BenchGame> playBenchGame({
   bool Function()? cancelled,
   GameStop Function()? stopReason,
   void Function(String fen, String san, bool whiteToMove)? onMove,
+  String? clusterId,
+  String? pairId,
 }) async {
   final board = chess.Chess();
   final startFen = opening.rootFen;
@@ -206,6 +208,8 @@ Future<BenchGame> playBenchGame({
       startFen: startFen,
       detail: 'The opening FEN could not be loaded: ${opening.fen}',
       warmUp: warmUp,
+      clusterId: clusterId,
+      pairId: pairId,
     );
   }
 
@@ -221,6 +225,8 @@ Future<BenchGame> playBenchGame({
         startFen: startFen,
         detail: 'The opening line is not legal at move "$move".',
         warmUp: warmUp,
+        clusterId: clusterId,
+        pairId: pairId,
       );
     }
     played.add(move);
@@ -333,6 +339,8 @@ Future<BenchGame> playBenchGame({
     whiteLabel: whiteLabel,
     blackLabel: blackLabel,
     openingId: opening.id,
+    clusterId: clusterId,
+    pairId: pairId,
     openingName: opening.name,
     startFen: opening.fen == null ? '' : startFen,
     moves: played,
@@ -358,6 +366,8 @@ BenchGame _unplayable({
   required String startFen,
   required String detail,
   required bool warmUp,
+  String? clusterId,
+  String? pairId,
 }) =>
     BenchGame(
       index: index,
@@ -373,6 +383,8 @@ BenchGame _unplayable({
       outcome: GameOutcome.aborted,
       detail: detail,
       warmUp: warmUp,
+      clusterId: clusterId,
+      pairId: pairId,
     );
 
 /// Plays a UCI move on [board]; false when the move is not legal.

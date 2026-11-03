@@ -1905,4 +1905,220 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get enginePreflightReferenceExcluded => 'Die Referenz-Engine des Gauntlets hat die Engine-Vorabprüfung nicht bestanden.';
+
+  @override
+  String get bootstrapMissing => 'Für diesen Lauf ist kein Bootstrap über Eröffnungscluster gespeichert.';
+
+  @override
+  String get budget => 'Budget und Ressourcen';
+
+  @override
+  String get budgetEngineMinutes => 'Engine-Rechenzeit (Min.)';
+
+  @override
+  String get budgetHint => 'Mindestens ein Budget muss gesetzt sein. Der Scheduler erfindet kein globales Zeitlimit; er stoppt an deinen Grenzen und meldet das Ziel als nicht erreicht, wenn sie aufgebraucht sind.';
+
+  @override
+  String get budgetMemory => 'Speicherlimit (MB)';
+
+  @override
+  String get budgetRequired => 'Setze mindestens ein Budget: Partien, Minuten oder Engine-Rechenzeit.';
+
+  @override
+  String get changeStorage => 'Ändern';
+
+  @override
+  String get customEngines => 'Eigene UCI-Engines';
+
+  @override
+  String get customEnginesSupportedNote => 'Füge im Engine Lab eine UCI-Engine hinzu; sie wird für intelligente Benchmarks in den Gegner-Pool aufgenommen.';
+
+  @override
+  String get customEnginesUnsupportedNote => 'Eigene Engine-Prozesse sind auf dieser Plattform nicht möglich. Im Web kann kein Prozess gestartet werden; unter iOS lässt sich ein heruntergeladenes Binärprogramm nicht in der App ausführen.';
+
+  @override
+  String get download => 'Herunterladen';
+
+  @override
+  String get downloadableEngines => 'Engines und Modelle';
+
+  @override
+  String get downloadableEnginesSubtitle => 'Nur die Abhängigkeiten, die ein genehmigter Benchmark-Plan benötigt, werden geladen. Jedes Artefakt stammt aus seiner offiziellen Quelle.';
+
+  @override
+  String get engineLabPreflightNote => 'Jeder vorgeschlagene Teilnehmer wird vor der ersten Partie von der Engine-Vorprüfung geprüft. Fehlende offizielle Abhängigkeiten werden gesondert angefragt und nie stillschweigend geladen.';
+
+  @override
+  String get engineStorage => 'Engine-Speicher';
+
+  @override
+  String get engineStorageAndroidNote => 'Android kann keine Dateien aus gemeinsamem Speicher ausführen: Modelle und Archive liegen in diesem Ordner, Programme werden im app-privaten Speicher installiert.';
+
+  @override
+  String get engineStorageIosNote => 'iOS-Apps dürfen nur in ihrer Sandbox schreiben und keine heruntergeladenen nativen Programme ausführen. Skript- und Modell-Engines bleiben verfügbar.';
+
+  @override
+  String get engineStorageLocation => 'Speicherort';
+
+  @override
+  String get engineStoragePath => 'Absoluter Ordnerpfad';
+
+  @override
+  String get engineStorageShortHint => 'Fehlende Abhängigkeiten werden vor jedem Download angefragt. Nur Engines, die der Plan braucht, werden geladen.';
+
+  @override
+  String get formatIntelligent => 'Intelligent';
+
+  @override
+  String get formatIntelligentHint => 'Du wählst Ziel-Engines, Bedingungen und Budget. Der Scheduler wählt Gegner, Eröffnungen und Partienzahl aus der gemessenen Unsicherheit und erklärt jede Entscheidung im Bericht.';
+
+  @override
+  String get liveBootstrap => 'Bootstrap-Wiederholungen';
+
+  @override
+  String get liveClusters => 'Unabhängige Eröffnungscluster';
+
+  @override
+  String get liveElapsed => 'Verstrichen';
+
+  @override
+  String get livePrecision => 'Aktuelle Präzision';
+
+  @override
+  String get liveWorstIndividual => 'Schlechtestes Einzelintervall';
+
+  @override
+  String get liveWorstPairwise => 'Schlechtestes Paarintervall';
+
+  @override
+  String get manageDownloads => 'Downloads und Speicher';
+
+  @override
+  String get methodologyCompute => 'Bootstrap-Rechenzeit';
+
+  @override
+  String get methodologyFailures => 'Fehlerursachen';
+
+  @override
+  String get methodologyMonteCarlo => 'Monte-Carlo-Bereich der Endpunkte';
+
+  @override
+  String get methodologySeed => 'Startwert';
+
+  @override
+  String get notAvailableOnPlatform => 'Für diese Plattform wird kein offizielles Artefakt verteilt.';
+
+  @override
+  String get precisionAchieved => 'Benchmark abgeschlossen: Ziel erreicht.';
+
+  @override
+  String get precisionAdditionalGames => 'Vertretbare Zusatzschätzung';
+
+  @override
+  String get precisionAllPairs => 'Alle Teilnehmer';
+
+  @override
+  String get precisionBoth => 'Beide';
+
+  @override
+  String get precisionConfidence => 'Konfidenz %';
+
+  @override
+  String get precisionIndividual => 'Einzeln';
+
+  @override
+  String get precisionIndividualElo => 'Einzeln ±Elo';
+
+  @override
+  String get precisionNotAchieved => 'Benchmark abgeschlossen: Ziel im Budget nicht erreicht.';
+
+  @override
+  String get precisionObjective => 'Präzisionsziel';
+
+  @override
+  String get precisionObjectiveHint => 'Der Lauf gilt nur als erfolgreich, wenn die gesammelten unabhängigen Belege dieses Ziel tragen.';
+
+  @override
+  String get precisionPairwise => 'Paarweise';
+
+  @override
+  String get precisionPairwiseElo => 'Paarweise ±Elo';
+
+  @override
+  String get precisionPointwise => 'Punktweise';
+
+  @override
+  String get precisionPointwiseHint => 'Punktweise Intervalle gelten für einen Vergleich; sie beanspruchen keine gemeinsame Abdeckung.';
+
+  @override
+  String get precisionSimultaneous => 'Simultan';
+
+  @override
+  String get precisionSimultaneousHint => 'Simultane Intervalle decken alle geforderten Vergleiche zugleich ab (Maximum-Statistik-Bootstrap); sie sind breiter als punktweise Intervalle.';
+
+  @override
+  String get precisionTargetPairs => 'Nur Ziele';
+
+  @override
+  String get previewSchedule => 'Plan ansehen';
+
+  @override
+  String get ratingMethodology => 'Bewertungsmethodik';
+
+  @override
+  String get ratingMethodologyPlain => 'Partien sind gepaart: dieselbe Eröffnung wird mit beiden Farben gespielt. Die Unsicherheit stammt aus dem Resampling ganzer Eröffnungen, nicht einzelner Partien, weil Partien derselben Eröffnung zusammenhängen. Die Intervalle zeigen daher, wie viel unabhängige Evidenz der Lauf wirklich gesammelt hat.';
+
+  @override
+  String get schedulerNext => 'Scheduler';
+
+  @override
+  String get schedulerOpponents => 'Gewählte Gegner';
+
+  @override
+  String get schedulerParticipants => 'Teilnehmer im gemeinsamen Modell';
+
+  @override
+  String get schedulerPilotGames => 'Pilotpartien';
+
+  @override
+  String get schedulerPilotPairs => 'Anfängliche Paarungen';
+
+  @override
+  String get schedulerPreflightExcluded => 'Teilnehmer von der Engine-Vorprüfung ausgeschlossen';
+
+  @override
+  String get schedulerPreview => 'Scheduler-Vorschlag';
+
+  @override
+  String get schedulerPreviewHint => 'Prüfe den Plan vor dem Start. Adaptive Stapel werden aus der gemessenen Unsicherheit gewählt, daher kann die endgültige Partienzahl größer sein.';
+
+  @override
+  String get schedulerTargets => 'Ziele';
+
+  @override
+  String get schedulerWhy => 'Warum';
+
+  @override
+  String get startIntelligent => 'Intelligenten Benchmark starten';
+
+  @override
+  String get storageBrowserManaged => 'Ein Browser kann keinen Ordner wählen. Downloads nutzen den browserverwalteten Cache-Speicher, den der Browser löschen kann; exportierte Berichte sind der dauerhafte Nachweis.';
+
+  @override
+  String get schedulerParticipantStatus => 'Teilnehmerstatus: fehlgeschlagene, unzureichend belegte oder nicht verbundene Engines werden ausdrücklich berichtet und nicht stillschweigend entfernt.';
+
+  @override
+  String get schedulerConflict => 'Der festgelegte Plan hat sich während der Vorbereitung geändert. Prüfe den neuen Vorschlag.';
+
+  @override
+  String get engineDownloadMissing => 'Diese Engine benötigt vor dem Start einen Download.';
+
+  @override
+  String get engineDownloadOnlyApproved => 'Nur für diesen Lauf genehmigte Abhängigkeiten werden geladen.';
+
+  @override
+  String get cohortQualified => 'Bewertungen sind kohortenspezifisch: unter abweichenden Ausführungsbedingungen gemessene Engines werden gekennzeichnet und nicht als direkt vergleichbar eingestuft.';
+
+  @override
+  String get calibrationNoAnchorUncertainty => 'Der Anker nennt keine veröffentlichte Unsicherheit; diese Intervalle enthalten den Ankerfehler nicht.';
 }

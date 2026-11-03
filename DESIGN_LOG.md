@@ -54,3 +54,39 @@ an engine, and excluded engines are listed, not dropped. A gauntlet's
 reference is a precondition, not something to substitute. Late `info` lines of
 a stopped search remain delivered with their own colour; consumers that need
 one position's eval drain the previous search first.
+
+## 2026-11-03 — dev5 reconnaissance and architecture decision
+
+Verified remote `main` and local baseline at
+`09ce48228da30454362e184220c066916169bd92`; PR #11 is merged and its final
+reviewed head was `428309e2504e073da6d3f3369093e4f534ba39fc`. Baseline version
+is `2.3.2-dev4+20`; dev5 uses build 21. Existing main CI run 41596124729,
+Engine Lab run 41596124318 and secret scan 41596124146 passed on the exact
+baseline SHA. The existing Deploy Web run 41596124411 failed at its Vercel
+deployment step; deployment is outside this directive and will not be run.
+
+Reuse decision: keep `BenchmarkRunner`, `BenchmarkPlan`, `EnginePreflight`,
+`PreflightGate`, `BenchmarkStore`, `fitRatings`, `EloFit`, engine registry and
+custom profiles. Add a pure-Dart adaptive scheduler above the existing runner,
+cluster-bootstrap statistics above the existing Bradley–Terry fitter, and a
+shared download/storage layer used by existing adapters. Static round-robin and
+gauntlet remain available. Intelligent runs admit opponents automatically,
+record every actual participant, and allocate two-game colour-reversed opening
+units by expected joint-variance reduction per measured cost.
+
+Statistical decision: opening identity is the global resampling cluster, so a
+position shared by several matchups is sampled once with all of its games and
+colour reversals. Percentile intervals and direct bootstrap differences are
+primary; Fisher covariance remains an independent diagnostic. Simultaneous
+pairwise coverage uses the bootstrap distribution of the maximum absolute
+contrast error, explicitly labelled approximate. Failed/singular replicates,
+too few clusters and Monte Carlo endpoint uncertainty block precision success.
+Historical measurements may inform costs/opponent choice only under an exact
+measurement-cohort key; they are never silently added as games.
+
+Platform decision: desktop uses a selectable global root; Android keeps native
+executables in app-private executable storage and allows a supported model-data
+location; iOS uses sandboxed model/JavaScript assets and never executes
+downloaded native code; web uses browser-managed cache storage, not a pretended
+POSIX directory. See `docs/audit/2026-11-03-dev5-reconnaissance.md` for the
+verification matrix and confirmed source-level defects.

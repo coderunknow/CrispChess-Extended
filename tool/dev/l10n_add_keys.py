@@ -97,6 +97,8 @@ LAB_SOURCES = (
     "lib/screens/engine_lab_screen.dart",
     "lib/screens/benchmark_report_screen.dart",
     "lib/screens/engine_preflight_screen.dart",
+    "lib/screens/intelligent_benchmark_panel.dart",
+    "lib/screens/engine_storage_screen.dart",
     "lib/widgets/engine_lab",
 )
 

@@ -12,6 +12,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'download_manager.dart';
+import 'engine_artifacts.dart';
+import 'engine_storage.dart';
 import 'engine_initialization.dart';
 import 'uci_position.dart';
 import 'uci_process_lifecycle.dart';
@@ -192,7 +195,10 @@ class LynxEngine
       await _download(asset);
     }
     scope.checkCancelled();
-    final binaryPath = File('${(await _engineDir()).path}/${asset.binary}').path;
+    final managed = File('${(await _engineDir()).path}/${asset.binary}');
+    final binaryPath = managed.existsSync()
+        ? managed.path
+        : File('${_legacyDir.path}/${asset.binary}').path;
     scope.runtimePath = binaryPath;
 
     scope.stage = EngineInitStage.launchProcess;
@@ -438,7 +444,17 @@ class LynxEngine
 
   // --- Download management ---
 
+  /// Install directory from the single user-selectable engine storage root.
+  /// On Android executables must stay app-private, which the storage location
+  /// reports; the loader follows it instead of assuming a writable shared path.
   static Future<Directory> _engineDir() async {
+    final location = await EngineStorage().location();
+    return Directory('${location.executableRoot}/lynx/$_lynxVersion/bin');
+  }
+
+  /// Pre-dev5 install location, still read so an existing binary keeps working
+  /// after the storage root moved to one managed location.
+  static Directory get _legacyDir {
     final home = Platform.environment['HOME'] ??
         Platform.environment['APPDATA'] ?? '/tmp';
     return Directory('$home/.crispchess/engines/lynx');
@@ -449,7 +465,8 @@ class LynxEngine
     try {
       final dir = await _engineDir();
       final asset = _platformAsset();
-      return File('${dir.path}/${asset.binary}').existsSync();
+      if (File('${dir.path}/${asset.binary}').existsSync()) return true;
+      return File('${_legacyDir.path}/${asset.binary}').existsSync();
     } catch (_) {
       return false;
     }
@@ -486,23 +503,39 @@ class LynxEngine
             uri: Uri.parse(asset.url));
       }
 
+      final published = kLynxPublishedSha256[asset.url];
+      if (published != null) {
+        final actual = await sha256OfFile(zipFile);
+        if (actual != published) {
+          throw const EngineStorageError(
+              'The downloaded Lynx archive did not match the checksum '
+              'published with the release; nothing was installed.');
+        }
+      }
+      // Extract into a staging directory and only move the verified binary
+      // into place, so a half-extracted archive never becomes "installed".
+      final staging = Directory('${dir.path}/.staging-${DateTime.now().microsecondsSinceEpoch}');
+      await staging.create(recursive: true);
       debugPrint('[Lynx] Extracting...');
       final ProcessResult unzip = Platform.isWindows
           ? await Process.run('powershell', [
               '-NoProfile',
               '-command',
               'Expand-Archive', '-Path', zipFile.path, '-DestinationPath',
-              dir.path, '-Force',
+              staging.path, '-Force',
             ])
-          : await Process.run('unzip', ['-o', zipFile.path, '-d', dir.path]);
+          : await Process.run('unzip', ['-o', zipFile.path, '-d', staging.path]);
       if (unzip.exitCode != 0) {
         throw ProcessException(Platform.isWindows ? 'powershell' : 'unzip',
             const [], 'extracting Lynx failed: ${unzip.stderr}', unzip.exitCode);
       }
-      if (!binaryFile.existsSync()) {
+      final staged = File('${staging.path}/${asset.binary}');
+      if (!staged.existsSync()) {
         throw FileSystemException(
-            'the Lynx archive did not contain ${asset.binary}', binaryFile.path);
+            'the Lynx archive did not contain ${asset.binary}', staged.path);
       }
+      await staged.copy(binaryFile.path);
+      await staging.delete(recursive: true);
       if (!Platform.isWindows) {
         final chmod = await Process.run('chmod', ['+x', binaryFile.path]);
         if (chmod.exitCode != 0) {
@@ -510,7 +543,9 @@ class LynxEngine
               '${chmod.stderr}', chmod.exitCode);
         }
       }
-      debugPrint('[Lynx] Ready at ${binaryFile.path}');
+      // Strip archive metadata: extraction can carry exec bits or extended
+      // attributes that make a later atomic replacement fail.
+      debugPrint('[Lynx] Ready at ${redactPath(binaryFile.path)}');
     } catch (_) {
       // A half-extracted binary would pass isDownloaded() next time.
       try {

@@ -17,6 +17,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import '../engines/chess_engine.dart';
 import '../engines/engine_initialization.dart';
@@ -30,6 +31,11 @@ import 'calibration.dart';
 import 'engine_identity.dart';
 import 'game_player.dart';
 import 'game_record.dart';
+import 'cluster_bootstrap.dart';
+import 'elo.dart';
+import 'intelligent_scheduler.dart';
+import 'opening_suite.dart';
+import 'precision.dart';
 
 /// An engine the runner may build, with the identity it starts from.
 class BenchEngineSlot {
@@ -116,6 +122,22 @@ class BenchmarkNoticeEvent extends BenchmarkEvent {
   const BenchmarkNoticeEvent(this.message);
 }
 
+/// Live statistical state for an intelligent run.
+class BenchmarkStatisticsEvent extends BenchmarkEvent {
+  final EloFit fit;
+  final PrecisionEvaluation precision;
+  final String schedulerReason;
+  final int gamesPlayed;
+  final int? maxGames;
+  final Duration elapsed;
+  final Duration? maxDuration;
+  const BenchmarkStatisticsEvent({
+    required this.fit, required this.precision,
+    required this.schedulerReason, required this.gamesPlayed,
+    required this.elapsed, this.maxGames, this.maxDuration,
+  });
+}
+
 class _LiveEngine {
   final BenchEngineSlot slot;
   final ChessEngine engine;
@@ -169,12 +191,26 @@ class BenchmarkRunner {
   /// says why a setting was ignored.
   final List<String> validationWarnings;
 
+  /// Non-null for an intelligent plan. The runner executes its pilot, then
+  /// asks for one colour-reversed opening unit at a time.
+  final IntelligentScheduler? scheduler;
+  final BootstrapSettings bootstrapSettings;
+
   final StreamController<BenchmarkEvent> _events =
       StreamController<BenchmarkEvent>.broadcast();
   final List<BenchGame> _games = [];
   final Map<String, _LiveEngine> _live = {};
   final Set<ChessEngine> _disposedEngines = Set<ChessEngine>.identity();
   final List<String> _warnings = [];
+  final List<PlannedGame> _schedule = [];
+  ClusterBootstrapReport? _latestBootstrap;
+  EloFit? _latestFit;
+  PrecisionEvaluation? _latestPrecision;
+  int _engineMillis = 0;
+  int _bootstrapMillis = 0;
+  int _adaptiveBatches = 0;
+  int _lastBootstrapReplicates = 0;
+  int _lastBootstrapMillis = 0;
 
   final DateTime _startedAt = DateTime.now();
   String _stopReason = 'completed';
@@ -214,6 +250,8 @@ class BenchmarkRunner {
     this.onProgressSave,
     this.partialSaveInterval = 10,
     this.validationWarnings = const [],
+    this.scheduler,
+    this.bootstrapSettings = const BootstrapSettings(),
   });
 
   Stream<BenchmarkEvent> get events => _events.stream;
@@ -221,6 +259,8 @@ class BenchmarkRunner {
   bool get isPaused => _paused;
 
   bool get isCancelled => _cancelled;
+
+  int get _totalRecorded => _schedule.where((g) => !g.isWarmUp).length;
 
   Map<String, String> get labels => {
         for (final engine in plan.engines) engine.engineId: engine.label,
@@ -267,7 +307,10 @@ class BenchmarkRunner {
         (config.nodeLimit! < 1 || config.searchDepth != null)) {
       throw ArgumentError('A positive node budget cannot be combined with depth.');
     }
-    final recorded = plan.recordedGames.length + plan.warmUpGames;
+    if (plan.format == TournamentFormat.intelligent && scheduler == null) {
+      throw ArgumentError('An intelligent plan requires its scheduler.');
+    }
+    _schedule.addAll(plan.games);
     final clock = Stopwatch()..start();
     _armDeadline(config.maxDuration);
 
@@ -335,7 +378,9 @@ class BenchmarkRunner {
       }
     }
 
-    for (final planned in plan.games) {
+    var scheduleIndex = 0;
+    while (scheduleIndex < _schedule.length) {
+      final planned = _schedule[scheduleIndex++];
       if (_cancelled) {
         _stopReason = 'cancelled';
         break;
@@ -372,14 +417,14 @@ class BenchmarkRunner {
       final opening = openingForGame(plan, planned);
       _events.add(BenchmarkGameStartedEvent(
         gameNumber: planned.isWarmUp ? 0 : planned.index,
-        totalGames: recorded,
+        totalGames: _totalRecorded,
         whiteLabel: white.label,
         blackLabel: black.label,
         openingName: opening.name,
       ));
 
       _ply = 0;
-      final game = await playBenchGame(
+      final playedGame = await playBenchGame(
         index: planned.isWarmUp ? 0 : planned.index,
         whiteId: white.engineId,
         blackId: black.engineId,
@@ -392,6 +437,8 @@ class BenchmarkRunner {
         depth: config.searchDepth,
         moveTime: config.isTimeBased ? config.timePerMove : null,
         warmUp: planned.isWarmUp,
+        clusterId: openingClusterIdForGame(plan, planned),
+        pairId: pairIdForGame(plan, planned),
         cancelled: () => _cancelled,
         stopReason: _gameStop,
         onMove: (fen, san, whiteToMove) {
@@ -405,17 +452,19 @@ class BenchmarkRunner {
           ));
         },
       );
-      _games.add(game);
+      _games.add(playedGame);
+      _engineMillis += playedGame.white.moveMillis.fold(0, (a, b) => a + b) +
+          playedGame.black.moveMillis.fold(0, (a, b) => a + b);
       if (!planned.isWarmUp && !_cancelled && !_timeCapReached &&
-          game.outcome != GameOutcome.cancelled && game.outcome != GameOutcome.aborted) {
+          playedGame.outcome != GameOutcome.cancelled && playedGame.outcome != GameOutcome.aborted) {
         white.scheduledCompleted++;
         black.scheduledCompleted++;
       }
       white.gamesCompleted++;
       black.gamesCompleted++;
-      _noteOutcome(white, game, white.engineId);
-      _noteOutcome(black, game, black.engineId);
-      if (game.outcome == GameOutcome.forfeit) {
+      _noteOutcome(white, playedGame, white.engineId);
+      _noteOutcome(black, playedGame, black.engineId);
+      if (playedGame.outcome == GameOutcome.forfeit) {
         // The engine that forfeited may still owe a `bestmove`. Drain both
         // connections before the next game asks either for a move.
         await drainEngine(white.engine);
@@ -424,12 +473,12 @@ class BenchmarkRunner {
 
       if (!planned.isWarmUp) _finished++;
       _events.add(BenchmarkGameFinishedEvent(
-        game: game,
+        game: playedGame,
         gamesCompleted: _finished,
-        totalGames: plan.recordedGames.length,
+        totalGames: _totalRecorded,
       ));
 
-      if (game.outcome == GameOutcome.cancelled) {
+      if (playedGame.outcome == GameOutcome.cancelled) {
         _stopReason = 'cancelled';
         break;
       }
@@ -440,7 +489,7 @@ class BenchmarkRunner {
         break;
       }
       if (!planned.isWarmUp) {
-        if (_uncertaintyReached()) {
+        if (plan.format != TournamentFormat.intelligent && _uncertaintyReached()) {
           _stopReason = 'uncertainty target';
           break;
         }
@@ -450,8 +499,14 @@ class BenchmarkRunner {
           await _saveProgress();
         }
       }
+      if (plan.format == TournamentFormat.intelligent &&
+          scheduleIndex >= _schedule.length && !_cancelled && !_timeCapReached) {
+        final extended = await _extendIntelligentSchedule(clock);
+        if (!extended) break;
+      }
     }
 
+    await _finalizeIntelligentStatistics(clock);
     clock.stop();
     _deadlineTimer?.cancel();
     _deadlineTimer = null;
@@ -653,8 +708,10 @@ class BenchmarkRunner {
       blackId: black.engineId,
       whiteLabel: white.label,
       blackLabel: black.label,
-      openingId: plan.config.openingSuiteId,
+      openingId: openingForGame(plan, planned).id,
       openingName: openingForGame(plan, planned).name,
+      clusterId: openingClusterIdForGame(plan, planned),
+      pairId: pairIdForGame(plan, planned),
       startFen: '',
       moves: const [],
       movetext: '',
@@ -667,7 +724,7 @@ class BenchmarkRunner {
     _events.add(BenchmarkGameFinishedEvent(
       game: game,
       gamesCompleted: _finished,
-      totalGames: plan.recordedGames.length,
+      totalGames: _totalRecorded,
     ));
   }
 
@@ -676,14 +733,16 @@ class BenchmarkRunner {
       whiteId: planned.whiteId, blackId: planned.blackId,
       whiteLabel: labels[planned.whiteId] ?? planned.whiteId,
       blackLabel: labels[planned.blackId] ?? planned.blackId,
-      openingId: plan.config.openingSuiteId,
+      openingId: openingForGame(plan, planned).id,
       openingName: openingForGame(plan, planned).name,
+      clusterId: openingClusterIdForGame(plan, planned),
+      pairId: pairIdForGame(plan, planned),
       startFen: '', moves: const [], movetext: '',
       outcome: GameOutcome.aborted, detail: reason, warmUp: planned.isWarmUp);
     _games.add(game);
     if (!planned.isWarmUp) _finished++;
     _events.add(BenchmarkGameFinishedEvent(game: game,
-      gamesCompleted: _finished, totalGames: plan.recordedGames.length));
+      gamesCompleted: _finished, totalGames: _totalRecorded));
   }
 
   bool _uncertaintyReached() {
@@ -713,6 +772,151 @@ class BenchmarkRunner {
     _events.add(BenchmarkNoticeEvent(
         'Uncertainty target reached (every rating within ±$target Elo).'));
     return true;
+  }
+
+  SchedulerState _schedulerState(Stopwatch clock) {
+    final moveMillis = <String, double>{};
+    final startupMillis = <String, double>{};
+    final failures = <String, int>{};
+    for (final live in _live.values) {
+      startupMillis[live.engineId] = live.initMillis.toDouble();
+      failures[live.engineId] = live.forfeitLosses;
+      final moves = <int>[];
+      for (final game in _games) {
+        if (game.warmUp) continue;
+        if (game.whiteId == live.engineId) moves.addAll(game.white.moveMillis);
+        if (game.blackId == live.engineId) moves.addAll(game.black.moveMillis);
+      }
+      if (moves.isNotEmpty) {
+        moveMillis[live.engineId] = moves.reduce((a, b) => a + b) / moves.length;
+      }
+    }
+    return SchedulerState(
+      gamesPlayed: _finished, engineMillis: _engineMillis,
+      bootstrapMillis: _bootstrapMillis, elapsed: clock.elapsed,
+      failures: failures, measuredMoveMillis: moveMillis,
+      measuredStartupMillis: startupMillis,
+    );
+  }
+
+  List<ClusteredRatedGame> _clusteredGames() {
+    final result = <ClusteredRatedGame>[];
+    for (final game in _games) {
+      if (game.warmUp || game.whiteId == game.blackId) continue;
+      final eligible = game.outcome.isRatingEligible ||
+          (game.outcome == GameOutcome.adjudicated && plan.config.countAdjudicatedAsDraws);
+      final score = game.outcome == GameOutcome.adjudicated && plan.config.countAdjudicatedAsDraws
+          ? 0.5 : game.outcome.whiteScore;
+      if (!eligible || score == null) continue;
+      // Pre-dev5 rows have no cluster id. Group them conservatively by stored
+      // opening/suite and root FEN; they usually collapse to too few clusters,
+      // which correctly blocks a precision claim instead of inventing one.
+      final cluster = game.clusterId ?? 'legacy|${game.openingId}|${game.startFen}';
+      result.add(ClusteredRatedGame(clusterId: cluster,
+          white: game.whiteId, black: game.blackId, score: score, pairId: game.pairId));
+    }
+    return result;
+  }
+
+  int _finalBootstrapReserve() {
+    if (_lastBootstrapMillis <= 0 || _lastBootstrapReplicates <= 0) return 2000;
+    final perReplicate = _lastBootstrapMillis / _lastBootstrapReplicates;
+    return math.max(1000, (perReplicate * bootstrapSettings.replicates * 1.25).ceil());
+  }
+
+  Future<void> _runProvisionalBootstrap(Stopwatch clock, {required bool finalEstimate}) async {
+    if (plan.format != TournamentFormat.intelligent) return;
+    final remainingWall = plan.config.maxDuration == null
+        ? null
+        : plan.config.maxDuration! - clock.elapsed;
+    final remainingCompute = plan.config.resourceBudget.maxBootstrapMillis == null
+        ? null
+        : Duration(milliseconds: math.max(0, plan.config.resourceBudget.maxBootstrapMillis! - _bootstrapMillis));
+    Duration? limit = remainingWall;
+    if (remainingCompute != null) {
+      limit = limit == null || remainingCompute < limit ? remainingCompute : limit;
+    }
+    if (finalEstimate) {
+      // The scheduler reserved time for this pass. Do not cut it to zero merely
+      // because the game phase consumed its allocation; the user budget still
+      // bounds the batch loop below.
+    } else if (limit != null) {
+      limit = Duration(milliseconds: math.max(0, limit.inMilliseconds - _finalBootstrapReserve()));
+    }
+    final settings = finalEstimate
+        ? bootstrapSettings
+        : bootstrapSettings.copyWith(replicates: math.min(400, bootstrapSettings.replicates));
+    final report = await runClusterBootstrap(
+      games: _clusteredGames(),
+      participants: [for (final e in plan.engines) e.engineId],
+      precision: plan.config.precision,
+      settings: settings,
+      targetIds: plan.targetEngineIds,
+      maxDuration: limit,
+      cancelled: () => _cancelled || _timeCapReached,
+    );
+    _bootstrapMillis += report.computeMillis;
+    _lastBootstrapMillis = report.computeMillis;
+    _lastBootstrapReplicates = report.attemptedReplicates;
+    _latestBootstrap = report;
+  }
+
+  Future<bool> _extendIntelligentSchedule(Stopwatch clock) async {
+    final controller = scheduler;
+    if (controller == null) return false;
+    _adaptiveBatches++;
+    var fit = fitRunRatings(games: _games, labels: labels, config: plan.config);
+    final bootstrapDue = _latestBootstrap == null || _adaptiveBatches % 5 == 0;
+    if (bootstrapDue && !_cancelled && !_timeCapReached) {
+      await _runProvisionalBootstrap(clock, finalEstimate: false);
+      final report = _latestBootstrap;
+      if (report != null) fit = fit.withBootstrap(report);
+    }
+    final decision = controller.decideNext(
+      games: _games, fit: fit, bootstrap: _latestBootstrap,
+      state: _schedulerState(clock),
+      finalBootstrapReserveMillis: _finalBootstrapReserve(),
+    );
+    final evaluation = evaluatePrecision(
+      fit: fit, precision: plan.config.precision,
+      participantIds: controller.participantIds,
+      targetIds: plan.targetEngineIds, ratedGames: fit.ratedGames,
+    );
+    _latestFit = fit;
+    _latestPrecision = evaluation;
+    if (!_events.isClosed) {
+      _events.add(BenchmarkStatisticsEvent(
+        fit: fit, precision: evaluation,
+        schedulerReason: decision.matchupReason ?? decision.reason,
+        gamesPlayed: _finished, maxGames: plan.config.maxGames,
+        elapsed: clock.elapsed, maxDuration: plan.config.maxDuration,
+      ));
+      _events.add(BenchmarkNoticeEvent(decision.stop
+          ? 'Scheduler stopped: ${decision.reason}. ${decision.matchupReason ?? ''}'
+          : 'Next opening unit: ${decision.matchupReason ?? decision.reason}'));
+    }
+    if (decision.stop) {
+      _stopReason = decision.reason;
+      return false;
+    }
+    _schedule.addAll(decision.games);
+    return true;
+  }
+
+  Future<void> _finalizeIntelligentStatistics(Stopwatch clock) async {
+    if (plan.format != TournamentFormat.intelligent) return;
+    if (_cancelled) {
+      // Cancellation is not a measurement. Report it as an unavailable
+      // precision claim rather than a completed, possibly narrow, interval.
+      _latestBootstrap = ClusterBootstrapReport.unavailable(
+        reason: 'The run was cancelled before a final bootstrap could complete.',
+        precision: plan.config.precision,
+        clusters: _clusteredGames().map((g) => g.clusterId).toSet().length,
+        computeMillis: 0, seed: bootstrapSettings.seed,
+      );
+      return;
+    }
+    await _runProvisionalBootstrap(clock, finalEstimate: true);
   }
 
   Future<void> _disposeEngines({bool keepState = false}) async {
@@ -778,11 +982,21 @@ class BenchmarkRunner {
     final labelMap = {
       for (final identity in identities) identity.engineId: identity.label,
     };
-    final ratings = fitRunRatings(
+    var ratings = fitRunRatings(
       games: _games,
       labels: labelMap,
       config: config,
     );
+    final bootstrap = _latestBootstrap;
+    if (bootstrap != null) ratings = ratings.withBootstrap(bootstrap);
+    _latestFit = ratings;
+    final precisionEvaluation = plan.format == TournamentFormat.intelligent
+        ? evaluatePrecision(
+            fit: ratings, precision: config.precision,
+            participantIds: [for (final e in plan.engines) e.engineId],
+            targetIds: plan.targetEngineIds, ratedGames: ratings.ratedGames)
+        : null;
+    _latestPrecision = precisionEvaluation;
     final calibration = calibrateElo(
       fit: ratings,
       anchor: anchor ?? selectCompatibleAnchor(anchors, identities, config),
@@ -812,6 +1026,19 @@ class BenchmarkRunner {
       warnings: warnings,
       validationWarnings: [...validationWarnings, ...plan.warnings],
       trigger: trigger,
+      plan: plan.withGames(List<PlannedGame>.of(_schedule)),
+      schedulerReport: scheduler == null ? null : {
+        'algorithm': 'connected pilot + weighted Fisher variance reduction per measured cost',
+        'decisions': scheduler!.decisionLog,
+        'state': {
+          'gamesPlayed': _finished,
+          'engineMillis': _engineMillis,
+          'bootstrapMillis': _bootstrapMillis,
+          'elapsedMillis': DateTime.now().difference(_startedAt).inMilliseconds,
+        },
+        'precision': precisionEvaluation?.toJson(),
+      },
+      precisionEvaluation: precisionEvaluation,
     );
   }
 }

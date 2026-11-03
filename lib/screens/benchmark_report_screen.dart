@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../bench/benchmark_plan.dart';
 import '../bench/benchmark_run.dart';
 import '../bench/elo.dart';
 import '../bench/benchmark_service.dart';
 import '../bench/benchmark_store.dart';
 import '../bench/game_record.dart';
+import '../bench/intelligent_scheduler.dart';
+import 'intelligent_benchmark_panel.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/engine_lab/lab_widgets.dart';
 
@@ -216,6 +219,48 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
               ],
             ),
           ),
+        if (run.plan != null && run.plan!.format == TournamentFormat.intelligent) ...[
+          SchedulerPreviewCard(
+            plan: run.plan!,
+            warnings: [...run.warnings, ...run.validationWarnings],
+          ),
+          MethodologyCard(
+            bootstrap: run.ratings.bootstrap,
+            precision: run.precisionEvaluation ??
+                evaluatePrecision(
+                  fit: run.ratings,
+                  precision: run.config.precision,
+                  participantIds: [for (final e in run.plan!.engines) e.engineId],
+                  targetIds: run.plan!.targetEngineIds,
+                  ratedGames: run.ratings.ratedGames,
+                ),
+          ),
+        ],
+        if (run.plan != null && run.plan!.format == TournamentFormat.intelligent)
+          LabSection(
+            title: l?.schedulerParticipants ?? 'Participants in the joint model',
+            subtitle: l?.schedulerParticipantStatus ??
+                'Failed, insufficient or disconnected engines are reported '
+                    'explicitly and are not silently dropped.',
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (final engine in run.engines)
+                Builder(builder: (context) {
+                  final status = run.engineStatus[engine.engineId];
+                  final rating = run.ratings.ratingFor(engine.engineId);
+                  final rated = run.aggregates()[engine.engineId]?.ratedGames ?? 0;
+                  final problem = status != null && status.isFailure
+                      ? '${status.status}: ${status.reason ?? ''}'
+                      : rating == null || !rating.hasUsableEstimate || rated < 2
+                          ? 'insufficient evidence ($rated rated games)'
+                          : null;
+                  return LabInfoRow(
+                    label: engine.label,
+                    value: problem ?? 'rated · ${rating!.games} games',
+                    emphasise: problem != null,
+                  );
+                }),
+            ]),
+          ),
         LabSection(
           title: l?.relativeElo ?? 'Relative Elo',
           subtitle: l?.engineLabRelativeScaleHint ??
@@ -274,11 +319,21 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
                             ?.rating
                             .toStringAsFixed(0) ??
                         '—')),
-                    DataCell(Text(_uncertainty(run.ratings.ratingFor(standings[index].engineId)?.stdErr))),
-                    DataCell(Text(run.calibration
-                            .ratingFor(standings[index].engineId)
-                            ?.toStringAsFixed(0) ??
-                        '—')),
+                    DataCell(Text(() {
+                      final rating = run.ratings.ratingFor(standings[index].engineId);
+                      if (rating == null) return '—';
+                      if (!rating.intervalHalfWidth.isFinite) return '∞';
+                      return '±${rating.intervalHalfWidth.toStringAsFixed(0)}';
+                    }())),
+                    DataCell(Text(() {
+                      final calibrated = run.calibration
+                          .ratingFor(standings[index].engineId);
+                      if (calibrated == null) return '—';
+                      final se = run.calibration
+                          .standardErrorFor(standings[index].engineId);
+                      return '${calibrated.toStringAsFixed(0)}'
+                          '${se == null || !se.isFinite ? '' : ' ±${(kZ95 * se).toStringAsFixed(0)}'}';
+                    }())),
                     DataCell(Text(run.ratings
                             .ratingFor(standings[index].engineId)
                             ?.quality
@@ -300,6 +355,16 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
             children: [
               Text(run.calibration.reason,
                   style: Theme.of(context).textTheme.bodyMedium),
+              if (run.calibration.available &&
+                  run.calibration.standardErrorFor(run.calibration.anchorEngineId ?? '') == null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                      l?.calibrationNoAnchorUncertainty ??
+                          'The anchor states no published uncertainty; these '
+                              'intervals do not include anchor error.',
+                      style: Theme.of(context).textTheme.bodySmall),
+                ),
               for (final warning in run.calibration.warnings)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),

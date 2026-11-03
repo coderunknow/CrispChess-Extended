@@ -22,6 +22,10 @@
 /// records it so anyone reading the result can judge whether it applies.
 library;
 
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
+
 import 'benchmark_config.dart';
 import 'elo.dart';
 import 'engine_identity.dart';
@@ -71,6 +75,10 @@ class RatingAnchor {
 
   final String notes;
 
+  /// Published uncertainty of [rating] on [scale], when the source states one.
+  /// Propagated into calibrated intervals; never assumed.
+  final double? ratingStdErr;
+
   const RatingAnchor({
     required this.id,
     required this.engineName,
@@ -85,6 +93,7 @@ class RatingAnchor {
     this.timePerMoveMs,
     this.tolerancePercent = 20,
     this.notes = '',
+    this.ratingStdErr,
   });
 
   /// Whether every field a defensible calibration needs is filled in.
@@ -122,6 +131,7 @@ class RatingAnchor {
         if (timePerMoveMs != null) 'timePerMoveMs': timePerMoveMs,
         'tolerancePercent': tolerancePercent,
         if (notes.isNotEmpty) 'notes': notes,
+        if (ratingStdErr != null) 'ratingStdErr': ratingStdErr,
       };
 
   factory RatingAnchor.fromJson(Map<String, dynamic> json) {
@@ -153,6 +163,9 @@ class RatingAnchor {
       timePerMoveMs: intOf('timePerMoveMs'),
       tolerancePercent: intOf('tolerancePercent') ?? 20,
       notes: (json['notes'] as String?) ?? '',
+      ratingStdErr: json['ratingStdErr'] is num
+          ? (json['ratingStdErr'] as num).toDouble()
+          : null,
     );
   }
 
@@ -181,6 +194,10 @@ class CalibrationOutcome {
 
   final List<String> warnings;
 
+  /// Per-engine calibrated standard error, combining the engine's relative
+  /// uncertainty with the anchor's published uncertainty (independent terms).
+  final Map<String, double> calibratedStdErr;
+
   const CalibrationOutcome({
     required this.available,
     required this.reason,
@@ -189,6 +206,7 @@ class CalibrationOutcome {
     this.anchorLabel,
     this.calibrated = const {},
     this.warnings = const [],
+    this.calibratedStdErr = const {},
   });
 
   factory CalibrationOutcome.unavailable(String reason,
@@ -201,6 +219,8 @@ class CalibrationOutcome {
 
   double? ratingFor(String engineId) => calibrated[engineId];
 
+  double? standardErrorFor(String engineId) => calibratedStdErr[engineId];
+
   Map<String, dynamic> toJson() => {
         'available': available,
         'reason': reason,
@@ -208,6 +228,7 @@ class CalibrationOutcome {
         if (anchorEngineId != null) 'anchorEngineId': anchorEngineId,
         if (anchorLabel != null) 'anchorLabel': anchorLabel,
         if (calibrated.isNotEmpty) 'calibrated': calibrated,
+        if (calibratedStdErr.isNotEmpty) 'calibratedStdErr': calibratedStdErr,
         if (warnings.isNotEmpty) 'warnings': warnings,
       };
 
@@ -234,6 +255,7 @@ class CalibrationOutcome {
       anchorEngineId: json['anchorEngineId'] as String?,
       anchorLabel: json['anchorLabel'] as String?,
       calibrated: calibrated,
+      calibratedStdErr: {for (final e in (json['calibratedStdErr'] as Map? ?? {}).entries) '${e.key}': (e.value as num).toDouble()},
       warnings: warnings,
     );
   }
@@ -369,6 +391,21 @@ CalibrationOutcome calibrateElo({
         'The run mixes ${cohorts.length} cohorts (${cohorts.join(', ')}); a '
         'published rating cannot be transferred across platforms or backends.');
   }
+  final host = kIsWeb
+      ? 'web'
+      : switch (defaultTargetPlatform) {
+          TargetPlatform.android => 'Android',
+          TargetPlatform.iOS => 'iOS',
+          TargetPlatform.macOS => 'macOS',
+          TargetPlatform.windows => 'windows',
+          TargetPlatform.linux => 'linux',
+          TargetPlatform.fuchsia => 'fuchsia',
+        };
+  if (!anchor.hardware.toLowerCase().contains(host.toLowerCase()) &&
+      !anchor.hardware.toLowerCase().contains('unknown')) {
+    warnings.add('The anchor hardware (${anchor.hardware}) does not name this '
+        'host platform ($host); calibrated Elo is a rough bridge at best.');
+  }
   warnings.add('A published rating is a measurement of a specific engine '
       'version on specific hardware. The anchor used here was '
       '${anchor.engineVersion.isEmpty ? 'of unspecified version' : 'version ${anchor.engineVersion}'} '
@@ -379,6 +416,23 @@ CalibrationOutcome calibrateElo({
   final calibrated = <String, double>{
     for (final rating in fit.ratings) rating.engineId: rating.rating + offset,
   };
+  // The anchor's own published uncertainty is a separate source of error: a
+  // published value with ±X is not a point. Without a stated uncertainty the
+  // calibrated interval is the engine's own interval alone, and the report says
+  // that the anchor contributes unquantified error.
+  final anchorSe = anchor.ratingStdErr;
+  final calibratedStdErr = <String, double>{
+    for (final rating in fit.ratings)
+      rating.engineId: math.sqrt(
+          (rating.stdErr.isFinite ? rating.stdErr * rating.stdErr : 0) +
+              (anchorSe != null && anchorSe > 0 ? anchorSe * anchorSe : 0)),
+  };
+  if (anchorSe == null) {
+    warnings.add('The anchor states no published uncertainty; calibrated '
+        'intervals do not include anchor error and are therefore optimistic.');
+  } else if (!anchorSe.isFinite || anchorSe < 0) {
+    return CalibrationOutcome.unavailable('The anchor\'s published uncertainty is invalid.');
+  }
   return CalibrationOutcome(
     available: true,
     reason: 'Calibrated against ${anchor.engineName} at ${anchor.rating} '
@@ -387,6 +441,7 @@ CalibrationOutcome calibrateElo({
     anchorEngineId: anchorRating.engineId,
     anchorLabel: anchorRating.label,
     calibrated: calibrated,
+    calibratedStdErr: calibratedStdErr,
     warnings: warnings,
   );
 }

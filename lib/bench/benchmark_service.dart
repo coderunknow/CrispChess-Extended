@@ -6,6 +6,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -29,6 +30,10 @@ import 'engine_identity.dart';
 import 'engine_preflight.dart';
 import 'opening_suite.dart';
 import 'stability_probe.dart';
+import 'cluster_bootstrap.dart';
+import 'intelligent_scheduler.dart';
+import 'precision.dart';
+import '../engines/uci_capabilities.dart';
 
 /// One engine the Lab could measure, and whether it can run here.
 class EngineCandidate {
@@ -96,6 +101,35 @@ class ChangedEngine {
     required this.change,
   });
 }
+
+
+/// A reviewed intelligent proposal: the scheduler, its connected pilot and the
+/// exact conditions/candidate exclusions it was built from.
+class IntelligentPreparation {
+  final IntelligentScheduler scheduler;
+  final BenchmarkPlan plan;
+  final BenchmarkConfig config;
+  final List<String> targetIds;
+  final Set<String> excludedIds;
+  final Map<String, OpeningSuite> suites;
+  final List<RatingAnchor> anchors;
+  final BootstrapSettings bootstrapSettings;
+  const IntelligentPreparation({
+    required this.scheduler, required this.plan, required this.config,
+    required this.targetIds, required this.excludedIds, required this.suites,
+    required this.anchors, required this.bootstrapSettings,
+  });
+}
+
+
+EngineIdentity _unavailableIdentity(EngineCandidate candidate) => EngineIdentity(
+  engineId: candidate.engineId, displayName: candidate.label,
+  engineName: candidate.label, engineVersion: 'unknown',
+  kind: isCustomEngineId(candidate.engineId) ? 'custom' : 'builtin',
+  platform: platformLabel(), backend: 'unavailable',
+  fingerprint: 'unavailable', fingerprintKind: 'unavailable',
+  configurationDigest: digestOf(const []),
+);
 
 class BenchmarkService {
   final BenchmarkStore store;
@@ -523,6 +557,165 @@ class BenchmarkService {
       bindings[engineId] = await preflightBindingFor(engineId, config);
     }
     return preflightGate.admission(engineIds, bindings);
+  }
+
+
+  // ------------------------------------------------------- intelligent runs
+
+  /// Builds a candidate assessment from the existing registry. Catalog Elo and
+  /// compatible historical ratings are scheduling priors only; no historical
+  /// game is added to the new run's evidence.
+  Future<SchedulerCandidate> _schedulerCandidate(
+      EngineCandidate candidate, BenchmarkConfig config) async {
+    if (!candidate.available) {
+      return SchedulerCandidate(
+        identity: _unavailableIdentity(candidate),
+        available: false, unavailableReason: candidate.unavailableReason,
+      );
+    }
+    final identity = await identityFor(candidate.engineId);
+    final all = await profiles();
+    final engine = createEngineForId(candidate.engineId, profiles: all);
+    double? prior = engine.estimatedElo.toDouble();
+    var source = 'catalog estimate (not evidence)';
+    var stdErr = 200.0;
+    var moveMs = config.isTimeBased ? config.timePerMove.inMilliseconds.toDouble() : 100.0;
+    String? historicalRunId;
+    try {
+      final summaries = await store.summaries();
+      for (final summary in summaries.take(30)) {
+        final run = await store.loadRun(summary.id);
+        if (run == null) continue;
+        if (run.environment.platform != identity.platform ||
+            run.environment.host != BenchmarkEnvironment.capture().host) continue;
+        final old = run.identityFor(identity.engineId);
+        if (old == null || !old.matchesVersionOf(identity)) continue;
+        if (run.config.timePerMove != config.timePerMove ||
+            run.config.searchDepth != config.searchDepth ||
+            run.config.nodeLimit != config.nodeLimit ||
+            run.config.threads != config.threads ||
+            run.config.hashMb != config.hashMb ||
+            run.config.openingSuiteId != config.openingSuiteId) continue;
+        final rating = run.ratings.ratingFor(identity.engineId);
+        final aggregate = run.aggregates()[identity.engineId];
+        if (rating != null && rating.stdErr.isFinite) {
+          prior = rating.rating;
+          stdErr = math.max(50, rating.stdErr);
+          source = 'compatible historical run ${run.id} (scheduling prior only)';
+          historicalRunId = run.id;
+          if (aggregate != null && aggregate.meanMillis > 0) moveMs = aggregate.meanMillis;
+          break;
+        }
+      }
+    } catch (error) {
+      debugPrint('[EngineLab] historical scheduling prior unavailable: $error');
+    }
+    final name = candidate.label.toLowerCase();
+    final memory = name.contains('maia') || name.contains('mamba') || name.contains('lc0') || name.contains('ghost') || name.contains('searchless') || name.contains('lm') ? 768 : 256;
+    final supportsNodes = engine is NodeLimitedEngine;
+    engine.dispose();
+    return SchedulerCandidate(
+      identity: identity,
+      estimatedRating: prior,
+      estimateSource: source,
+      estimateStdErr: stdErr,
+      expectedMoveMillis: moveMs,
+      memoryMb: memory,
+      supportsNodeLimit: supportsNodes,
+      historicalRunId: historicalRunId,
+      failureProbability: 0.02,
+    );
+  }
+
+  Future<IntelligentPreparation> prepareIntelligent({
+    required List<String> targetIds,
+    required BenchmarkConfig config,
+    Set<String> excludedIds = const {},
+    Map<String, OpeningSuite> suites = const {},
+    List<RatingAnchor> anchors = const [],
+    BootstrapSettings bootstrapSettings = const BootstrapSettings(),
+  }) async {
+    if (targetIds.isEmpty) throw ArgumentError('Select at least one target engine.');
+    if (config.precision.validationErrors().isNotEmpty) {
+      throw ArgumentError(config.precision.validationErrors().join(' '));
+    }
+    if (config.maxGames == null && config.maxDuration == null &&
+        config.resourceBudget.maxEngineMillis == null) {
+      throw ArgumentError('Set at least one user budget: games, wall-clock time or engine compute.');
+    }
+    final effective = config.copyWith(
+      gamesPerPairing: 2, repetitions: 1, warmUpGames: 0,
+      adaptiveStopping: false,
+    );
+    final pool = <SchedulerCandidate>[];
+    for (final candidate in await candidates()) {
+      try {
+        pool.add(await _schedulerCandidate(candidate, effective));
+      } catch (error) {
+        pool.add(SchedulerCandidate(
+          identity: _unavailableIdentity(candidate),
+          available: false, unavailableReason: '$error',
+        ));
+      }
+    }
+    final scheduler = IntelligentScheduler(
+      targetIds: targetIds, candidates: pool, config: effective,
+      suite: openingSuiteById(effective.openingSuiteId, extra: suites),
+      excludedIds: excludedIds, bootstrapSettings: bootstrapSettings,
+    );
+    final plan = scheduler.buildPilotPlan();
+    return IntelligentPreparation(
+      scheduler: scheduler, plan: plan, config: effective,
+      targetIds: targetIds, excludedIds: Set.of(excludedIds),
+      suites: suites, anchors: anchors, bootstrapSettings: bootstrapSettings,
+    );
+  }
+
+  Future<BenchmarkRunner> createIntelligentRunner({
+    required IntelligentPreparation preparation,
+    RatingAnchor? anchor,
+    String? trigger = 'intelligent',
+    bool requirePreflight = false,
+  }) async {
+    if (_active != null || _creatingRunner) {
+      throw StateError('A benchmark is already running or being prepared.');
+    }
+    if (_preflighting) throw StateError('Engine Preflight is still running.');
+    _creatingRunner = true;
+    try {
+      final ids = preparation.plan.engines.map((e) => e.engineId).toList();
+      if (requirePreflight) {
+        final admission = await preflightAdmission(ids, preparation.config);
+        if (!admission.allAdmitted) {
+          throw StateError('Preflight did not admit every proposed participant: '
+              '${admission.excluded.entries.map((e) => '${e.key}: ${e.value}').join('; ')}');
+        }
+      }
+      final validation = validateConfig(preparation.config,
+          engineCount: ids.length, pairings: preparation.plan.pairings);
+      if (!validation.isValid) throw ArgumentError(validation.errors.join(' '));
+      final all = await profiles();
+      final slots = <String, BenchEngineSlot>{};
+      for (final identity in preparation.plan.engines) {
+        slots[identity.engineId] = BenchEngineSlot(
+          identity: identity,
+          build: () => createEngineForId(identity.engineId, profiles: all),
+        );
+      }
+      final selectedAnchor = anchor ?? selectCompatibleAnchor(
+          preparation.anchors, preparation.plan.engines, preparation.config);
+      return BenchmarkRunner(
+        plan: preparation.plan, slots: slots,
+        environment: BenchmarkEnvironment.capture(appVersion: await appVersion()),
+        anchor: selectedAnchor, anchors: preparation.anchors, trigger: trigger,
+        onProgressSave: store.saveRun,
+        validationWarnings: [...validation.warnings, ...preparation.scheduler.warnings],
+        scheduler: preparation.scheduler,
+        bootstrapSettings: preparation.bootstrapSettings,
+      );
+    } finally {
+      _creatingRunner = false;
+    }
   }
 
   // ------------------------------------------------------------------ history

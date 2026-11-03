@@ -22,7 +22,7 @@
 /// Display names are for display only — they are neither unique nor stable.
 library;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
 import '../services/engine_profile_store.dart';
 import 'chess_engine.dart';
@@ -105,12 +105,10 @@ String? customProfileIdFromId(String id) => id.startsWith(kCustomEnginePrefix)
 
 /// Whether this platform can run user-supplied executables at all.
 ///
-/// Web cannot: there is no process to spawn. Everywhere else the Engine
-/// Manager offers the feature, and a failing binary is reported rather than
-/// hidden — on iOS a downloaded binary cannot be executed unless it is signed
-/// with the app, so custom engines there will usually fail to start; that is
-/// reported honestly instead of being presented as working.
-bool get customEnginesSupported => !kIsWeb;
+/// Web cannot spawn a process, and iOS cannot execute an arbitrary downloaded
+/// native binary inside the app sandbox. Desktop and Android offer the feature;
+/// a failing binary is reported rather than hidden.
+bool get customEnginesSupported => !kIsWeb && defaultTargetPlatform != TargetPlatform.iOS;
 
 /// Raised when a selected engine can no longer be built.
 ///
