@@ -403,7 +403,9 @@ void main() {
 
   group('PreflightGate', () {
     EnginePreflightResult result(PreflightStatus status, BenchmarkConfig config,
-            {EngineIdentity? identity, String appBuild = 'test'}) =>
+            {EngineIdentity? identity,
+            String appBuild = 'test',
+            String? runtimeDigest}) =>
         EnginePreflightResult(
           engineId: (identity ?? _identity).engineId,
           label: 'Engine',
@@ -411,16 +413,18 @@ void main() {
           steps: const [],
           identity: identity ?? _identity,
           binding: PreflightBinding.of(identity ?? _identity, config,
-              appBuild: appBuild),
+              appBuild: appBuild, runtimeDigest: runtimeDigest),
           checkedAt: DateTime.now(),
         );
 
     Map<String, PreflightBinding?> bindings(BenchmarkConfig config,
-            {EngineIdentity? identity, String appBuild = 'test'}) =>
+            {EngineIdentity? identity,
+            String appBuild = 'test',
+            String? runtimeDigest}) =>
         {
           (identity ?? _identity).engineId: PreflightBinding.of(
               identity ?? _identity, config,
-              appBuild: appBuild)
+              appBuild: appBuild, runtimeDigest: runtimeDigest)
         };
 
     test('an unchecked engine is not admitted', () {
@@ -455,6 +459,35 @@ void main() {
       final app = gate.admission(
           [_identity.engineId], bindings(_config(), appBuild: 'next'));
       expect(app.excluded[_identity.engineId], contains('app was updated'));
+    });
+
+    test('a different executable behind the same identity makes it stale',
+        () {
+      final gate = PreflightGate()
+        ..record(result(PreflightStatus.passed, _config(),
+            runtimeDigest: 'aaa'));
+      expect(
+          gate.admission([_identity.engineId],
+              bindings(_config(), runtimeDigest: 'aaa')).admitted,
+          [_identity.engineId]);
+      for (final now in ['bbb', null]) {
+        expect(
+            gate.admission([_identity.engineId],
+                    bindings(_config(), runtimeDigest: now))
+                .excluded[_identity.engineId],
+            contains('executable changed'),
+            reason: 'checked against aaa, now $now');
+      }
+      final binding = PreflightBinding.of(_identity, _config(),
+          appBuild: 'test', runtimeDigest: 'aaa');
+      final restored = PreflightBinding.fromJson(binding.toJson());
+      expect(restored.runtimeDigest, 'aaa');
+      expect(restored.changeFrom(binding), isNull);
+      expect(
+          PreflightBinding.of(_identity, _config(), appBuild: 'test')
+              .toJson()
+              .containsKey('runtimeDigest'),
+          isFalse);
     });
 
     test('warnings admit only after review, and a new result resets review',

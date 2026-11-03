@@ -118,30 +118,43 @@ class PreflightBinding {
   final String configDigest;
   final String appBuild;
 
+  /// For an engine that starts an executable found on the device (see
+  /// [RuntimeDigestSource]): which file. The build-based identity of the
+  /// built-in Stockfish adapter cannot tell a replaced executable or another
+  /// `CRISPCHESS_STOCKFISH_PATH` apart; this can. Null for every other engine.
+  final String? runtimeDigest;
+
   const PreflightBinding({
     required this.identityKey,
     required this.configDigest,
     required this.appBuild,
+    this.runtimeDigest,
   });
 
   factory PreflightBinding.of(
     EngineIdentity identity,
     BenchmarkConfig config, {
     required String appBuild,
+    String? runtimeDigest,
   }) =>
       PreflightBinding(
         identityKey: identity.identityKey,
         configDigest: preflightConfigDigest(config),
         appBuild: appBuild,
+        runtimeDigest: runtimeDigest,
       );
 
-  String get key => '$identityKey#$configDigest#$appBuild';
+  String get key =>
+      '$identityKey#$configDigest#$appBuild#${runtimeDigest ?? ''}';
 
   /// Why [current] differs from this binding, or null when it does not.
   String? changeFrom(PreflightBinding current) {
     if (identityKey != current.identityKey) {
       return 'the engine identity changed (binary, version, platform, '
           'backend or configuration)';
+    }
+    if (runtimeDigest != current.runtimeDigest) {
+      return 'the engine executable changed (a different file or location)';
     }
     if (configDigest != current.configDigest) {
       return 'the benchmark settings changed';
@@ -154,6 +167,7 @@ class PreflightBinding {
         'identityKey': identityKey,
         'configDigest': configDigest,
         'appBuild': appBuild,
+        if (runtimeDigest != null) 'runtimeDigest': runtimeDigest,
       };
 
   factory PreflightBinding.fromJson(Map<String, dynamic> json) =>
@@ -161,6 +175,7 @@ class PreflightBinding {
         identityKey: (json['identityKey'] as String?) ?? '',
         configDigest: (json['configDigest'] as String?) ?? '',
         appBuild: (json['appBuild'] as String?) ?? '',
+        runtimeDigest: json['runtimeDigest'] as String?,
       );
 }
 
@@ -369,13 +384,15 @@ class EnginePreflight {
     required BenchmarkConfig config,
     required String appBuild,
     required PreflightDownloadConsent consent,
+    String? runtimeDigest,
     PreflightCancellation? cancellation,
     void Function(PreflightStepResult step)? onStep,
   }) async {
     final steps = <PreflightStepResult>[];
     final binding = identity == null
         ? null
-        : PreflightBinding.of(identity, config, appBuild: appBuild);
+        : PreflightBinding.of(identity, config,
+            appBuild: appBuild, runtimeDigest: runtimeDigest);
     var checked = identity;
     Map<String, dynamic>? diagnostic;
     EngineDownloadRequirement? pending;

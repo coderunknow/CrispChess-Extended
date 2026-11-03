@@ -10,6 +10,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../engines/chess_engine.dart' show ChessEngine;
+import '../engines/engine_initialization.dart' show RuntimeDigestSource;
 import '../engines/engine_registry.dart';
 import '../engines/frozenight_engine.dart' if (dart.library.js_interop) '../engines/frozenight_web_engine.dart';
 import 'benchmark_fingerprint.dart';
@@ -409,9 +411,31 @@ class BenchmarkService {
       String engineId, BenchmarkConfig config) async {
     try {
       final identity = await identityFor(engineId);
-      return PreflightBinding.of(identity, config, appBuild: await appVersion());
+      return PreflightBinding.of(identity, config,
+          appBuild: await appVersion(),
+          runtimeDigest: await runtimeDigestFor(engineId));
     } on EngineUnavailableException {
       return null;
+    }
+  }
+
+  /// Which executable a built-in engine that starts one found on the device
+  /// (native Stockfish) would start now; null for every other engine. Custom
+  /// engines are already identified by their file's SHA-256.
+  Future<String?> runtimeDigestFor(String engineId) async {
+    if (isCustomEngineId(engineId) || builtInNameFromId(engineId) == null) {
+      return null;
+    }
+    final ChessEngine engine =
+        createEngineForId(engineId, profiles: const []);
+    try {
+      return engine is RuntimeDigestSource
+          ? await (engine as RuntimeDigestSource).runtimeDigest()
+          : null;
+    } catch (_) {
+      return null;
+    } finally {
+      engine.dispose();
     }
   }
 
@@ -457,9 +481,11 @@ class BenchmarkService {
         String? reason = candidate == null
             ? 'This engine is no longer available.'
             : candidate.unavailableReason;
+        String? runtimeDigest;
         if (candidate != null && candidate.available) {
           try {
             identity = await identityFor(engineId);
+            runtimeDigest = await runtimeDigestFor(engineId);
           } on EngineUnavailableException catch (error) {
             reason = error.reason;
           }
@@ -474,6 +500,7 @@ class BenchmarkService {
           config: config,
           appBuild: appBuild,
           consent: consent,
+          runtimeDigest: runtimeDigest,
           cancellation: cancellation,
           onStep: onStep == null ? null : (step) => onStep(engineId, step),
         );

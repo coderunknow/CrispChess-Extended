@@ -21,7 +21,10 @@
 // "Bad state: initialize returned with state error".
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:crypto/crypto.dart' as crypto;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -52,6 +55,23 @@ class StockfishRuntime {
   final String source;
 
   const StockfishRuntime(this.path, this.source);
+}
+
+/// SHA-256 over the executable's location and its contents' SHA-256, or null
+/// when the file cannot be read. A replaced file or a different path (another
+/// `CRISPCHESS_STOCKFISH_PATH`, another install on `PATH`) changes it; the path
+/// itself cannot be read back from it.
+Future<String?> stockfishRuntimeDigest(String path) async {
+  try {
+    final file = File(path);
+    if (!await file.exists()) return null;
+    final contents = await crypto.sha256.bind(file.openRead()).first;
+    return crypto.sha256
+        .convert(utf8.encode('${file.absolute.path}\n$contents'))
+        .toString();
+  } catch (_) {
+    return null;
+  }
 }
 
 /// How to find the executable; replaceable in tests.
@@ -259,7 +279,8 @@ class StockfishEngine
         UciOptionAware,
         SearchDrainableEngine,
         EngineRuntimeReport,
-        DownloadAwareEngine {
+        DownloadAwareEngine,
+        RuntimeDigestSource {
   /// [sfVersion]/[variantId] are accepted for API parity with the web engine.
   /// [executablePath] and [resolver] pin the runtime (tests, and an explicit
   /// configuration); without them the executable is searched for.
@@ -363,6 +384,20 @@ class StockfishEngine
   Future<EngineDownloadRequirement?> pendingDownload() async {
     final delegate = _delegate;
     return delegate == null ? null : await delegate.pendingDownload();
+  }
+
+  /// Which executable [initialize] would start now, as a digest (see
+  /// [stockfishRuntimeDigest]). Null on iOS, where the WebKit engine inside
+  /// the app is used, and when no executable is found.
+  @override
+  Future<String?> runtimeDigest() async {
+    if (_delegate != null) return null;
+    try {
+      final runtime = await _resolver();
+      return await stockfishRuntimeDigest(runtime.path);
+    } catch (_) {
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------- startup

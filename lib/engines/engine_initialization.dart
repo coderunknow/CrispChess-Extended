@@ -518,6 +518,17 @@ class EngineDownloadRequirement {
       };
 }
 
+/// An engine that starts an executable found on this device at run time
+/// rather than one built into the app (the native Stockfish adapter). Its
+/// build-based identity cannot tell two such executables apart, so a Preflight
+/// result is also bound to [runtimeDigest].
+abstract interface class RuntimeDigestSource {
+  /// A digest of the executable the engine would start now — SHA-256 over its
+  /// location and its contents, so the path itself is not revealed — or null
+  /// when none is found. Must not start the engine.
+  Future<String?> runtimeDigest();
+}
+
 /// An engine that may download something during [ChessEngine.initialize].
 ///
 /// [pendingDownload] must not download anything itself: it is how Preflight

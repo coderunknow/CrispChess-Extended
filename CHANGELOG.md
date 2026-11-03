@@ -30,7 +30,8 @@
   options, a first search, a legal move and cleanup, with per-engine cards,
   expandable and copyable diagnostics, retry and cancel. Nothing is downloaded
   without consent. Results are bound to engine identity/fingerprint, platform,
-  benchmark settings and app build and go stale when any of them changes. A run
+  benchmark settings and app build (for the built-in Stockfish also to the
+  executable found on the device) and go stale when any of them changes. A run
   continues with the passed engines only after the user has reviewed the
   results; engines left out are listed with the reason on the Preflight screen,
   never silently omitted. Model engines (Lc0, Maia3, Ghost, ChessMamba,

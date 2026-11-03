@@ -133,6 +133,37 @@ void main() {
   });
 
   group('StockfishEngine (native)', () {
+    test('runtimeDigest names the executable without starting it', () async {
+      final path = _fakeStockfish();
+      final engine = StockfishEngine(executablePath: path);
+      addTearDown(engine.dispose);
+      final first = await engine.runtimeDigest();
+      expect(first, isNotNull);
+      expect(first, isNot(contains(_dir.path)));
+      expect(engine.state, EngineState.idle, reason: 'nothing was started');
+      final again = StockfishEngine(executablePath: path);
+      addTearDown(again.dispose);
+      expect(await again.runtimeDigest(), first);
+
+      // Same contents somewhere else: a different executable.
+      final copy = File(path).copySync('${_dir.path}/stockfish-copy');
+      Process.runSync('chmod', ['+x', copy.path]);
+      final elsewhere = StockfishEngine(executablePath: copy.path);
+      addTearDown(elsewhere.dispose);
+      expect(await elsewhere.runtimeDigest(), isNot(first));
+
+      // Same path, replaced contents.
+      File(path).writeAsStringSync('# replaced\n', mode: FileMode.append);
+      expect(await engine.runtimeDigest(), isNot(first));
+    });
+
+    test('runtimeDigest is null when no executable is found', () async {
+      final engine = StockfishEngine(executablePath: '${_dir.path}/missing');
+      addTearDown(engine.dispose);
+      expect(await engine.runtimeDigest(), isNull);
+      expect(engine.state, EngineState.idle);
+    });
+
     test('a missing executable fails initialize() instead of returning',
         () async {
       final engine = StockfishEngine(executablePath: '${_dir.path}/stockfish');

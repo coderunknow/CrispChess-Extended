@@ -312,6 +312,14 @@ not a product defect (875 and 279 other tests passed). The fixture now uses
 50 ms. "Build iOS" in the same run was cancelled again for lack of a hosted
 macOS runner; no step ran.
 
+### Eleventh full review (fdc726d)
+
+Review 5741003831 on the exact head fdc726d: no Major findings, one Minor. CI on fdc726d was green, including real Stockfish 16 11/11 (job 125435237238).
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| A Preflight result for the built-in Stockfish was bound to its build-based identity only, so replacing the executable or changing `CRISPCHESS_STOCKFISH_PATH` after the check kept the result current and let a manual run admit a different binary | Minor | Fixed in the binding, not the identity. `PreflightBinding` gains an optional `runtimeDigest`: SHA-256 over the executable's location and its contents' SHA-256, so no path is exposed. It comes from the new `RuntimeDigestSource` interface, implemented only by the native Stockfish adapter, which resolves the executable without starting it. It is null on iOS and Web, and for every other engine. A different digest makes the result stale ("the engine executable changed"). The stored run identity is deliberately unchanged: switching the built-in Stockfish fingerprint from `builtin-build` to `sha256`, as suggested, would mark every stored Stockfish measurement as "binary changed" and trigger automatic re-benchmarks. That is a separate, pre-existing identity limitation, already noted in the prior audit. Tests: stale and JSON round-trip in `engine_preflight_test.dart`; digest stability, path and contents sensitivity, no start, and null when missing in `stockfish_runtime_test.dart` |
+
 Stop condition for the review loop: the final head needs a genuine full
 review with every Major finding fixed. Minor findings on that head are either
 fixed, which makes a new head and needs a new full review, or dispositioned
