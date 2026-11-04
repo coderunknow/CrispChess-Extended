@@ -33,6 +33,13 @@ Future<StreamedFile> streamToFile({
   ProgressSink? onProgress,
   bool Function()? cancelled,
 }) async {
+  // The caller validates the scheme too, but this function is the thing that
+  // opens a socket: refusing here means no future caller can hand it a plain
+  // HTTP URL and have the guarantee depend on the caller's diligence.
+  if (uri.scheme != 'https') {
+    return const StreamedFile(
+        ok: false, bytes: 0, message: 'Refusing a non-HTTPS URL.');
+  }
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
   try {
     // HttpClientRequest.followRedirects defaults to true, and dart:io then

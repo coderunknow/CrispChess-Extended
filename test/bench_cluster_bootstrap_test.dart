@@ -270,4 +270,50 @@ void main() {
       expect(evaluation.achieved, isFalse);
     });
   });
+
+  group('EloFit contrast variance', () {
+    EloFit fitWith(List<List<double>> covariance, List<String> ids) => EloFit(
+          ratings: [
+            for (final id in ids)
+              EloRating(
+                  engineId: id, label: id, rating: 1500, stdErr: 10,
+                  ciLow: 1480, ciHigh: 1520, wins: 5, draws: 0, losses: 5,
+                  quality: RatingQuality.moderate, opponents: 2),
+          ],
+          ratedGames: 10 * ids.length,
+          excludedByOutcome: const {},
+          anchor: 1500,
+          components: [ids],
+          covariance: covariance,
+          covarianceIds: ids,
+        );
+
+    test('a contrast uses the joint covariance, not the diagonal', () {
+      // Var(A-C) = Var A + Var C - 2 Cov(A,C). With a shared opponent the
+      // covariance is negative, so the contrast is LARGER than the naive sum.
+      final fit = fitWith([
+        [100, -80],
+        [-80, 100],
+      ], ['a', 'c']);
+      expect(fit.contrastVariance({'a': 1, 'c': -1}), closeTo(360, 1e-9));
+      // An engine's own variance is its diagonal.
+      expect(fit.contrastVariance({'a': 1}), closeTo(100, 1e-9));
+    });
+
+    test('no stored covariance is unknown, not independent', () {
+      // A legacy document has no covariance. Returning 0 (independence) would
+      // claim a precision the document cannot support.
+      final fit = fitWith(const [], const []);
+      expect(fit.contrastVariance({'a': 1, 'c': -1}), double.infinity);
+    });
+
+    test('an unknown engine contributes nothing instead of throwing', () {
+      final fit = fitWith([
+        [100, 0],
+        [0, 100],
+      ], ['a', 'c']);
+      expect(fit.contrastVariance({'a': 1, 'ghost': -1}), closeTo(100, 1e-9));
+    });
+  });
 }
+

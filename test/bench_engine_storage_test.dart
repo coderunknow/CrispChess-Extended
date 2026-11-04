@@ -7,9 +7,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:crispchess/bench/benchmark_storage_base.dart';
+import 'package:crispchess/engines/download_io.dart';
 import 'package:crispchess/engines/download_manager.dart';
 import 'package:crispchess/engines/engine_artifacts.dart';
 import 'package:crispchess/engines/engine_storage.dart';
+import 'package:crispchess/engines/storage_fs.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -92,6 +94,83 @@ void main() {
     // No invented platform support: Android cannot launch these binaries.
     expect(stockfishArtifact('android', 'arm64').sources, isEmpty);
     expect(lynxArtifact('ios', 'arm64').sources, isEmpty);
+  });
+
+  test('a root set through one instance is seen by the next instance', () async {
+    // EngineStorage used to default to MemoryBenchmarkStorage, so the root
+    // chosen in Engine Manager lived only in that screen's object. LynxEngine
+    // constructed its own EngineStorage, read an empty store and fell back to
+    // defaultRoot() -- an engine downloaded to a user-selected root became
+    // invisible to the code that runs it. One persistent store, shared, is the
+    // fix; this asserts the observable consequence.
+    final documents = MemoryBenchmarkStorage();
+    final chosen = '${temp.path}/chosen-root';
+    final first = EngineStorage(documents: documents);
+    await first.setRoot(chosen, migrate: false);
+
+    final second = EngineStorage(documents: documents);
+    final location = await second.location();
+    expect(location.rootPath, chosen,
+        reason: 'the persisted root must be read by a new instance');
+    expect(location.userSelected, isTrue);
+  });
+
+  test('an interrupted migration is resumed into the active root', () async {
+    // resumeMigration used to call setRoot(alreadyActiveRoot), where
+    // previous == candidate short-circuits to complete: true. It copied
+    // nothing and never cleared the marker, so an interrupted move stayed
+    // interrupted while the UI called it finished.
+    final documents = MemoryBenchmarkStorage();
+    final storage = EngineStorage(documents: documents);
+    final source = '${temp.path}/old-root';
+    final active = '${temp.path}/active-root';
+    Directory('$source/engines/demo').createSync(recursive: true);
+    File('$source/engines/demo/payload.bin').writeAsStringSync('data');
+    // The app is already running from `active`; a previous copy from `source`
+    // was interrupted, which is what the incomplete marker records.
+    Directory(active).createSync(recursive: true);
+    await storage.setRoot(active, migrate: false);
+    await storageWriteMigrationMarker(active, {
+      'from': source, 'complete': false,
+      'at': DateTime.now().toUtc().toIso8601String(),
+    });
+
+    final resumed = await storage.resumeMigration();
+    expect(resumed, isNotNull,
+        reason: 'an incomplete marker must be resumed, not ignored');
+    expect(resumed!.complete, isTrue);
+    expect(resumed.moved, greaterThan(0),
+        reason: 'the copy must actually happen');
+    expect(File('$active/engines/demo/payload.bin').existsSync(), isTrue,
+        reason: 'the interrupted file lands in the active root');
+    // The marker is complete now, so a second launch does nothing.
+    expect(await storage.resumeMigration(), isNull);
+    // The source tree is never deleted by a migration.
+    expect(File('$source/engines/demo/payload.bin').existsSync(), isTrue);
+  });
+
+  test('streamToFile refuses a non-HTTPS URL before opening a socket', () async {
+    // The redirect guard below only runs when the client is told not to follow
+    // redirects itself (followRedirects defaults to true, which made the whole
+    // check dead code). Refusing at the entry point is the part that can be
+    // asserted without a TLS certificate, and it means no caller can reach the
+    // network with plain HTTP even if it forgets to check.
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var hits = 0;
+    server.listen((request) async {
+      hits++;
+      request.response.add([1, 2, 3, 4, 5]);
+      await request.response.close();
+    });
+    final result = await streamToFile(
+      uri: Uri.parse('http://127.0.0.1:${server.port}/demo.bin'),
+      partPath: '${temp.path}/demo.part',
+      maxBytes: 1024,
+    );
+    expect(result.ok, isFalse);
+    expect(result.message, contains('non-HTTPS'));
+    expect(hits, 0, reason: 'nothing is fetched over plain HTTP');
+    await server.close(force: true);
   });
 
   test('plain HTTP never reaches the network', () async {
