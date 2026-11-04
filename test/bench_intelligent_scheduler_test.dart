@@ -275,11 +275,9 @@ void main() {
       labels: {for (final id in s.participantIds) id: id},
       participants: s.participantIds,
     );
-    final gamma = fit.ratings.firstWhere(
-        (r) => r.engineId == 'builtin:Gamma',
-        orElse: () => throw StateError('Gamma is not in the fit'),
-    );
-    expect(gamma.wins + gamma.draws + gamma.losses, 0,
+    // Gamma played no rated game, so it contributes no row to the fit --
+    // that is exactly the isolated-participant precondition this test needs.
+    expect(fit.ratings.any((r) => r.engineId == 'builtin:Gamma'), isFalse,
         reason: 'the precondition: Gamma has no rated games');
     final decision = s.decideNext(
       games: const <BenchGame>[], fit: fit, bootstrap: null,
