@@ -76,20 +76,25 @@ EngineArtifact stockfishArtifact(String platform, String arch) {
       kind: 'binary', executable: true, sources: [],
     );
   }
-  return EngineArtifact(
+  // No installable source, deliberately.
+  //
+  // This entry used to carry a single `ArtifactSource` pointing at the *release
+  // page* with `platform: 'any'`. That never resolved — `sourceFor` requires
+  // `source.platform == platform`, and only `arch` may be `'any'` — so the
+  // Engine Manager offered a Stockfish row that could not be downloaded. Making
+  // the platform match would have been worse: the URL is HTML, and the download
+  // path would have written it out as the binary.
+  //
+  // CrispChess does not bundle or fetch Stockfish: it is GPL-3.0 and this app is
+  // MIT. The adapter locates a Stockfish the user installed (see
+  // `stockfishInstallHint()`), and the official `sf_16` release does publish
+  // per-platform tarballs (`stockfish-ubuntu-x86-64-avx2.tar`, ...) — but every
+  // asset's digest is null upstream, so an in-app download would be an
+  // unverifiable binary the app then executes. That is a decision to make
+  // deliberately, not a side effect of a catalog entry that cannot resolve.
+  return const EngineArtifact(
     engineId: 'stockfish', label: 'Stockfish', version: version,
-    kind: 'binary', executable: true,
-    sources: const [
-      ArtifactSource(
-        url: 'https://github.com/official-stockfish/Stockfish/releases/tag/sf_16',
-        version: version, platform: 'any', arch: 'any',
-        license: 'GPL-3.0-or-later',
-        licenseUrl: 'https://github.com/official-stockfish/Stockfish/blob/master/Copying.txt',
-        // The release page is the official source. Assets under sf_16 carry no
-        // published digest (GitHub API: digest null) and there is no sf_16.1
-        // release, so no checksum is claimed.
-      ),
-    ],
+    kind: 'binary', executable: true, sources: [],
   );
 }
 

@@ -149,6 +149,34 @@ class PrecisionEvaluation {
     if (additionalGamesEstimate != null) 'additionalGamesEstimate': additionalGamesEstimate,
     'explanation': explanation,
   };
+
+  /// Restores a stored evaluation.
+  ///
+  /// The half-width maps are the actual result of the precision objective, so
+  /// they are read back rather than replaced with empty ones: a reloaded report
+  /// used to show an objective with no numbers next to it.
+  factory PrecisionEvaluation.fromJson(Map<String, dynamic> json) {
+    Map<String, double> widths(String key) {
+      final raw = json[key];
+      final result = <String, double>{};
+      if (raw is Map) {
+        raw.forEach((id, value) {
+          final d = value is num ? value.toDouble() : double.tryParse('$value');
+          if (d != null) result['$id'] = d;
+        });
+      }
+      return result;
+    }
+
+    return PrecisionEvaluation(
+      achieved: json['achieved'] == true,
+      individualHalfWidths: widths('individualHalfWidths'),
+      pairwiseHalfWidths: widths('pairwiseHalfWidths'),
+      unmet: [for (final u in (json['unmet'] as List? ?? const [])) '$u'],
+      additionalGamesEstimate: (json['additionalGamesEstimate'] as num?)?.toInt(),
+      explanation: json['explanation'] as String? ?? '',
+    );
+  }
 }
 
 PrecisionEvaluation evaluatePrecision({

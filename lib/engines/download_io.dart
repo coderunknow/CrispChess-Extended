@@ -35,21 +35,32 @@ Future<StreamedFile> streamToFile({
 }) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
   try {
-    var request = await client.getUrl(uri);
-    var response = await request.close();
+    // HttpClientRequest.followRedirects defaults to true, and dart:io then
+    // follows the chain itself: response.isRedirect is false for every hop and
+    // this loop never runs, so a redirect to plain HTTP would be followed
+    // silently. The redirects are followed by hand below BECAUSE the client is
+    // told not to.
+    Future<HttpClientResponse> send(Uri target) async {
+      final request = await client.getUrl(target);
+      request.followRedirects = false;
+      return request.close();
+    }
+
+    var response = await send(uri);
+    var current = uri;
     var redirects = 0;
     while (response.isRedirect) {
       final location = response.headers.value('location');
-      if (location == null || redirects++ > 5) {
+      if (location == null || redirects++ >= 5) {
         return const StreamedFile(ok: false, bytes: 0, message: 'Too many redirects.');
       }
       await response.drain<void>();
-      final next = uri.resolve(location);
+      final next = current.resolve(location);
       if (next.scheme != 'https') {
         return const StreamedFile(ok: false, bytes: 0, message: 'Redirect left HTTPS.');
       }
-      request = await client.getUrl(next);
-      response = await request.close();
+      current = next;
+      response = await send(next);
     }
     if (response.statusCode != 200) {
       return StreamedFile(

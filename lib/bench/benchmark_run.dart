@@ -19,6 +19,7 @@ import 'elo.dart';
 import 'engine_identity.dart';
 import 'game_record.dart';
 import 'intelligent_scheduler.dart' show PrecisionEvaluation, evaluatePrecision;
+import 'opening_suite.dart';
 
 /// What happened to one engine in the run.
 class EngineRunStatus {
@@ -694,19 +695,43 @@ class BenchmarkRun {
     final ratingsJson = json['ratings'];
     final calibrationJson = json['calibration'];
     final environmentJson = json['environment'];
+    final config = configJson is Map
+        ? BenchmarkConfig.fromJson(Map<String, dynamic>.from(configJson))
+        : BenchmarkConfig.standard;
+    final engineList = [
+      for (final engine in mapsOf('engines')) EngineIdentity.fromJson(engine),
+    ];
+    // `_toJsonObject` writes the plan, but nothing read it back: every run
+    // loaded from the store had `plan == null`, so the report screen armed
+    // with `_service.loadRun` could not render a single intelligent section
+    // (scheduler decisions, opening clusters, target list) even though the
+    // document contained them. A plan needs its config, engines and suite,
+    // which are available here, so it is rebuilt rather than dropped.
+    BenchmarkPlan? plan;
+    final planJson = json['plan'];
+    if (planJson is Map) {
+      try {
+        plan = BenchmarkPlan.fromJson(
+          Map<String, dynamic>.from(planJson),
+          config: config,
+          engines: engineList,
+          suite: openingSuiteById(config.openingSuiteId),
+        );
+      } catch (_) {
+        // A plan from an unsupported schema must not stop the run loading: the
+        // games, ratings and warnings are still readable without it.
+        plan = null;
+      }
+    }
     return BenchmarkRun(
       id: (json['id'] as String?) ?? 'unknown',
       startedAt: DateTime.tryParse((json['startedAt'] as String?) ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
       finishedAt: DateTime.tryParse((json['finishedAt'] as String?) ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
-      config: configJson is Map
-          ? BenchmarkConfig.fromJson(Map<String, dynamic>.from(configJson))
-          : BenchmarkConfig.standard,
+      config: config,
       format: TournamentFormat.fromId(json['format'] as String?),
-      engines: [
-        for (final engine in mapsOf('engines')) EngineIdentity.fromJson(engine),
-      ],
+      engines: engineList,
       engineStatus: status,
       games: [for (final game in mapsOf('games')) BenchGame.fromJson(game)],
       ratings: ratingsJson is Map
@@ -725,12 +750,11 @@ class BenchmarkRun {
       validationWarnings: stringsOf('validationWarnings'),
       trigger: json['trigger'] as String?,
       schedulerReport: json['scheduler'] is Map ? Map<String, dynamic>.from(json['scheduler'] as Map) : null,
-      precisionEvaluation: json['precision'] is Map ? PrecisionEvaluation(
-        achieved: (json['precision'] as Map)['achieved'] == true,
-        individualHalfWidths: const {}, pairwiseHalfWidths: const {},
-        unmet: [for (final u in ((json['precision'] as Map)['unmet'] as List? ?? [])) '$u'],
-        explanation: (json['precision'] as Map)['explanation'] as String? ?? '',
-      ) : null,
+      plan: plan,
+      precisionEvaluation: json['precision'] is Map
+          ? PrecisionEvaluation.fromJson(
+              Map<String, dynamic>.from(json['precision'] as Map))
+          : null,
     );
   }
 

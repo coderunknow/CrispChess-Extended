@@ -19,7 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../bench/benchmark_storage_base.dart';
+import '../bench/benchmark_storage.dart';
 import 'platform_paths.dart';
 import 'storage_fs.dart';
 
@@ -135,7 +135,24 @@ class EngineStorage {
   EngineStorageLocation? _location;
 
   EngineStorage({BenchmarkStorage? documents})
-      : _documents = documents ?? MemoryBenchmarkStorage();
+      : _documents = documents ?? _defaultDocuments();
+
+  /// The store that remembers the chosen root.
+  ///
+  /// This used to default to [MemoryBenchmarkStorage], which made every
+  /// `EngineStorage()` its own island: `setRoot` wrote the choice into the
+  /// screen's instance, `LynxEngine` built a fresh one that read nothing back
+  /// and fell through to `defaultRoot()`, and the selection was lost on the
+  /// next launch. A root the user picked but nothing looks in is worse than no
+  /// setting at all — an engine downloaded there is invisible to every other
+  /// caller. The persisted store costs one small JSON document.
+  static BenchmarkStorage _defaultDocuments() =>
+      createDefaultBenchmarkStorage();
+
+  /// The instance the app-wide UI and the engines share, so a root chosen in
+  /// Engine Manager is the root a download writes to and the root startup
+  /// looks in. Tests pass an explicit store instead.
+  static final EngineStorage shared = EngineStorage();
 
   Future<BenchmarkStorage> _docStore() async => _documents;
 
@@ -290,11 +307,28 @@ class EngineStorage {
     if (data == null || data['complete'] == true) return null;
     final from = data['from'] as String?;
     if (from == null) return null;
-    if (!await storageDirectoryExists(
-        from.replaceFirst('~', fallbackHomeDirectory()))) {
-      return null;
-    }
-    return setRoot(current.rootPath, migrate: true);
+    final source = from.replaceFirst('~', fallbackHomeDirectory());
+    // Nothing to finish if the old tree is gone, or if it is the root that is
+    // already active (that is what "no migration needed" looks like).
+    if (source == current.rootPath) return null;
+    if (!await storageDirectoryExists(source)) return null;
+    // Copy from the recorded source into the ACTIVE root. Passing the active
+    // root as the destination of `setRoot` made `previous == candidate`, which
+    // returned `complete: true` without copying anything and never cleared the
+    // marker — so an interrupted move stayed interrupted forever while the UI
+    // reported it as finished.
+    final copied =
+        await storageCopyTree(source, current.rootPath, onProgress: null);
+    final finished = copied.error == null;
+    await _markMigration(source, current.rootPath, complete: finished);
+    return EngineStorageMigration(
+      moved: copied.moved,
+      skipped: copied.skipped,
+      source: redactStoragePath(source),
+      destination: redactStoragePath(current.rootPath),
+      complete: finished,
+      error: copied.error,
+    );
   }
 
   /// Removes an engine's installed files, but only below the managed root and

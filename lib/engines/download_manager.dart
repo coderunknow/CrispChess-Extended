@@ -225,7 +225,12 @@ class EngineDownloadManager {
       await deleteQuietly(partialPath);
       emit(streamed.cancelled ? DownloadState.cancelled : DownloadState.failed,
           error: streamed.message);
-      return DownloadResult(streamed.cancelled, message: streamed.message);
+      // A cancellation is not a success. `DownloadResult.ok` is positional, and
+      // passing `cancelled` here told every caller that a transfer the user
+      // aborted had completed, with `path` and `sha256` both null. Callers that
+      // need to tell the two apart read the `DownloadState.cancelled` emitted
+      // above rather than the result.
+      return DownloadResult(false, message: streamed.message);
     }
     emit(DownloadState.verifying, received: streamed.bytes, total: streamed.bytes);
     final localHash = streamed.sha256!;

@@ -76,15 +76,21 @@ class _EngineLabScreenState extends State<EngineLabScreen>
 
   // Configuration
   BenchmarkConfig _config = BenchmarkConfig.standard;
-  TournamentFormat _format = TournamentFormat.roundRobin;
+  // Defaults to intelligent because that is what the panel below configures
+  // (`_intelligentConfig`: cluster-40 openings, 200 games). `_format` used to
+  // start at roundRobin while `_intelligent` started true, so the screen showed
+  // "Round robin" selected and a "Start benchmark" button, and the button
+  // actually started an intelligent run.
+  TournamentFormat _format = TournamentFormat.intelligent;
   String? _referenceId;
   String _customSuiteId = 'balanced-8';
   Map<String, OpeningSuite> _userSuites = const {};
   List<RatingAnchor> _anchors = const [];
   AutoBenchmarkSettings _auto = const AutoBenchmarkSettings();
 
-  // Intelligent run state
-  bool _intelligent = true;
+  // Intelligent run state. Derived from the selected format so the two can
+  // never disagree again.
+  bool get _intelligent => _format == TournamentFormat.intelligent;
   BenchmarkConfig _intelligentConfig = BenchmarkConfig.standard.copyWith(
     preset: BenchmarkPreset.custom,
     openingSuiteId: 'cluster-40',
@@ -113,6 +119,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   double _progress = 0;
   int _gamesDone = 0;
   int _gamesTotal = 0;
+  /// Live elapsed time for the uncertainty card. The card used to be handed
+  /// `Duration.zero`, so it read "0s" for the whole run while every statistics
+  /// event carried the real value that was being thrown away here.
+  Duration _liveElapsed = Duration.zero;
   String _lastMove = '';
   final ChessGame _liveBoard = ChessGame();
   final List<({String white, String black, int game, int total})> _liveGames = [];
@@ -282,6 +292,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           _livePrecision = event.precision;
           _schedulerReason = event.schedulerReason;
           _gamesTotal = event.maxGames ?? event.gamesPlayed;
+          _liveElapsed = event.elapsed;
         });
       case BenchmarkNoticeEvent():
         setState(() {
@@ -418,6 +429,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _liveGames.clear();
       _liveNotices = const [];
       _liveFit = null;
+      _liveElapsed = Duration.zero;
       _livePrecision = null;
       _schedulerReason = '';
       _lastMove = '';
@@ -586,13 +598,38 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       final admission = await _service.preflightAdmission(ids, preparation.config);
       if (!mounted) return;
       if (!admission.allAdmitted) {
+        // The scheduler picks opponents the user never selected, so some
+        // participants have no stored Preflight result yet. Reporting the
+        // exclusion and returning left the user with an error and no way to act
+        // on it: there was nothing to click that would produce the missing
+        // result. Open Preflight for exactly those participants instead, the
+        // same way the manual path does.
         setState(() => _running = false);
-        final excluded = admission.excluded.entries
-            .map((e) => '${engineLabelForId(e.key, _profiles)}: ${e.value}')
-            .join('; ');
-        _snack('${l?.schedulerPreflightExcluded ?? 'Participants excluded by Engine Preflight'}: $excluded',
-            error: true);
-        return;
+        final excludedIds = admission.excluded.keys.toList();
+        final chosen = await EnginePreflightScreen.open(
+          context,
+          service: _service,
+          engineIds: excludedIds,
+          labels: {
+            for (final id in excludedIds)
+              id: engineLabelForId(id, _profiles),
+          },
+          config: preparation.config,
+        );
+        if (chosen == null || !mounted) return;
+        // Re-check rather than trusting the returned list: the screen admits
+        // engines, it does not write the admission this run reads.
+        final recheck =
+            await _service.preflightAdmission(ids, preparation.config);
+        if (!recheck.allAdmitted) {
+          setState(() => _running = false);
+          final excluded = recheck.excluded.entries
+              .map((e) => '${engineLabelForId(e.key, _profiles)}: ${e.value}')
+              .join('; ');
+          _snack('${l?.schedulerPreflightExcluded ?? 'Participants excluded by Engine Preflight'}: $excluded',
+              error: true);
+          return;
+        }
       }
     } catch (error) {
       if (!mounted) return;
@@ -609,6 +646,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _liveGames.clear();
       _liveNotices = const [];
       _liveFit = null;
+      _liveElapsed = Duration.zero;
       _livePrecision = null;
       _schedulerReason = '';
       _status = l?.engineLabStarting ?? 'Starting engines…';
@@ -1457,7 +1495,6 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                     ? null
                     : (selection) => setState(() {
                           _format = selection.first;
-                          _intelligent = selection.first == TournamentFormat.intelligent;
                           _referenceId ??=
                               _selected.isEmpty ? null : _selected.first;
                         }),
@@ -1643,7 +1680,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
               schedulerReason: _schedulerReason,
               gamesPlayed: _gamesDone,
               maxGames: _intelligentConfig.maxGames,
-              elapsed: Duration.zero,
+              elapsed: _liveElapsed,
               maxDuration: _intelligentConfig.maxDuration,
             )
           else if (_preparation != null)

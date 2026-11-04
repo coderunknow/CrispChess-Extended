@@ -426,11 +426,18 @@ CalibrationOutcome calibrateElo({
   // calibrated interval is the engine's own interval alone, and the report says
   // that the anchor contributes unquantified error.
   final anchorSe = anchor.ratingStdErr;
+  // The calibrated rating is r_i + A - r_anchor. Its fitted part is therefore
+  // the CONTRAST r_i - r_anchor, not r_i on its own: Var(r_i) is the variance
+  // about the mean-centred scale, and adding the anchor's published SE to it
+  // ignores both the anchor's own fitted variance and the covariance between
+  // the two. Two engines measured against a common opponent are correlated, so
+  // the contrast can be larger or smaller than the sum of the parts -- the same
+  // reason the pairwise report uses Var(A - C) rather than SE_A^2 + SE_B^2.
   final calibratedStdErr = <String, double>{
     for (final rating in fit.ratings)
-      rating.engineId: math.sqrt(
-          (rating.stdErr.isFinite ? rating.stdErr * rating.stdErr : 0) +
-              (anchorSe != null && anchorSe > 0 ? anchorSe * anchorSe : 0)),
+      rating.engineId: _calibratedStdErr(
+          fit, rating.engineId, anchorRating.engineId, anchorSe,
+          fallback: rating.stdErr),
   };
   if (anchorSe == null) {
     warnings.add('The anchor states no published uncertainty; calibrated '
@@ -449,6 +456,31 @@ CalibrationOutcome calibrateElo({
     calibratedStdErr: calibratedStdErr,
     warnings: warnings,
   );
+}
+
+/// Standard error of `r_engine + A - r_anchor`, where `A` is the published
+/// anchor value with uncertainty [anchorSe].
+///
+/// [fallback] is the engine's own standard error, used only when the joint
+/// contrast is unavailable: a legacy document stores no covariance, and
+/// inventing one there would overstate the evidence.
+double _calibratedStdErr(
+    EloFit fit, String engineId, String anchorId, double? anchorSe,
+    {required double fallback}) {
+  final anchorVariance =
+      anchorSe != null && anchorSe.isFinite && anchorSe > 0 ? anchorSe * anchorSe : 0.0;
+  final contrast = fit.inSameComponent(engineId, anchorId)
+      ? fit.contrastVariance({engineId: 1, anchorId: -1})
+      : double.infinity;
+  if (!contrast.isFinite) {
+    // Disconnected component or singular information: the honest answer is the
+    // engine's own error plus the anchor's published error, which is
+    // conservative in the way the legacy path already documents.
+    final base = fallback.isFinite && fallback > 0 ? fallback : 0.0;
+    final total = base * base + anchorVariance;
+    return total > 0 ? math.sqrt(total) : double.infinity;
+  }
+  return math.sqrt(math.max(0, contrast) + anchorVariance);
 }
 
 EloRating? _findAnchorRating(

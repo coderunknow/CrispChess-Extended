@@ -220,9 +220,8 @@ class BenchmarkService {
         label: profile.displayName,
         isCustom: true,
         available: customEnginesSupported,
-        unavailableReason: customEnginesSupported
-            ? null
-            : 'A browser cannot start a user-supplied executable.',
+        unavailableReason:
+            customEnginesSupported ? null : customEnginesUnsupportedReason,
       ));
     }
     return found;

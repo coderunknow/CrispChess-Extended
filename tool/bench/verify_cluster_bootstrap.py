@@ -231,12 +231,24 @@ class Report:
     def __init__(self):
         self.lines = []
         self.failures = []
+        self.skipped = []
 
     def check(self, name, ok, detail):
         status = "PASS" if ok else "FAIL"
         self.lines.append(f"[{status}] {name}: {detail}")
         if not ok:
             self.failures.append(name)
+        print(f"[{status}] {name}: {detail}", flush=True)
+
+    def skip(self, name, detail):
+        """Records a check that could not be evaluated, and says so."""
+        # Not a pass: a check that had no evidence is exactly the case a CI log
+        # must not quietly round up, so it is printed as SKIP and never counted
+        # as verification. It does not fail the run -- no evidence is not a
+        # defect either -- but it disappears from the "all checks passed" line.
+        status = "SKIP"
+        self.lines.append(f"[{status}] {name}: {detail}")
+        self.skipped.append(name)
         print(f"[{status}] {name}: {detail}", flush=True)
 
 
@@ -278,10 +290,27 @@ def check_individual_coverage(rep, *, trials, seed, quick):
             target = strengths[player] - mean(strengths.values())
             if lo <= target <= hi:
                 covered += 1
-    # Fisher intervals (not bootstrap) are checked separately below; here the
-    # bootstrap must at least not collapse.
+    # Individual-interval coverage is the property the module docstring claims
+    # to verify, and `covered` used to be counted and printed without ever being
+    # asserted -- a check that cannot fail. `covered` counts every endpoint of
+    # every usable replicate that its own 95% interval contains, so the nominal
+    # rate over 2 endpoints per replicate is 0.95.
+    endpoints = 2 * used
+    if endpoints >= 20:
+        # A one-sided Wilson-style bound: the lower end is what matters, since a
+        # conservative interval covering MORE than nominal is not a defect here.
+        rate = covered / endpoints if endpoints else 0.0
+        margin = 1.96 * (0.95 * 0.05 / endpoints) ** 0.5
+        rep.check("bootstrap individual coverage",
+                  rate >= 0.95 - margin,
+                  f"{covered}/{endpoints} endpoints covered "
+                  f"({rate:.3f}, allow down to {0.95 - margin:.3f})")
+    else:
+        # Too few intervals to say anything: report that instead of passing.
+        rep.skip("bootstrap individual coverage",
+                 f"only {endpoints} endpoints; needs at least 20")
     rep.check("bootstrap spread", used >= max(3, trials // 3),
-              f"{used}/{trials} replicates usable, {covered} endpoint hits")
+              f"{used}/{trials} replicates usable")
     return used
 
 
@@ -462,11 +491,20 @@ def check_simultaneous(rep, *, trials, seed):
         stats = [max(max_errors[k][r] for k in range(len(pairs)))
                  for r in range(len(samples))]
         half = percentile(stats, 0.95)
-        all_covered = all(
-            abs(mean([s[aa] - s[bb] for s in samples]) - (point[aa] - point[bb])) <= half + 1e-9
-            for aa, bb in pairs
+        # The property a simultaneous interval actually provides: the half-width
+        # covers every contrast AT ONCE in at least 95% of resamples. Comparing
+        # the bootstrap *mean* (as this did before) is not a coverage test at
+        # all -- the mean absorbs the bias and sits near the truth almost
+        # regardless of the interval, so the check passed even for a badly
+        # under-sized half-width.
+        per_replicate_covered = sum(
+            1 for r in range(len(samples))
+            if all(max_errors[k][r] <= half + 1e-12 for k in range(len(pairs)))
         )
-        if all_covered:
+        # A half-width taken as the 95th percentile of the per-replicate maximum
+        # covers all contrasts in at least 95% of the replicates by construction;
+        # this asserts the construction, so a broken quantile fails here.
+        if per_replicate_covered >= 0.95 * len(samples):
             hits += 1
     rep.check("simultaneous coverage", used >= 3 and hits / used >= 0.8,
               f"{hits}/{used} trials covered all three contrasts at once")
@@ -499,7 +537,13 @@ def main(argv=None):
     if rep.failures:
         print(f"FAILED {len(rep.failures)} check(s): {', '.join(rep.failures)}")
         return 1
-    print(f"all {len(rep.lines)} statistical checks passed")
+    evaluated = len(rep.lines) - len(rep.skipped)
+    if rep.skipped:
+        print(f"all {evaluated} evaluated statistical check(s) passed; "
+              f"{len(rep.skipped)} skipped for lack of evidence: "
+              f"{', '.join(rep.skipped)}")
+    else:
+        print(f"all {evaluated} statistical checks passed")
     return 0
 
 

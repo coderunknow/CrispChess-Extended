@@ -37,7 +37,8 @@ class EngineStorageScreen extends StatefulWidget {
 class _EngineStorageScreenState extends State<EngineStorageScreen> {
   /// One storage instance per screen: the injected one in tests, otherwise the
   /// real root from Settings. The manager is created lazily and disposed once.
-  late final EngineStorage _storage = widget.storage ?? EngineStorage();
+  late final EngineStorage _storage =
+      widget.storage ?? EngineStorage.shared;
   late final EngineDownloadManager _downloads =
       EngineDownloadManager(storage: _storage);
   final TextEditingController _pathController = TextEditingController();
@@ -149,13 +150,29 @@ class _EngineStorageScreenState extends State<EngineStorageScreen> {
       _downloadingId = artifact.engineId;
       _message = null;
     });
-    final result = await _downloads.download(artifact);
-    await _load();
+    String message;
+    try {
+      final result = await _downloads.download(artifact);
+      await _load();
+      message = '${artifact.label}: ${result.message}';
+    } catch (error) {
+      // `download` is documented to return a failed result rather than throw,
+      // but `_load` can still throw (a filesystem or hashing error while
+      // re-inspecting the artifact). Without this, `_downloadingId` stayed set
+      // and every Download button on the screen stayed disabled, with the
+      // spinner running, until the app was restarted.
+      message = '${artifact.label}: $error';
+      try {
+        await _load();
+      } catch (_) {
+        // Nothing further to report; the message below is the real failure.
+      }
+    }
     if (!mounted) return;
     setState(() {
       _downloadingId = null;
       _progress = null;
-      _message = '${artifact.label}: ${result.message}';
+      _message = message;
     });
   }
 

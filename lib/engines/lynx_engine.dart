@@ -448,7 +448,7 @@ class LynxEngine
   /// On Android executables must stay app-private, which the storage location
   /// reports; the loader follows it instead of assuming a writable shared path.
   static Future<Directory> _engineDir() async {
-    final location = await EngineStorage().location();
+    final location = await EngineStorage.shared.location();
     return Directory('${location.executableRoot}/lynx/$_lynxVersion/bin');
   }
 
@@ -577,10 +577,16 @@ class LynxEngine
     }
   }
 
-  /// Escapes a path for a single-quoted PowerShell literal. A single quote is
-  /// doubled, which is PowerShell's only escape inside `'...'`; nothing else in
-  /// the path is interpreted, so a `$` or backtick cannot inject a command.
-  static String _psLiteral(String value) => value.replaceAll("'", "''");
+  /// Escapes a path for a single-quoted PowerShell literal.
+  ///
+  /// Inside `'...'` PowerShell interprets nothing except the closing quote, and
+  /// a literal quote is written by doubling it — so a `$` or a backtick in a
+  /// path cannot start a command. PowerShell also accepts the typographic
+  /// apostrophes U+2018, U+2019, U+201A and U+201B as string delimiters, so a
+  /// path such as `C:\Users\O’Brien\engines` would otherwise close the
+  /// literal early; all five are doubled.
+  static String _psLiteral(String value) => value.replaceAllMapped(
+      RegExp("[\u0027\u2018\u2019\u201A\u201B]"), (m) => '${m[0]}${m[0]}');
 
   /// Delete downloaded engine files.
   static Future<void> deleteDownload() async {

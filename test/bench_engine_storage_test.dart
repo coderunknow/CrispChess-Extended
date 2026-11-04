@@ -6,6 +6,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:crispchess/bench/benchmark_storage_base.dart';
 import 'package:crispchess/engines/download_manager.dart';
 import 'package:crispchess/engines/engine_artifacts.dart';
 import 'package:crispchess/engines/engine_storage.dart';
@@ -17,7 +18,7 @@ void main() {
   tearDown(() => temp.deleteSync(recursive: true));
 
   test('a non-absolute or unwritable directory is refused', () async {
-    final storage = EngineStorage();
+    final storage = EngineStorage(documents: MemoryBenchmarkStorage());
     await expectLater(
       storage.validateCandidate('relative/path'),
       throwsA(isA<EngineStorageError>()),
@@ -25,7 +26,7 @@ void main() {
   });
 
   test('a valid directory becomes the root and the mode is reported', () async {
-    final storage = EngineStorage();
+    final storage = EngineStorage(documents: MemoryBenchmarkStorage());
     final root = '${temp.path}/engines';
     final location = await storage.setRoot(root);
     expect(location.complete, isTrue);
@@ -37,7 +38,7 @@ void main() {
   });
 
   test('switching root copies and keeps the old directory', () async {
-    final storage = EngineStorage();
+    final storage = EngineStorage(documents: MemoryBenchmarkStorage());
     final first = await storage.setRoot('${temp.path}/one');
     expect(first.complete, isTrue);
     final source = File('${temp.path}/one/lyx/1.0/bin/Lynx');
@@ -52,7 +53,7 @@ void main() {
   });
 
   test('removeEngine refuses paths outside the managed root', () async {
-    final storage = EngineStorage();
+    final storage = EngineStorage(documents: MemoryBenchmarkStorage());
     await storage.setRoot('${temp.path}/root');
     final outside = Directory('${temp.path}/outside/engine');
     outside.createSync(recursive: true);
@@ -72,13 +73,17 @@ void main() {
         '123faf887673c2b7a018132c3909c785693c9a33e3793fc7a69c25a3e27e396c');
     expect(lynx.sources.single.integrityLabel, contains('published'));
 
-    final stockfish = stockfishArtifact('linux', 'x64');
-    // sf_16 publishes no digests, so the label must say what evidence exists
-    // rather than implying the local hash authenticates anything upstream.
-    expect(stockfish.sources.single.publishedSha256, isNull);
-    const stockfishLabel = 'size/content-length only (no checksum available)';
-    expect(stockfish.sources.single.integrityLabel, stockfishLabel);
-    expect(stockfish.sources.single.integrityLabel, isNot(contains('published')));
+    // Stockfish is not downloadable from inside the app: its release assets
+    // publish no digest, so there is nothing to verify a downloaded binary
+    // against before executing it. The adapter finds a user-installed copy.
+    // The catalog must therefore offer no source at all rather than a row that
+    // silently cannot resolve.
+    for (final platform in ['linux', 'windows', 'macos']) {
+      final stockfish = stockfishArtifact(platform, 'x64');
+      expect(stockfish.sources, isEmpty,
+          reason: 'no verifiable Stockfish artifact exists for $platform');
+      expect(stockfish.sourceFor(platform, 'x64'), isNull);
+    }
 
     final windowsLynx = lynxArtifact('windows', 'x64');
     expect(windowsLynx.sources.single.publishedSha256,
@@ -98,7 +103,7 @@ void main() {
       request.response.add([1, 2, 3, 4, 5]);
       await request.response.close();
     });
-    final storage = EngineStorage();
+    final storage = EngineStorage(documents: MemoryBenchmarkStorage());
     await storage.setRoot('${temp.path}/root');
     final manager = EngineDownloadManager(storage: storage);
     final artifact = EngineArtifact(
@@ -117,7 +122,7 @@ void main() {
   });
 
   test('a failed request cleans up and reports failure', () async {
-    final manager = EngineDownloadManager(storage: EngineStorage());
+    final manager = EngineDownloadManager(storage: EngineStorage(documents: MemoryBenchmarkStorage()));
     const artifact = EngineArtifact(
       engineId: 'y', label: 'Y', version: '1', kind: 'binary',
       sources: [
@@ -133,7 +138,7 @@ void main() {
   });
 
   test('a non-HTTPS source is refused before any request', () async {
-    final manager = EngineDownloadManager(storage: EngineStorage());
+    final manager = EngineDownloadManager(storage: EngineStorage(documents: MemoryBenchmarkStorage()));
     const artifact = EngineArtifact(
       engineId: 'x', label: 'X', version: '1', kind: 'binary',
       sources: [
@@ -149,7 +154,7 @@ void main() {
   });
 
   test('concurrent requests for one artifact are coalesced', () async {
-    final manager = EngineDownloadManager(storage: EngineStorage());
+    final manager = EngineDownloadManager(storage: EngineStorage(documents: MemoryBenchmarkStorage()));
     const artifact = EngineArtifact(
       engineId: 'x', label: 'X', version: '1', kind: 'binary',
       sources: [

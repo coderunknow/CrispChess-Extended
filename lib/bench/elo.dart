@@ -357,6 +357,30 @@ class EloFit {
     return false;
   }
 
+  /// Var(cᵀ rating) from the joint covariance, in Elo².
+  ///
+  /// Infinity when the engines are not connected or when no covariance was
+  /// stored (a legacy document), so a caller can never mistake "unknown" for
+  /// "independent". [coefficients] maps engine id to its weight in the linear
+  /// combination; entries for unknown engines are ignored, as they contribute
+  /// nothing to a fit they are not part of.
+  double contrastVariance(Map<String, double> coefficients) {
+    if (covariance.isEmpty) return double.infinity;
+    final entries =
+        coefficients.entries.where((e) => e.value != 0).toList(growable: false);
+    var variance = 0.0;
+    for (final a in entries) {
+      final i = covarianceIds.indexOf(a.key);
+      if (i < 0) continue;
+      for (final b in entries) {
+        final j = covarianceIds.indexOf(b.key);
+        if (j < 0) continue;
+        variance += a.value * b.value * covariance[i][j];
+      }
+    }
+    return variance.isNaN ? double.infinity : variance;
+  }
+
   /// Compares two engines, refusing to pretend a cross-component difference is
   /// measured.
   EloComparison? compare(String aId, String bId) {

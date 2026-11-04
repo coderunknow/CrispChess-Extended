@@ -110,6 +110,14 @@ String? customProfileIdFromId(String id) => id.startsWith(kCustomEnginePrefix)
 /// a failing binary is reported rather than hidden.
 bool get customEnginesSupported => !kIsWeb && defaultTargetPlatform != TargetPlatform.iOS;
 
+/// Why [customEnginesSupported] is false here, in the user's terms.
+///
+/// Both platforms refuse for different reasons, and saying "a browser" on iOS
+/// sent people looking for a setting that does not exist.
+String get customEnginesUnsupportedReason => kIsWeb
+    ? 'A browser cannot start a user-supplied executable.'
+    : 'iOS cannot execute a downloaded native binary inside the app sandbox.';
+
 /// Raised when a selected engine can no longer be built.
 ///
 /// Separate from returning the built-in engine so the UI can say what happened
@@ -184,8 +192,7 @@ ChessEngine createEngineForId(
     throw EngineUnavailableException(id, 'not a recognised engine id');
   }
   if (!customEnginesSupported) {
-    throw EngineUnavailableException(
-        id, 'custom UCI engines cannot run in a browser');
+    throw EngineUnavailableException(id, customEnginesUnsupportedReason);
   }
   final profile = profileForEngineId(id, profiles);
   if (profile == null) {

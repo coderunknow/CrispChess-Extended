@@ -81,6 +81,19 @@ class PlannedGame {
   /// they are the same opening, which is what makes "the colour-swapped pair
   /// used the same opening" checkable.
   String get openingKey => '$repetition/$pairingIndex/${gameInPairing ~/ 2}';
+
+  factory PlannedGame.fromJson(Map<String, dynamic> json) => PlannedGame(
+        index: (json['index'] as num?)?.toInt() ?? 0,
+        whiteId: (json['white'] as String?) ?? '',
+        blackId: (json['black'] as String?) ?? '',
+        pairingIndex: (json['pairing'] as num?)?.toInt() ?? 0,
+        gameInPairing: (json['gameInPairing'] as num?)?.toInt() ?? 0,
+        repetition: (json['repetition'] as num?)?.toInt() ?? 0,
+        isWarmUp: json['warmUp'] == true,
+        openingId: json['openingId'] as String?,
+        clusterId: json['clusterId'] as String?,
+        pairId: json['pairId'] as String?,
+      );
 }
 
 /// A fully determined schedule.
@@ -177,6 +190,49 @@ class BenchmarkPlan {
             }
         ],
       };
+
+  /// Rebuilds a stored schedule.
+  ///
+  /// [config], [engines] and [suite] are resolved by the caller because they
+  /// live in other documents; every field this object wrote is restored here.
+  /// The stored form is deliberately tolerant: an older document missing a
+  /// field yields a plan a report can still describe, and never a crash.
+  factory BenchmarkPlan.fromJson(
+    Map<String, dynamic> json, {
+    required BenchmarkConfig config,
+    required List<EngineIdentity> engines,
+    required OpeningSuite suite,
+  }) {
+    final games = <PlannedGame>[];
+    final raw = json['games'];
+    if (raw is List) {
+      for (final entry in raw) {
+        if (entry is Map) {
+          games.add(PlannedGame.fromJson(Map<String, dynamic>.from(entry)));
+        }
+      }
+    }
+    final targets = <String>[];
+    if (json['targets'] is List) {
+      for (final entry in json['targets'] as List) {
+        if (entry is String) targets.add(entry);
+      }
+    }
+    final scheduler = <String, dynamic>{};
+    if (json['scheduler'] is Map) {
+      scheduler.addAll(Map<String, dynamic>.from(json['scheduler'] as Map));
+    }
+    return BenchmarkPlan(
+      config: config,
+      format: TournamentFormat.fromId(json['format'] as String?),
+      engines: engines,
+      suite: suite,
+      games: games,
+      referenceEngineId: json['reference'] as String?,
+      targetEngineIds: targets,
+      schedulerMetadata: scheduler,
+    );
+  }
 }
 
 /// Builds the schedule.
