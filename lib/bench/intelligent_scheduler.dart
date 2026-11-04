@@ -640,7 +640,7 @@ class IntelligentScheduler {
         final cost = _measuredPairCost(a, b, state);
         if (maxDuration != null && state.elapsed.inMilliseconds + cost + finalBootstrapReserveMillis > maxDuration.inMilliseconds) continue;
         if (maxEngine != null && state.engineMillis + cost > maxEngine) continue;
-        final p = expectedScore(_rating(model, a), _rating(model, b));
+        final p = expectedScore(_rating(fit, a), _rating(fit, b));
         final w = 2 * p * (1 - p) / (ratingEloScale * ratingEloScale);
         final ia = model.players.indexOf(a), ib = model.players.indexOf(b);
         final u = List<double>.filled(model.players.length, 0);
