@@ -485,6 +485,8 @@ class LynxEngine
     await dir.create(recursive: true);
     // Expand-Archive (Windows) accepts only a `.zip` extension.
     final zipFile = File('${dir.path}/lynx.part.zip');
+    // Null until extraction begins; the finally block removes it if it is set.
+    Directory? staging;
     final client = HttpClient(); // follows GitHub's redirect chain itself
     try {
       final request = await client.getUrl(Uri.parse(asset.url));
@@ -514,15 +516,21 @@ class LynxEngine
       }
       // Extract into a staging directory and only move the verified binary
       // into place, so a half-extracted archive never becomes "installed".
-      final staging = Directory('${dir.path}/.staging-${DateTime.now().microsecondsSinceEpoch}');
+      staging = Directory('${dir.path}/.staging-${DateTime.now().microsecondsSinceEpoch}');
       await staging.create(recursive: true);
       debugPrint('[Lynx] Extracting...');
+      // `-command` takes ONE string; passing 'Expand-Archive', '-Path', path as
+      // separate argv items hands PowerShell a list of positional strings, so a
+      // destination containing a space (a user-chosen storage root under
+      // C:\Users\Jane Doe\...) splits and the extraction fails. Quoting the
+      // paths inside a single -command string is what Expand-Archive documents.
       final ProcessResult unzip = Platform.isWindows
           ? await Process.run('powershell', [
               '-NoProfile',
+              '-NonInteractive',
               '-command',
-              'Expand-Archive', '-Path', zipFile.path, '-DestinationPath',
-              staging.path, '-Force',
+              "Expand-Archive -LiteralPath '${_psLiteral(zipFile.path)}' "
+                  "-DestinationPath '${_psLiteral(staging.path)}' -Force",
             ])
           : await Process.run('unzip', ['-o', zipFile.path, '-d', staging.path]);
       if (unzip.exitCode != 0) {
@@ -535,7 +543,8 @@ class LynxEngine
             'the Lynx archive did not contain ${asset.binary}', staged.path);
       }
       await staged.copy(binaryFile.path);
-      await staging.delete(recursive: true);
+      // No delete here: the finally block owns the staging tree, so the success
+      // path and every failure path clean up the same way.
       if (!Platform.isWindows) {
         final chmod = await Process.run('chmod', ['+x', binaryFile.path]);
         if (chmod.exitCode != 0) {
@@ -543,8 +552,6 @@ class LynxEngine
               '${chmod.stderr}', chmod.exitCode);
         }
       }
-      // Strip archive metadata: extraction can carry exec bits or extended
-      // attributes that make a later atomic replacement fail.
       debugPrint('[Lynx] Ready at ${redactPath(binaryFile.path)}');
     } catch (_) {
       // A half-extracted binary would pass isDownloaded() next time.
@@ -557,8 +564,23 @@ class LynxEngine
       try {
         if (zipFile.existsSync()) zipFile.deleteSync();
       } catch (_) {}
+      // The staging tree was only removed on the success path, so a failed
+      // extraction or a missing binary left a `.staging-*` directory behind for
+      // every attempt. A user whose extraction failed repeatedly accumulated
+      // one archive's worth of files per try.
+      final leftover = staging;
+      if (leftover != null) {
+        try {
+          if (leftover.existsSync()) leftover.deleteSync(recursive: true);
+        } catch (_) {}
+      }
     }
   }
+
+  /// Escapes a path for a single-quoted PowerShell literal. A single quote is
+  /// doubled, which is PowerShell's only escape inside `'...'`; nothing else in
+  /// the path is interpreted, so a `$` or backtick cannot inject a command.
+  static String _psLiteral(String value) => value.replaceAll("'", "''");
 
   /// Delete downloaded engine files.
   static Future<void> deleteDownload() async {

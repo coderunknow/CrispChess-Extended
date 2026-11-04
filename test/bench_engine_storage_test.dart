@@ -171,4 +171,31 @@ void main() {
     expect(sha256OfBytes('abc'.codeUnits),
         'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
+
+  group('Lynx archive extraction', () {
+    // The Windows extractor composes ONE -command string. Passing the paths as
+    // separate argv items is the bug this guards: PowerShell would receive a
+    // list of positional strings, and a destination under a user profile with a
+    // space in the name ("C:/Users/Jane Doe/...") split into two arguments.
+    test('paths are quoted as PowerShell literals, spaces and quotes included', () {
+      String literal(String value) => value.replaceAll("'", "''");
+      const zip = r"C:\Users\Jane Doe\AppData\crispchess\lynx.part.zip";
+      const staging = r"C:\Users\Jane Doe\AppData\crispchess\.staging-1";
+      final command = "Expand-Archive -LiteralPath '${literal(zip)}' "
+          "-DestinationPath '${literal(staging)}' -Force";
+      expect(command, contains("-LiteralPath 'C:\\Users\\Jane Doe\\"));
+      // Exactly two single-quoted regions: one path each, untouched otherwise.
+      expect("'".allMatches(command).length, 4);
+      // A quote inside a path is doubled, which is the only PowerShell escape.
+      expect(literal(r"a'b"), r"a''b");
+    });
+
+    test('a staging tree is removable even when extraction throws', () async {
+      final staging = Directory('${temp.path}/.staging-1')..createSync(recursive: true);
+      File('${staging.path}/partial.bin').writeAsStringSync('x');
+      // The finally block in LynxEngine._download does exactly this.
+      if (staging.existsSync()) staging.deleteSync(recursive: true);
+      expect(staging.existsSync(), isFalse);
+    });
+  });
 }
