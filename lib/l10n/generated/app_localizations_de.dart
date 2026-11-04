@@ -2124,4 +2124,10 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get engineLabPickOneTarget => 'Mindestens eine Ziel-Engine wählen.';
+
+  @override
+  String get livePrecisionAchieved => 'Ziel mit der bisherigen Datenlage erreicht.';
+
+  @override
+  String get livePrecisionNotAchieved => 'Ziel noch nicht erreicht.';
 }

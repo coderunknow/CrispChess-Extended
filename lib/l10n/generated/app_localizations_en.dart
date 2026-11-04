@@ -2117,4 +2117,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get engineLabPickOneTarget => 'Select at least one target engine.';
+
+  @override
+  String get livePrecisionAchieved => 'Objective achieved by the evidence so far.';
+
+  @override
+  String get livePrecisionNotAchieved => 'Objective not achieved yet.';
 }

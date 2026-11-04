@@ -605,8 +605,17 @@ class BenchmarkRun {
   /// singular fit, an engine in its own component — so the encoder is not
   /// allowed to fail on it. Every non-finite number in the document becomes
   /// null, and the map that held it says so.
-  Map<String, dynamic> toJson() =>
-      _jsonSafe(_toJsonObject()) as Map<String, dynamic>;
+  /// The flag goes on the DOCUMENT, not on every map that held a number.
+  /// Sprinkling `hasNonFiniteValues` through nested maps put a key named like a
+  /// field into typed maps -- `CalibrationOutcome.fromJson` reads `calibrated`
+  /// entry by entry and turned that key into an engine with an infinite
+  /// standard error.
+  Map<String, dynamic> toJson() {
+    final raw = _toJsonObject();
+    final safe = _jsonSafe(raw) as Map<String, dynamic>;
+    if (_containsNonFinite(raw)) safe['hasNonFiniteValues'] = true;
+    return safe;
+  }
 
   Map<String, Object?> _toJsonObject() => {
         'id': id,
@@ -639,12 +648,9 @@ class BenchmarkRun {
     if (value is double) return value.isFinite ? value : null;
     if (value is Map) {
       final out = <String, Object?>{};
-      var unbounded = false;
       value.forEach((key, entry) {
-        if (_containsNonFinite(entry)) unbounded = true;
         out['$key'] = _jsonSafe(entry);
       });
-      if (unbounded) out['hasNonFiniteValues'] = true;
       return out;
     }
     if (value is Iterable) return [for (final entry in value) _jsonSafe(entry)];

@@ -143,12 +143,20 @@ class PrecisionEvaluation {
   });
   Map<String, dynamic> toJson() => {
     'achieved': achieved,
-    'individualHalfWidths': individualHalfWidths,
-    'pairwiseHalfWidths': pairwiseHalfWidths,
+    // Infinity is not representable in JSON. Storing it as null is what the
+    // round-trip reader expects; letting jsonEncode see it throws, and letting
+    // the run-level sanitiser null it loses which condition was unbounded.
+    'individualHalfWidths': _finiteOrNull(individualHalfWidths),
+    'pairwiseHalfWidths': _finiteOrNull(pairwiseHalfWidths),
     'unmet': unmet,
     if (additionalGamesEstimate != null) 'additionalGamesEstimate': additionalGamesEstimate,
     'explanation': explanation,
   };
+
+  static Map<String, double?> _finiteOrNull(Map<String, double> values) => {
+        for (final entry in values.entries)
+          entry.key: entry.value.isFinite ? entry.value : null,
+      };
 
   /// Restores a stored evaluation.
   ///
@@ -161,6 +169,15 @@ class PrecisionEvaluation {
       final result = <String, double>{};
       if (raw is Map) {
         raw.forEach((id, value) {
+          // `null` is how an UNBOUNDED half-width is stored (JSON has no
+          // infinity). Dropping it lost the fact that the condition was
+          // unbounded -- a reloaded report showed the participant as absent
+          // rather than as unmet, and a reader could mistake that for silence
+          // about a condition that was in fact never satisfied.
+          if (value == null) {
+            result['$id'] = double.infinity;
+            return;
+          }
           final d = value is num ? value.toDouble() : double.tryParse('$value');
           if (d != null) result['$id'] = d;
         });
@@ -617,6 +634,15 @@ class IntelligentScheduler {
       for (var j = i + 1; j < participantIds.length; j++) {
         final a = participantIds[i], b = participantIds[j];
         if (!_availableParticipant(a) || !_availableParticipant(b)) continue;
+        // A participant with no rated games has an infinite covariance
+        // diagonal, so `uᵀCu` and the contrast projections become NaN and
+        // EVERY candidate's utility is NaN -- the comparison `utility >
+        // bestUtility` is then false for all of them and the scheduler stops
+        // with "no affordable informative matchup" no matter what budget
+        // remains. Scheduling a game for such a participant is worthwhile
+        // (it is how it stops being isolated), so it is scored through the
+        // connectivity path instead of the variance formula it cannot enter.
+        final eitherIsolated = model.isIsolated(a) || model.isIsolated(b);
         final key = pairwiseKey(a, b);
         final remaining = _remainingOpenings(key, i * participantIds.length + j);
         if (remaining.isEmpty) continue;
@@ -626,6 +652,32 @@ class IntelligentScheduler {
         final p = expectedScore(_rating(fit, a), _rating(fit, b));
         final w = 2 * p * (1 - p) / (ratingEloScale * ratingEloScale);
         final ia = model.players.indexOf(a), ib = model.players.indexOf(b);
+        var gain = 0.0;
+        if (eitherIsolated) {
+          // Not a variance question: this is the pair that would give an
+          // otherwise unpriced participant some evidence. Scored like the
+          // connectivity bonus, small and cost-normalised, so it competes with
+          // real information gains without pretending to be one.
+          gain = 1.0 / math.max(1, cost);
+          final cluster = suite.clusterIdFor(
+              suite.openingById(remaining.first)!);
+          final clusterNeeded = _usedClusters.length < bootstrapSettings.minClusters &&
+              !_usedClusters.contains(cluster);
+          final stability = 1 -
+              math.max(_byId[a]!.failureProbability, _byId[b]!.failureProbability)
+                  .clamp(0.0, 0.95);
+          final utility =
+              (gain + (clusterNeeded ? 1.0 / math.max(1, cost) : 0.0)) *
+                  stability / math.max(1, cost);
+          if (utility > bestUtility) {
+            bestUtility = utility;
+            bestA = a; bestB = b;
+            bestOpening = remaining.first; bestCluster = cluster; bestCost = cost;
+            bestReason = 'Adding evidence for a participant that has none yet '
+                '(${model.isIsolated(a) ? a : b} has no rated games).';
+          }
+          continue;
+        }
         final u = List<double>.filled(model.players.length, 0);
         u[ia] = 1; u[ib] = -1;
         var uu = 0.0;
@@ -634,7 +686,6 @@ class IntelligentScheduler {
             uu += u[x] * model.covariance[x][y] * u[y];
           }
         }
-        var gain = 0.0;
         for (final contrast in contrasts) {
           var cv = 0.0;
           for (var x = 0; x < u.length; x++) {

@@ -3537,6 +3537,12 @@ abstract class AppLocalizations {
 
   /// `engineLabPickOneTarget`.
   String get engineLabPickOneTarget;
+
+  /// `livePrecisionAchieved`.
+  String get livePrecisionAchieved;
+
+  /// `livePrecisionNotAchieved`.
+  String get livePrecisionNotAchieved;
 }
 
 class _AppLocalizationsDelegate

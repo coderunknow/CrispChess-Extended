@@ -59,7 +59,9 @@ class PrecisionObjectiveSelector extends StatelessWidget {
           children: [
             Expanded(
               child: LabNumberField(
-                key: ValueKey('confidence-${(settings.confidenceLevel * 100).round()}'),
+                // Identity only: a key that embeds the value remounts the field on
+                // every keystroke and drops focus and the cursor.
+                key: const ValueKey('confidence'),
                 label: l?.precisionConfidence ?? 'Confidence %',
                 value: (settings.confidenceLevel * 100).round(),
                 enabled: enabled,
@@ -75,7 +77,7 @@ class PrecisionObjectiveSelector extends StatelessWidget {
             if (settings.wantsIndividual)
               Expanded(
                 child: LabNumberField(
-                  key: ValueKey('individual-${settings.individualToleranceElo.round()}'),
+                  key: const ValueKey('individual'),
                   label: l?.precisionIndividualElo ?? 'Individual ±Elo',
                   value: settings.individualToleranceElo.round(),
                   enabled: enabled,
@@ -87,7 +89,7 @@ class PrecisionObjectiveSelector extends StatelessWidget {
               if (settings.wantsIndividual) const SizedBox(width: 12),
               Expanded(
                 child: LabNumberField(
-                  key: ValueKey('pairwise-${settings.pairwiseToleranceElo.round()}'),
+                  key: const ValueKey('pairwise'),
                   label: l?.precisionPairwiseElo ?? 'Pairwise ±Elo',
                   value: settings.pairwiseToleranceElo.round(),
                   enabled: enabled,
@@ -182,7 +184,7 @@ class ResourceBudgetFields extends StatelessWidget {
         Row(children: [
           Expanded(
             child: LabNumberField(
-              key: ValueKey('maxGames-${config.maxGames}'),
+              key: const ValueKey('maxGames'),
               label: l?.engineLabMaxGames ?? 'Max games',
               value: config.maxGames ?? 0,
               helper: l?.engineLabZeroIsUnlimited ?? '0 = no limit',
@@ -194,7 +196,7 @@ class ResourceBudgetFields extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: LabNumberField(
-              key: ValueKey('maxMinutes-${config.maxDuration?.inMinutes}'),
+              key: const ValueKey('maxMinutes'),
               label: l?.engineLabMaxMinutes ?? 'Max minutes',
               value: config.maxDuration?.inMinutes ?? 0,
               enabled: enabled,
@@ -208,7 +210,7 @@ class ResourceBudgetFields extends StatelessWidget {
         Row(children: [
           Expanded(
             child: LabNumberField(
-              key: ValueKey('engineMinutes-${config.resourceBudget.maxEngineMillis}'),
+              key: const ValueKey('engineMinutes'),
               label: l?.budgetEngineMinutes ?? 'Engine compute (min)',
               value: (config.resourceBudget.maxEngineMillis ?? 0) ~/ 60000,
               enabled: enabled,
@@ -222,7 +224,7 @@ class ResourceBudgetFields extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: LabNumberField(
-              key: ValueKey('memory-${config.resourceBudget.maxMemoryMb}'),
+              key: const ValueKey('memory'),
               label: l?.budgetMemory ?? 'Memory limit (MB)',
               value: config.resourceBudget.maxMemoryMb ?? 0,
               enabled: enabled,
@@ -336,9 +338,11 @@ class LiveUncertaintyCard extends StatelessWidget {
     final bootstrap = fit.bootstrap;
     return LabSection(
       title: l?.livePrecision ?? 'Live precision',
+      // This card is only shown while a run is in progress, so "Benchmark
+      // complete" was wrong here: it announced a finished run from a live card.
       subtitle: precision.achieved
-          ? (l?.precisionAchieved ?? 'Objective achieved by the collected evidence.')
-          : (l?.precisionNotAchieved ?? 'Objective not achieved yet.'),
+          ? (l?.livePrecisionAchieved ?? 'Objective achieved by the evidence so far.')
+          : (l?.livePrecisionNotAchieved ?? 'Objective not achieved yet.'),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         LabInfoRow(label: l?.engineLabGames ?? 'Games', value: maxGames == null
             ? '$gamesPlayed'

@@ -146,6 +146,17 @@ class RatingModelFit {
     required this.games,
   });
 
+  /// Whether [id] carries no evidence of its own: it forms a component of one,
+  /// which is what a participant with zero rated games looks like. Its
+  /// covariance diagonal is infinite, so any expression that includes it
+  /// becomes infinite or NaN and cannot be compared with another candidate.
+  bool isIsolated(String id) {
+    final component = componentOf[id];
+    if (component == null) return true;
+    if (component < 0 || component >= components.length) return true;
+    return components[component].length <= 1;
+  }
+
   PlayerRating? ratingFor(String id) {
     for (final rating in ratings) {
       if (rating.name == id) return rating;

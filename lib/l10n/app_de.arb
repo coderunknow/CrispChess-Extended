@@ -673,5 +673,7 @@
   "engineDownloadOnlyApproved": "Nur für diesen Lauf genehmigte Abhängigkeiten werden geladen.",
   "cohortQualified": "Bewertungen sind kohortenspezifisch: unter abweichenden Ausführungsbedingungen gemessene Engines werden gekennzeichnet und nicht als direkt vergleichbar eingestuft.",
   "calibrationNoAnchorUncertainty": "Der Anker nennt keine veröffentlichte Unsicherheit; diese Intervalle enthalten den Ankerfehler nicht.",
-  "engineLabPickOneTarget": "Mindestens eine Ziel-Engine wählen."
+  "engineLabPickOneTarget": "Mindestens eine Ziel-Engine wählen.",
+  "livePrecisionAchieved": "Ziel mit der bisherigen Datenlage erreicht.",
+  "livePrecisionNotAchieved": "Ziel noch nicht erreicht."
 }

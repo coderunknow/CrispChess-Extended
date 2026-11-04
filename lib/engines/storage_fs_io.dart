@@ -36,9 +36,32 @@ Future<({int moved, int skipped, String? error})> storageCopyTree(
   if (!await source.exists()) {
     return (moved: 0, skipped: 0, error: null);
   }
+  // Refuse a destination inside the source. The listing below is lazy and the
+  // copy writes into `to`, so "move my engines into a subfolder of the current
+  // one" would walk into the files it is creating -- copying forever, or until
+  // the disk fills. `setRoot` accepts any writable absolute path, so this is
+  // one user gesture away.
+  final fromAbs = source.absolute.path;
+  final toAbs = Directory(to).absolute.path;
+  if (toAbs == fromAbs ||
+      toAbs.startsWith(fromAbs.endsWith('/') ? fromAbs : '$fromAbs/') ||
+      toAbs.startsWith(fromAbs.endsWith(r'\') ? fromAbs : '$fromAbs${Platform.pathSeparator}')) {
+    return (
+      moved: 0,
+      skipped: 0,
+      error: 'The new location is inside the current one; nothing was copied.',
+    );
+  }
   onProgress?.call('Copying existing engines');
   await for (final entity in source.list(recursive: true, followLinks: false)) {
     if (entity is! File) continue;
+    // The source may carry a marker from an earlier migration into it. Copying
+    // that file would overwrite the destination's own in-progress marker and
+    // point the next launch at the wrong source tree.
+    if (entity.path.endsWith('/.migration.json') ||
+        entity.path.endsWith('\\.migration.json')) {
+      continue;
+    }
     // `source.path.length + 1` assumed exactly one separator. A root typed with
     // a trailing slash ("/mnt/engines/") or a Windows drive root made every
     // relative path drop or keep a character, so files landed outside the

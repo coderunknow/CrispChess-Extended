@@ -24,7 +24,6 @@ import '../bench/benchmark_plan.dart';
 import '../bench/benchmark_runner.dart';
 import '../bench/benchmark_service.dart';
 import '../bench/benchmark_settings.dart';
-import '../bench/cluster_bootstrap.dart';
 import '../bench/intelligent_scheduler.dart';
 import '../bench/precision.dart';
 import '../bench/benchmark_store.dart';
@@ -623,6 +622,9 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         // engines, it does not write the admission this run reads.
         final recheck =
             await _service.preflightAdmission(ids, preparation.config);
+        // The screen can be left while that await runs; the check above is
+        // before it, not after.
+        if (!mounted) return;
         if (!recheck.allAdmitted) {
           setState(() => _running = false);
           final excluded = recheck.excluded.entries

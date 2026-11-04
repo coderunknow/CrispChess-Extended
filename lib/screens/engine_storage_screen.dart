@@ -126,6 +126,10 @@ class _EngineStorageScreenState extends State<EngineStorageScreen> {
       );
     }
     if (path == null || path.isEmpty) return;
+    // Both branches above awaited something the user controls (a picker, or a
+    // dialog), and the widget can be gone by now: `setState` on a disposed
+    // State throws outside the try below.
+    if (!mounted) return;
     setState(() => _busy = true,);
     try {
       final result = await _storage.setRoot(path);

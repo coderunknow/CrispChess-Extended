@@ -865,11 +865,17 @@ class BenchmarkRunner {
     // incomplete one turned a measured precision claim into "objective not
     // achieved" purely because time ran out during the re-measurement -- the
     // hard cap still stops the work, it just no longer destroys the evidence.
+    // Only an INCOMPLETE final pass may be discarded, and only in favour of a
+    // report that actually completed. `!(completed && reliable)` was too broad:
+    // it also kept an older report when the new one completed and merely failed
+    // a reliability check (too many failed replicates, disconnected
+    // components). That report is the honest description of the games just
+    // played, and replacing it with a stale one hides exactly the failure the
+    // run needs to report.
     final previous = _latestBootstrap;
-    final keepPrevious = previous != null &&
-        previous.completed &&
-        previous.reliable &&
-        !(report.completed && report.reliable);
+    final cutShort = !report.completed;
+    final keepPrevious =
+        cutShort && previous != null && previous.completed && previous.reliable;
     if (keepPrevious) {
       _warnings.add('The final bootstrap pass was cut short by the budget; the '
           'last completed estimate from this run is reported instead, and it '

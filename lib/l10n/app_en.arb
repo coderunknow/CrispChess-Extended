@@ -911,5 +911,7 @@
   "engineDownloadOnlyApproved": "Only dependencies approved for this run are downloaded.",
   "cohortQualified": "Ratings are cohort-qualified: engines measured under different execution conditions are labelled and not ranked as directly comparable.",
   "calibrationNoAnchorUncertainty": "The anchor states no published uncertainty; these intervals do not include anchor error.",
-  "engineLabPickOneTarget": "Select at least one target engine."
+  "engineLabPickOneTarget": "Select at least one target engine.",
+  "livePrecisionAchieved": "Objective achieved by the evidence so far.",
+  "livePrecisionNotAchieved": "Objective not achieved yet."
 }
