@@ -266,6 +266,11 @@ class EngineStorage {
           moved: 0, skipped: 0, source: redactStoragePath(previous.rootPath),
           destination: redactStoragePath(candidate.rootPath), complete: true);
     }
+    // Record the intent BEFORE copying. Writing the marker afterwards meant a
+    // crash or a force-quit during the copy left a half-migrated tree with no
+    // marker at all, which is precisely the case `resumeMigration` exists for
+    // and the one it could never see.
+    await _markMigration(previous.rootPath, candidate.rootPath, complete: false);
     final copied = await storageCopyTree(
         previous.rootPath, candidate.rootPath, onProgress: onProgress);
     final moved = copied.moved, skipped = copied.skipped;

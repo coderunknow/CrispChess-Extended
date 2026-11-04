@@ -528,7 +528,8 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   Future<void> _startIntelligent() async {
     final l = AppLocalizations.of(context);
     if (_selected.isEmpty) {
-      _snack(l?.engineLabPickTwo ?? 'Select at least one target engine.', error: true);
+      _snack(l?.engineLabPickOneTarget ?? 'Select at least one target engine.',
+          error: true);
       return;
     }
     final budgetSet = _intelligentConfig.maxGames != null ||

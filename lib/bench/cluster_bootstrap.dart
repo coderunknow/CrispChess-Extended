@@ -461,10 +461,23 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
         simultaneous: BootstrapInterval(low, high, standardError: pointwise.standardError),
       );
     }
-    if (precision.comparisonSet == PairwiseComparisonSet.allParticipants &&
+    // Only a pairwise objective can be defeated by a component that cannot be
+    // compared. This used to fire whenever the comparison set was
+    // `allParticipants` (the default), so ONE participant with no rated games --
+    // which forms its own component -- marked the whole bootstrap unreliable and
+    // discarded the individual intervals that were perfectly well measured.
+    // An individual objective makes no claim across components.
+    final pairwiseWanted = precision.wantsPairwise;
+    if (pairwiseWanted &&
+        precision.comparisonSet == PairwiseComparisonSet.allParticipants &&
         original.components.length > 1) {
       warnings.add('Cross-component differences have no bootstrap interval and cannot meet a pairwise objective.');
       reliable = false;
+    } else if (!pairwiseWanted && original.components.length > 1) {
+      // Still said out loud, because a reader comparing two engines in the
+      // report needs to know the difference is not measured.
+      warnings.add('Some participants share no games with the others; individual '
+          'intervals are unaffected, but their differences are not measured.');
     }
   } else {
     reliable = false;

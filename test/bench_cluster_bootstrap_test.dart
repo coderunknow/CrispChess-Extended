@@ -66,7 +66,6 @@ void main() {
       }
       final model = fitRatingModel(games);
       final a = model.players.indexOf('a');
-      final b = model.players.indexOf('b');
       final c = model.players.indexOf('c');
       final covarianceVariance = model.covariance[a][a] +
           model.covariance[c][c] -

@@ -200,9 +200,20 @@ PrecisionEvaluation evaluatePrecision({
           : report.warnings.join(' '),
     );
   }
-  final toleranceForMc = precision.wantsIndividual
-      ? precision.individualToleranceElo
-      : precision.pairwiseToleranceElo;
+  // The replicate-to-replicate jitter has to be small relative to whatever the
+  // run promises. With both objectives that is the STRICTER tolerance: using
+  // only the individual one (as this did) let a ±50 individual tolerance excuse
+  // jitter that is fatal to a ±10 pairwise claim.
+  final toleranceForMc = switch ((
+    precision.wantsIndividual,
+    precision.wantsPairwise,
+  )) {
+    (true, true) => math.min(
+        precision.individualToleranceElo, precision.pairwiseToleranceElo),
+    (true, false) => precision.individualToleranceElo,
+    (false, true) => precision.pairwiseToleranceElo,
+    (false, false) => precision.individualToleranceElo,
+  };
   if (!report.monteCarloAdequate(toleranceForMc)) {
     unmet.add('Bootstrap Monte Carlo endpoint uncertainty is too large; more replicates are needed.');
   }
@@ -237,10 +248,20 @@ PrecisionEvaluation evaluatePrecision({
   int? estimate;
   if (unmet.isNotEmpty && ratedGames > 0) {
     var factor = 1.0;
-    for (final half in [...individual.values, ...pairwise.values]) {
-      final target = precision.wantsPairwise && pairwise.isNotEmpty
-          ? precision.pairwiseToleranceElo
-          : precision.individualToleranceElo;
+    // Each half-width is judged against its OWN tolerance. One shared `target`
+    // (the pairwise one whenever a pairwise objective existed) measured
+    // individual intervals against a tolerance they were never promised to meet,
+    // so the "how many more games" estimate was inflated by the ratio of the two
+    // tolerances even when every individual condition was already satisfied.
+    final judged = <(double, double)>[
+      if (precision.wantsIndividual)
+        for (final half in individual.values)
+          (half, precision.individualToleranceElo),
+      if (precision.wantsPairwise)
+        for (final half in pairwise.values)
+          (half, precision.pairwiseToleranceElo),
+    ];
+    for (final (half, target) in judged) {
       if (half.isFinite && half > target) {
         factor = math.max(factor, (half / target) * (half / target));
       } else if (!half.isFinite) {

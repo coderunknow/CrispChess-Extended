@@ -142,6 +142,16 @@ class _EngineStorageScreenState extends State<EngineStorageScreen> {
         _busy = false;
         _message = error.message;
       });
+    } catch (error) {
+      // `setRoot` is documented to throw EngineStorageError for the cases it
+      // anticipates, but the document store or the filesystem can throw
+      // anything. Without this the screen stayed busy forever: the spinner ran
+      // and every control stayed disabled until the app was restarted.
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _message = 'The storage root could not be changed: $error';
+      });
     }
   }
 

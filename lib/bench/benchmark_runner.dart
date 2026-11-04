@@ -860,7 +860,23 @@ class BenchmarkRunner {
     _bootstrapMillis += report.computeMillis;
     _lastBootstrapMillis = report.computeMillis;
     _lastBootstrapReplicates = report.attemptedReplicates;
-    _latestBootstrap = report;
+    // A final pass cut short by the wall-clock cap must not throw away a
+    // reliable, completed report the run already had. Replacing it with an
+    // incomplete one turned a measured precision claim into "objective not
+    // achieved" purely because time ran out during the re-measurement -- the
+    // hard cap still stops the work, it just no longer destroys the evidence.
+    final previous = _latestBootstrap;
+    final keepPrevious = previous != null &&
+        previous.completed &&
+        previous.reliable &&
+        !(report.completed && report.reliable);
+    if (keepPrevious) {
+      _warnings.add('The final bootstrap pass was cut short by the budget; the '
+          'last completed estimate from this run is reported instead, and it '
+          'predates the final games.');
+    } else {
+      _latestBootstrap = report;
+    }
   }
 
   /// Runs the adaptive step only when the schedule is exhausted.
