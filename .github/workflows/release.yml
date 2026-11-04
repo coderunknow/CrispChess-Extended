@@ -43,8 +43,22 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - run: flutter build apk --release
+      # Every other build job tees its output so that a failure can be read back
+      # from the PR: job logs are not always reachable from where a fix is
+      # made. This one did not, which is why an Android-only failure produced
+      # no diagnostic at all.
+      - name: Build Android
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build apk --release 2>&1 | tee android-build.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: android-build-log-${{ github.job }}
+          path: android-build.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: success()
         with:
           name: android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
