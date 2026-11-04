@@ -12,6 +12,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'archive_extract.dart' show extractArchiveTo;
+import 'download_io.dart' show hashFile;
+import 'download_manager.dart'
+    show artifactDir, currentArchName, currentPlatformName, installDirFor;
+import 'engine_storage.dart' show EngineStorage, EngineStorageError;
+import 'engine_artifacts.dart';
 import 'engine_initialization.dart';
 import 'uci_position.dart';
 import 'uci_process_lifecycle.dart';
@@ -192,7 +198,10 @@ class LynxEngine
       await _download(asset);
     }
     scope.checkCancelled();
-    final binaryPath = File('${(await _engineDir()).path}/${asset.binary}').path;
+    final managed = File('${(await _engineDir()).path}/${asset.binary}');
+    final binaryPath = managed.existsSync()
+        ? managed.path
+        : File('${_legacyDir.path}/${asset.binary}').path;
     scope.runtimePath = binaryPath;
 
     scope.stage = EngineInitStage.launchProcess;
@@ -438,7 +447,29 @@ class LynxEngine
 
   // --- Download management ---
 
+  /// Install directory from the single user-selectable engine storage root.
+  /// On Android executables must stay app-private, which the storage location
+  /// reports; the loader follows it instead of assuming a writable shared path.
+  /// Where the managed binary lives.
+  ///
+  /// Must be the directory the Engine Manager installs an extracted archive
+  /// into, computed the same way: `artifactDir` for a `.zip` source, then
+  /// [installDirFor]. The two disagreed, so a download through the Manager put
+  /// the archive in one place and this adapter looked in another.
   static Future<Directory> _engineDir() async {
+    final location = await EngineStorage.shared.location();
+    final artifact = lynxArtifact(currentPlatformName(), currentArchName());
+    final source = artifact.sourceFor(currentPlatformName(), currentArchName());
+    if (source == null) {
+      return Directory('${location.executableRoot}/lynx/$_lynxVersion/bin');
+    }
+    return Directory(
+        installDirFor('${artifactDir(location, artifact)}/${source.effectiveName}'));
+  }
+
+  /// Pre-dev5 install location, still read so an existing binary keeps working
+  /// after the storage root moved to one managed location.
+  static Directory get _legacyDir {
     final home = Platform.environment['HOME'] ??
         Platform.environment['APPDATA'] ?? '/tmp';
     return Directory('$home/.crispchess/engines/lynx');
@@ -449,7 +480,8 @@ class LynxEngine
     try {
       final dir = await _engineDir();
       final asset = _platformAsset();
-      return File('${dir.path}/${asset.binary}').existsSync();
+      if (File('${dir.path}/${asset.binary}').existsSync()) return true;
+      return File('${_legacyDir.path}/${asset.binary}').existsSync();
     } catch (_) {
       return false;
     }
@@ -468,6 +500,8 @@ class LynxEngine
     await dir.create(recursive: true);
     // Expand-Archive (Windows) accepts only a `.zip` extension.
     final zipFile = File('${dir.path}/lynx.part.zip');
+    // Null until extraction begins; the finally block removes it if it is set.
+    Directory? staging;
     final client = HttpClient(); // follows GitHub's redirect chain itself
     try {
       final request = await client.getUrl(Uri.parse(asset.url));
@@ -486,23 +520,32 @@ class LynxEngine
             uri: Uri.parse(asset.url));
       }
 
+      final published = kLynxPublishedSha256[asset.url];
+      if (published != null) {
+        final actual = await hashFile(zipFile.path);
+        if (actual != published) {
+          throw const EngineStorageError(
+              'The downloaded Lynx archive did not match the checksum '
+              'published with the release; nothing was installed.');
+        }
+      }
+      // Extract into a staging directory and only move the verified binary
+      // into place, so a half-extracted archive never becomes "installed".
+      // The extraction itself is shared with the Engine Manager's archive path
+      // so the two cannot disagree about the result.
+      staging = Directory('${dir.path}/.staging-${DateTime.now().microsecondsSinceEpoch}');
+      await staging.create(recursive: true);
       debugPrint('[Lynx] Extracting...');
-      final ProcessResult unzip = Platform.isWindows
-          ? await Process.run('powershell', [
-              '-NoProfile',
-              '-command',
-              'Expand-Archive', '-Path', zipFile.path, '-DestinationPath',
-              dir.path, '-Force',
-            ])
-          : await Process.run('unzip', ['-o', zipFile.path, '-d', dir.path]);
-      if (unzip.exitCode != 0) {
-        throw ProcessException(Platform.isWindows ? 'powershell' : 'unzip',
-            const [], 'extracting Lynx failed: ${unzip.stderr}', unzip.exitCode);
-      }
-      if (!binaryFile.existsSync()) {
+      await extractArchiveTo(
+          archivePath: zipFile.path, destinationDir: staging.path);
+      final staged = File('${staging.path}/${asset.binary}');
+      if (!staged.existsSync()) {
         throw FileSystemException(
-            'the Lynx archive did not contain ${asset.binary}', binaryFile.path);
+            'the Lynx archive did not contain ${asset.binary}', staged.path);
       }
+      await staged.copy(binaryFile.path);
+      // No delete here: the finally block owns the staging tree, so the success
+      // path and every failure path clean up the same way.
       if (!Platform.isWindows) {
         final chmod = await Process.run('chmod', ['+x', binaryFile.path]);
         if (chmod.exitCode != 0) {
@@ -510,7 +553,7 @@ class LynxEngine
               '${chmod.stderr}', chmod.exitCode);
         }
       }
-      debugPrint('[Lynx] Ready at ${binaryFile.path}');
+      debugPrint('[Lynx] Ready at ${redactPath(binaryFile.path)}');
     } catch (_) {
       // A half-extracted binary would pass isDownloaded() next time.
       try {
@@ -522,6 +565,16 @@ class LynxEngine
       try {
         if (zipFile.existsSync()) zipFile.deleteSync();
       } catch (_) {}
+      // The staging tree was only removed on the success path, so a failed
+      // extraction or a missing binary left a `.staging-*` directory behind for
+      // every attempt. A user whose extraction failed repeatedly accumulated
+      // one archive's worth of files per try.
+      final leftover = staging;
+      if (leftover != null) {
+        try {
+          if (leftover.existsSync()) leftover.deleteSync(recursive: true);
+        } catch (_) {}
+      }
     }
   }
 
@@ -530,6 +583,18 @@ class LynxEngine
     final dir = await _engineDir();
     if (await dir.exists()) {
       await dir.delete(recursive: true);
+    }
+    // A pre-dev5 install is still discovered (and launched) by isDownloaded/
+    // _start, so deleting only the managed directory left the engine usable:
+    // the UI said "not installed" while the next run found the old binary.
+    try {
+      final legacy = _legacyDir;
+      if (await legacy.exists()) {
+        await legacy.delete(recursive: true);
+      }
+    } catch (_) {
+      // A legacy tree we cannot remove must not fail the managed delete that
+      // already succeeded; isDownloaded still reports what is actually there.
     }
   }
 }

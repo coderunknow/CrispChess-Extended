@@ -24,6 +24,8 @@ import '../bench/benchmark_plan.dart';
 import '../bench/benchmark_runner.dart';
 import '../bench/benchmark_service.dart';
 import '../bench/benchmark_settings.dart';
+import '../bench/intelligent_scheduler.dart';
+import '../bench/precision.dart';
 import '../bench/benchmark_store.dart';
 import '../bench/calibration.dart';
 import '../bench/elo.dart';
@@ -39,6 +41,8 @@ import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../l10n/generated/app_localizations.dart';
 import '../widgets/engine_lab/lab_widgets.dart';
 import 'benchmark_report_screen.dart';
+import 'engine_storage_screen.dart';
+import 'intelligent_benchmark_panel.dart';
 import 'engine_preflight_screen.dart';
 
 class EngineLabScreen extends StatefulWidget {
@@ -71,12 +75,36 @@ class _EngineLabScreenState extends State<EngineLabScreen>
 
   // Configuration
   BenchmarkConfig _config = BenchmarkConfig.standard;
-  TournamentFormat _format = TournamentFormat.roundRobin;
+  // Defaults to intelligent because that is what the panel below configures
+  // (`_intelligentConfig`: cluster-40 openings, 200 games). `_format` used to
+  // start at roundRobin while `_intelligent` started true, so the screen showed
+  // "Round robin" selected and a "Start benchmark" button, and the button
+  // actually started an intelligent run.
+  TournamentFormat _format = TournamentFormat.intelligent;
   String? _referenceId;
   String _customSuiteId = 'balanced-8';
   Map<String, OpeningSuite> _userSuites = const {};
   List<RatingAnchor> _anchors = const [];
   AutoBenchmarkSettings _auto = const AutoBenchmarkSettings();
+
+  // Intelligent run state. Derived from the selected format so the two can
+  // never disagree again.
+  bool get _intelligent => _format == TournamentFormat.intelligent;
+  BenchmarkConfig _intelligentConfig = BenchmarkConfig.standard.copyWith(
+    preset: BenchmarkPreset.custom,
+    openingSuiteId: 'cluster-40',
+    maxGames: () => 200,
+    maxDuration: () => const Duration(minutes: 30),
+    warmUpGames: 0,
+    repetitions: 1,
+    balanceColors: true,
+    precision: const PrecisionSettings(),
+  );
+  IntelligentPreparation? _preparation;
+  bool _preparing = false;
+  EloFit? _liveFit;
+  PrecisionEvaluation? _livePrecision;
+  String _schedulerReason = '';
 
   // Run state
   BenchmarkRunner? _runner;
@@ -90,6 +118,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   double _progress = 0;
   int _gamesDone = 0;
   int _gamesTotal = 0;
+  /// Live elapsed time for the uncertainty card. The card used to be handed
+  /// `Duration.zero`, so it read "0s" for the whole run while every statistics
+  /// event carried the real value that was being thrown away here.
+  Duration _liveElapsed = Duration.zero;
   String _lastMove = '';
   final ChessGame _liveBoard = ChessGame();
   final List<({String white, String black, int game, int total})> _liveGames = [];
@@ -253,18 +285,32 @@ class _EngineLabScreenState extends State<EngineLabScreen>
             '${event.label}: ${event.reason}',
           ];
         });
+      case BenchmarkStatisticsEvent():
+        setState(() {
+          _liveFit = event.fit;
+          _livePrecision = event.precision;
+          _schedulerReason = event.schedulerReason;
+          _gamesTotal = event.maxGames ?? event.gamesPlayed;
+          _liveElapsed = event.elapsed;
+        });
       case BenchmarkNoticeEvent():
         setState(() {
           _liveNotices = [..._liveNotices, event.message];
         });
       case BenchmarkFinishedEvent():
+        final achieved = event.run.precisionEvaluation?.achieved;
         setState(() {
           _running = false;
           _paused = false;
           _runner = null;
           _latestRun = event.run;
+          _liveFit = event.run.ratings;
+          _livePrecision = event.run.precisionEvaluation ?? _livePrecision;
           _status = 'Benchmark finished: ${event.run.gamesPlayed} game(s), '
-              '${event.run.gamesCompleted} rated · ${event.run.stopReason}';
+              '${event.run.gamesCompleted} rated · ${event.run.stopReason}'
+              '${achieved == null ? '' : achieved
+                  ? ' · precision objective achieved'
+                  : ' · precision objective NOT achieved'}';
         });
     }
   }
@@ -291,6 +337,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
 
   Future<void> _startNow() async {
     final l = AppLocalizations.of(context);
+    if (_intelligent) {
+      await _startIntelligent();
+      return;
+    }
     if (_selected.length < 2) {
       _snack(l?.engineLabPickTwo ?? 'Select at least two engines.', error: true);
       return;
@@ -377,6 +427,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _gamesTotal = estimate.scoredGames;
       _liveGames.clear();
       _liveNotices = const [];
+      _liveFit = null;
+      _liveElapsed = Duration.zero;
+      _livePrecision = null;
+      _schedulerReason = '';
       _lastMove = '';
       _status = l?.engineLabStarting ?? 'Starting engines…';
     });
@@ -422,6 +476,223 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           error: true);
     }
   }
+
+
+  // --------------------------------------------------------- intelligent runs
+
+  Future<void> _previewSchedule() async {
+    final l = AppLocalizations.of(context);
+    if (_selected.isEmpty) {
+      _snack(l?.engineLabPickOneTarget ?? 'Select at least one target engine.',
+          error: true);
+      return;
+    }
+    setState(() => _preparing = true);
+    try {
+      final preparation = await _service.prepareIntelligent(
+        targetIds: _selected.toList(),
+        config: _intelligentConfig,
+        suites: _userSuites,
+      );
+      if (!mounted) return;
+      setState(() {
+        _preparation = preparation;
+        _preparing = false;
+      });
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l?.schedulerPreview ?? 'Scheduler proposal'),
+          content: SingleChildScrollView(
+            child: SchedulerPreviewCard(
+              plan: preparation.plan,
+              warnings: preparation.scheduler.warnings,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(l?.close ?? 'Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _preparing = false);
+      _snack('${l?.engineLabFailed ?? 'The benchmark failed'}: $error', error: true);
+    }
+  }
+
+  Future<void> _startIntelligent() async {
+    final l = AppLocalizations.of(context);
+    if (_selected.isEmpty) {
+      _snack(l?.engineLabPickOneTarget ?? 'Select at least one target engine.',
+          error: true);
+      return;
+    }
+    final budgetSet = _intelligentConfig.maxGames != null ||
+        _intelligentConfig.maxDuration != null ||
+        _intelligentConfig.resourceBudget.maxEngineMillis != null;
+    if (!budgetSet) {
+      _snack(l?.budgetRequired ??
+          'Set at least one budget (games, minutes or engine compute).',
+          error: true);
+      return;
+    }
+    final precisionErrors = _intelligentConfig.precision.validationErrors();
+    if (precisionErrors.isNotEmpty) {
+      _snack(precisionErrors.join(' '), error: true);
+      return;
+    }
+    setState(() => _preparing = true);
+    IntelligentPreparation preparation;
+    try {
+      preparation = await _service.prepareIntelligent(
+        targetIds: _selected.toList(),
+        config: _intelligentConfig,
+        suites: _userSuites,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _preparing = false);
+      _snack('${l?.engineLabFailed ?? 'The benchmark failed'}: $error', error: true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _preparation = preparation;
+      _preparing = false;
+    });
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l?.engineLabConfirmTitle ?? 'Start this benchmark?'),
+        content: SingleChildScrollView(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            SchedulerPreviewCard(plan: preparation.plan,
+                warnings: preparation.scheduler.warnings),
+            const SizedBox(height: 8),
+            Text('${l?.engineLabConfiguration ?? 'Configuration'}: '
+                '${preparation.config.summary}'),
+            Text('${l?.precisionObjective ?? 'Precision objective'}: '
+                '${preparation.config.precision.summary}'),
+            const SizedBox(height: 6),
+            Text(l?.engineLabPreflightNote ??
+                'Each proposed participant is checked by Engine Preflight before '
+                    'any game. Missing official dependencies are requested '
+                    'separately and never downloaded silently.',
+                style: const TextStyle(fontSize: 12)),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l?.cancel ?? 'Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l?.engineLabStart ?? 'Start')),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
+    // Preflight first; only admitted engines stay participants, and the
+    // schedule is rebuilt from those rather than silently substituting.
+    final ids = [for (final e in preparation.plan.engines) e.engineId];
+    try {
+      final admission = await _service.preflightAdmission(ids, preparation.config);
+      if (!mounted) return;
+      if (!admission.allAdmitted) {
+        // The scheduler picks opponents the user never selected, so some
+        // participants have no stored Preflight result yet. Reporting the
+        // exclusion and returning left the user with an error and no way to act
+        // on it: there was nothing to click that would produce the missing
+        // result. Open Preflight for exactly those participants instead, the
+        // same way the manual path does.
+        setState(() => _running = false);
+        final excludedIds = admission.excluded.keys.toList();
+        final chosen = await EnginePreflightScreen.open(
+          context,
+          service: _service,
+          engineIds: excludedIds,
+          labels: {
+            for (final id in excludedIds)
+              id: engineLabelForId(id, _profiles),
+          },
+          config: preparation.config,
+        );
+        if (chosen == null || !mounted) return;
+        // Re-check rather than trusting the returned list: the screen admits
+        // engines, it does not write the admission this run reads.
+        final recheck =
+            await _service.preflightAdmission(ids, preparation.config);
+        // The screen can be left while that await runs; the check above is
+        // before it, not after.
+        if (!mounted) return;
+        if (!recheck.allAdmitted) {
+          setState(() => _running = false);
+          final excluded = recheck.excluded.entries
+              .map((e) => '${engineLabelForId(e.key, _profiles)}: ${e.value}')
+              .join('; ');
+          _snack('${l?.schedulerPreflightExcluded ?? 'Participants excluded by Engine Preflight'}: $excluded',
+              error: true);
+          return;
+        }
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _snack('${l?.engineLabFailed ?? 'The benchmark failed'}: $error', error: true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _running = true;
+      _paused = false;
+      _gamesDone = 0;
+      _progress = 0;
+      _gamesTotal = preparation.plan.recordedGames.length;
+      _liveGames.clear();
+      _liveNotices = const [];
+      _liveFit = null;
+      _liveElapsed = Duration.zero;
+      _livePrecision = null;
+      _schedulerReason = '';
+      _status = l?.engineLabStarting ?? 'Starting engines…';
+    });
+    try {
+      await _service.setLastConfig(_intelligentConfig);
+      // The intelligent runner picks its own anchor from the prepared set;
+      // passing one here would bypass the compatibility check.
+      final runner = await _service.createIntelligentRunner(
+        preparation: preparation,
+        requirePreflight: true,
+      );
+      _attachRunner(runner);
+      final run = await _service.runWithRunner(runner);
+      if (!mounted) return;
+      setState(() {
+        _running = false;
+        _runner = null;
+        _latestRun = run;
+      });
+      await _refreshHistory();
+      _snack(run.precisionEvaluation?.achieved == true
+          ? (l?.precisionAchieved ?? 'Benchmark complete: objective achieved.')
+          : (l?.precisionNotAchieved ?? 'Benchmark complete: objective not achieved within budget.'));
+      if (mounted) {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => BenchmarkReportScreen(runId: run.id),
+        ));
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _running = false;
+        _runner = null;
+      });
+      _snack('${l?.engineLabFailed ?? 'The benchmark failed'}: $error', error: true);
+    }
+  }
+
+  Future<void> _openStorage() => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const EngineStorageScreen(),
+      ));
 
   void _pause() {
     _runner?.pause();
@@ -1218,6 +1489,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                     value: TournamentFormat.gauntlet,
                     label: Text(l?.formatGauntlet ?? 'Gauntlet'),
                   ),
+                  ButtonSegment(
+                    value: TournamentFormat.intelligent,
+                    label: Text(l?.formatIntelligent ?? 'Intelligent'),
+                  ),
                 ],
                 selected: {_format},
                 onSelectionChanged: _running
@@ -1228,6 +1503,18 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                               _selected.isEmpty ? null : _selected.first;
                         }),
               ),
+              if (_format == TournamentFormat.intelligent)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    l?.formatIntelligentHint ??
+                        'You choose the target engines, the conditions and the '
+                            'budget. The scheduler chooses opponents, openings and '
+                            'game counts from measured uncertainty, and explains '
+                            'each decision in the report.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
               if (_format == TournamentFormat.gauntlet)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -1354,6 +1641,58 @@ class _EngineLabScreenState extends State<EngineLabScreen>
             ],
           ),
         ),
+        if (_format == TournamentFormat.intelligent) ...[
+          LabSection(
+            title: l?.precisionObjective ?? 'Precision objective',
+            subtitle: l?.precisionObjectiveHint ??
+                'The run succeeds only when the collected independent evidence '
+                    'supports this objective.',
+            child: PrecisionObjectiveSelector(
+              settings: _intelligentConfig.precision,
+              enabled: !_running,
+              onChanged: (settings) => setState(() {
+                _intelligentConfig = _intelligentConfig.copyWith(precision: settings);
+              }),
+            ),
+          ),
+          LabSection(
+            title: l?.budget ?? 'Budget and resources',
+            child: ResourceBudgetFields(
+              config: _intelligentConfig,
+              enabled: !_running,
+              onChanged: (config) => setState(() => _intelligentConfig = config),
+            ),
+          ),
+          LabSection(
+            title: l?.engineStorage ?? 'Engine storage',
+            subtitle: l?.engineStorageShortHint ??
+                'Missing dependencies are requested before anything is '
+                    'downloaded. Only engines the schedule needs are fetched.',
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _running ? null : _openStorage,
+                icon: const Icon(Icons.folder_outlined),
+                label: Text(l?.manageDownloads ?? 'Downloads and storage'),
+              ),
+            ),
+          ),
+          if (_liveFit != null && _livePrecision != null)
+            LiveUncertaintyCard(
+              fit: _liveFit!,
+              precision: _livePrecision!,
+              schedulerReason: _schedulerReason,
+              gamesPlayed: _gamesDone,
+              maxGames: _intelligentConfig.maxGames,
+              elapsed: _liveElapsed,
+              maxDuration: _intelligentConfig.maxDuration,
+            )
+          else if (_preparation != null)
+            SchedulerPreviewCard(
+              plan: _preparation!.plan,
+              warnings: _preparation!.scheduler.warnings,
+            ),
+        ],
         Padding(
           padding: const EdgeInsets.only(top: 8),
           // Side by side when they fit, stacked when the localized labels do
@@ -1379,12 +1718,22 @@ class _EngineLabScreenState extends State<EngineLabScreen>
                 icon: const Icon(Icons.fact_check_outlined),
                 label: Text(l?.enginePreflightRun ?? 'Check engines'),
               ),
+              if (_format == TournamentFormat.intelligent)
+                OutlinedButton.icon(
+                  onPressed: _running || _preparing || _selected.isEmpty
+                      ? null
+                      : _previewSchedule,
+                  icon: const Icon(Icons.insights_outlined),
+                  label: Text(l?.previewSchedule ?? 'Preview schedule'),
+                ),
               FilledButton.icon(
-                onPressed: _running || _starting ? null : _start,
+                onPressed: _running || _starting || _preparing ? null : _start,
                 icon: const Icon(Icons.play_arrow),
                 label: Text(_running
                     ? (l?.engineLabRunning ?? 'Running…')
-                    : (l?.startBenchmark ?? 'Start benchmark')),
+                    : _format == TournamentFormat.intelligent
+                        ? (l?.startIntelligent ?? 'Start intelligent benchmark')
+                        : (l?.startBenchmark ?? 'Start benchmark')),
               ),
             ],
           ),

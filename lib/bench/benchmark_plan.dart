@@ -19,9 +19,16 @@ enum TournamentFormat {
   roundRobin,
 
   /// One reference engine plays each challenger.
-  gauntlet;
+  gauntlet,
+
+  /// Adaptive hybrid: a connected pilot followed by information/cost batches.
+  intelligent;
+
 
   String get id => name;
+
+  static TournamentFormat fromId(String? id) => values.firstWhere(
+      (value) => value.id == id, orElse: () => TournamentFormat.roundRobin);
 }
 
 /// One scheduled game.
@@ -47,6 +54,16 @@ class PlannedGame {
 
   final bool isWarmUp;
 
+  /// Exact opening assigned by the intelligent scheduler. Legacy plans leave
+  /// this null and resolve through the deterministic suite function.
+  final String? openingId;
+
+  /// Global opening cluster, shared by every matchup using this position.
+  final String? clusterId;
+
+  /// Stable identifier of the two colour-reversed games in one opening unit.
+  final String? pairId;
+
   const PlannedGame({
     required this.index,
     required this.whiteId,
@@ -55,12 +72,28 @@ class PlannedGame {
     this.gameInPairing = 0,
     this.repetition = 0,
     this.isWarmUp = false,
+    this.openingId,
+    this.clusterId,
+    this.pairId,
   });
 
   /// Key of the opening this game uses. Two games share a key exactly when
   /// they are the same opening, which is what makes "the colour-swapped pair
   /// used the same opening" checkable.
   String get openingKey => '$repetition/$pairingIndex/${gameInPairing ~/ 2}';
+
+  factory PlannedGame.fromJson(Map<String, dynamic> json) => PlannedGame(
+        index: (json['index'] as num?)?.toInt() ?? 0,
+        whiteId: (json['white'] as String?) ?? '',
+        blackId: (json['black'] as String?) ?? '',
+        pairingIndex: (json['pairing'] as num?)?.toInt() ?? 0,
+        gameInPairing: (json['gameInPairing'] as num?)?.toInt() ?? 0,
+        repetition: (json['repetition'] as num?)?.toInt() ?? 0,
+        isWarmUp: json['warmUp'] == true,
+        openingId: json['openingId'] as String?,
+        clusterId: json['clusterId'] as String?,
+        pairId: json['pairId'] as String?,
+      );
 }
 
 /// A fully determined schedule.
@@ -72,6 +105,8 @@ class BenchmarkPlan {
   final OpeningSuite suite;
   final List<PlannedGame> games;
   final List<String> warnings;
+  final List<String> targetEngineIds;
+  final Map<String, dynamic> schedulerMetadata;
 
   const BenchmarkPlan({
     required this.config,
@@ -81,6 +116,8 @@ class BenchmarkPlan {
     required this.games,
     this.referenceEngineId,
     this.warnings = const [],
+    this.targetEngineIds = const [],
+    this.schedulerMetadata = const {},
   });
 
   /// Recorded games only.
@@ -91,10 +128,26 @@ class BenchmarkPlan {
 
   int get warmUpGames => games.length - recordedGames.length;
 
-  int get pairings =>
-      format == TournamentFormat.gauntlet
-          ? math.max(0, engines.length - 1)
-          : engines.length * (engines.length - 1) ~/ 2;
+  int get pairings {
+    if (format == TournamentFormat.intelligent) {
+      return recordedGames.map((g) {
+        final ids = [g.whiteId, g.blackId]..sort();
+        return ids.join('\u0000');
+      }).toSet().length;
+    }
+    return format == TournamentFormat.gauntlet
+        ? math.max(0, engines.length - 1)
+        : engines.length * (engines.length - 1) ~/ 2;
+  }
+
+  BenchmarkPlan withGames(List<PlannedGame> games, {List<String>? warnings}) =>
+      BenchmarkPlan(
+        config: config, format: format, engines: engines, suite: suite,
+        games: games, referenceEngineId: referenceEngineId,
+        warnings: warnings ?? this.warnings,
+        targetEngineIds: targetEngineIds,
+        schedulerMetadata: schedulerMetadata,
+      );
 
   Set<String> get engineIds => {for (final engine in engines) engine.engineId};
 
@@ -117,6 +170,8 @@ class BenchmarkPlan {
 
   Map<String, dynamic> toJson() => {
         'format': format.id,
+        if (targetEngineIds.isNotEmpty) 'targets': targetEngineIds,
+        if (schedulerMetadata.isNotEmpty) 'scheduler': schedulerMetadata,
         if (referenceEngineId != null) 'reference': referenceEngineId,
         'suite': suite.id,
         'games': [
@@ -129,9 +184,55 @@ class BenchmarkPlan {
               'gameInPairing': game.gameInPairing,
               'repetition': game.repetition,
               if (game.isWarmUp) 'warmUp': true,
+              if (game.openingId != null) 'openingId': game.openingId,
+              if (game.clusterId != null) 'clusterId': game.clusterId,
+              if (game.pairId != null) 'pairId': game.pairId,
             }
         ],
       };
+
+  /// Rebuilds a stored schedule.
+  ///
+  /// [config], [engines] and [suite] are resolved by the caller because they
+  /// live in other documents; every field this object wrote is restored here.
+  /// The stored form is deliberately tolerant: an older document missing a
+  /// field yields a plan a report can still describe, and never a crash.
+  factory BenchmarkPlan.fromJson(
+    Map<String, dynamic> json, {
+    required BenchmarkConfig config,
+    required List<EngineIdentity> engines,
+    required OpeningSuite suite,
+  }) {
+    final games = <PlannedGame>[];
+    final raw = json['games'];
+    if (raw is List) {
+      for (final entry in raw) {
+        if (entry is Map) {
+          games.add(PlannedGame.fromJson(Map<String, dynamic>.from(entry)));
+        }
+      }
+    }
+    final targets = <String>[];
+    if (json['targets'] is List) {
+      for (final entry in json['targets'] as List) {
+        if (entry is String) targets.add(entry);
+      }
+    }
+    final scheduler = <String, dynamic>{};
+    if (json['scheduler'] is Map) {
+      scheduler.addAll(Map<String, dynamic>.from(json['scheduler'] as Map));
+    }
+    return BenchmarkPlan(
+      config: config,
+      format: TournamentFormat.fromId(json['format'] as String?),
+      engines: engines,
+      suite: suite,
+      games: games,
+      referenceEngineId: json['reference'] as String?,
+      targetEngineIds: targets,
+      schedulerMetadata: scheduler,
+    );
+  }
 }
 
 /// Builds the schedule.
@@ -154,6 +255,10 @@ BenchmarkPlan buildPlan({
   if (ids.length != engines.length) {
     throw ArgumentError(
         'The same engine was selected twice; each engine can appear once.');
+  }
+  if (format == TournamentFormat.intelligent) {
+    throw ArgumentError('An intelligent schedule is built by the scheduler, '
+        'not by the fixed round-robin/gauntlet planner.');
   }
   if (format == TournamentFormat.gauntlet) {
     if (referenceEngineId == null || !ids.contains(referenceEngineId)) {
@@ -285,6 +390,12 @@ BenchmarkPlan buildPlan({
   );
 }
 
+String openingClusterIdForGame(BenchmarkPlan plan, PlannedGame game) =>
+    game.clusterId ?? plan.suite.clusterIdFor(openingForGame(plan, game));
+
+String pairIdForGame(BenchmarkPlan plan, PlannedGame game) =>
+    game.pairId ?? '${plan.config.seed}/${game.repetition}/${game.pairingIndex}/${game.gameInPairing ~/ 2}';
+
 /// The opening for a planned game.
 ///
 /// [PlannedGame.gameInPairing] is 0-based *within* the pairing, so the two
@@ -293,9 +404,12 @@ BenchmarkPlan buildPlan({
 /// run-wide 1-based index here — which is what the first version did — made
 /// every colour-swapped pair use two different openings and confounded colour
 /// with opening in the fit.
-Opening openingForGame(BenchmarkPlan plan, PlannedGame game) =>
-    plan.suite.openingFor(
+Opening openingForGame(BenchmarkPlan plan, PlannedGame game) {
+  final exact = game.openingId == null ? null : plan.suite.openingById(game.openingId!);
+  if (exact != null) return exact;
+  return plan.suite.openingFor(
       seed: plan.config.seedForRepetition(game.repetition),
       pairingIndex: game.pairingIndex,
       gameIndex: game.gameInPairing,
     );
+}

@@ -20,6 +20,7 @@
 // logged it and returned normally.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -125,7 +126,18 @@ class StockfishDownloadableEngine
     try {
       final dir = await _engineDirectory();
       final file = File('${dir.path}/stockfish.js');
-      return file.existsSync() && file.lengthSync() > 0;
+      if (!file.existsSync() || file.lengthSync() == 0) return false;
+      // A sidecar written only after a verified, complete download distinguishes
+      // an installed file from a truncated one left by an older build.
+      final meta = File('${file.path}.json');
+      if (!meta.existsSync()) return true; // pre-dev5 install: still runnable
+      try {
+        final data = jsonDecode(meta.readAsStringSync()) as Map;
+        final expected = data['bytes'] as num?;
+        return expected == null || expected.toInt() == file.lengthSync();
+      } catch (_) {
+        return false;
+      }
     } catch (_) {
       return false;
     }

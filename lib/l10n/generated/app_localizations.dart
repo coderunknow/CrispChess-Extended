@@ -3318,6 +3318,231 @@ abstract class AppLocalizations {
 
   /// `enginePreflightReferenceExcluded`.
   String get enginePreflightReferenceExcluded;
+
+  /// `bootstrapMissing`.
+  String get bootstrapMissing;
+
+  /// `budget`.
+  String get budget;
+
+  /// `budgetEngineMinutes`.
+  String get budgetEngineMinutes;
+
+  /// `budgetHint`.
+  String get budgetHint;
+
+  /// `budgetMemory`.
+  String get budgetMemory;
+
+  /// `budgetRequired`.
+  String get budgetRequired;
+
+  /// `changeStorage`.
+  String get changeStorage;
+
+  /// `customEngines`.
+  String get customEngines;
+
+  /// `customEnginesSupportedNote`.
+  String get customEnginesSupportedNote;
+
+  /// `customEnginesUnsupportedNote`.
+  String get customEnginesUnsupportedNote;
+
+  /// `download`.
+  String get download;
+
+  /// `downloadableEngines`.
+  String get downloadableEngines;
+
+  /// `downloadableEnginesSubtitle`.
+  String get downloadableEnginesSubtitle;
+
+  /// `engineLabPreflightNote`.
+  String get engineLabPreflightNote;
+
+  /// `engineStorage`.
+  String get engineStorage;
+
+  /// `engineStorageAndroidNote`.
+  String get engineStorageAndroidNote;
+
+  /// `engineStorageIosNote`.
+  String get engineStorageIosNote;
+
+  /// `engineStorageLocation`.
+  String get engineStorageLocation;
+
+  /// `engineStoragePath`.
+  String get engineStoragePath;
+
+  /// `engineStorageShortHint`.
+  String get engineStorageShortHint;
+
+  /// `formatIntelligent`.
+  String get formatIntelligent;
+
+  /// `formatIntelligentHint`.
+  String get formatIntelligentHint;
+
+  /// `liveBootstrap`.
+  String get liveBootstrap;
+
+  /// `liveClusters`.
+  String get liveClusters;
+
+  /// `liveElapsed`.
+  String get liveElapsed;
+
+  /// `livePrecision`.
+  String get livePrecision;
+
+  /// `liveWorstIndividual`.
+  String get liveWorstIndividual;
+
+  /// `liveWorstPairwise`.
+  String get liveWorstPairwise;
+
+  /// `manageDownloads`.
+  String get manageDownloads;
+
+  /// `methodologyCompute`.
+  String get methodologyCompute;
+
+  /// `methodologyFailures`.
+  String get methodologyFailures;
+
+  /// `methodologyMonteCarlo`.
+  String get methodologyMonteCarlo;
+
+  /// `methodologySeed`.
+  String get methodologySeed;
+
+  /// `notAvailableOnPlatform`.
+  String get notAvailableOnPlatform;
+
+  /// `precisionAchieved`.
+  String get precisionAchieved;
+
+  /// `precisionAdditionalGames`.
+  String get precisionAdditionalGames;
+
+  /// `precisionAllPairs`.
+  String get precisionAllPairs;
+
+  /// `precisionBoth`.
+  String get precisionBoth;
+
+  /// `precisionConfidence`.
+  String get precisionConfidence;
+
+  /// `precisionIndividual`.
+  String get precisionIndividual;
+
+  /// `precisionIndividualElo`.
+  String get precisionIndividualElo;
+
+  /// `precisionNotAchieved`.
+  String get precisionNotAchieved;
+
+  /// `precisionObjective`.
+  String get precisionObjective;
+
+  /// `precisionObjectiveHint`.
+  String get precisionObjectiveHint;
+
+  /// `precisionPairwise`.
+  String get precisionPairwise;
+
+  /// `precisionPairwiseElo`.
+  String get precisionPairwiseElo;
+
+  /// `precisionPointwise`.
+  String get precisionPointwise;
+
+  /// `precisionPointwiseHint`.
+  String get precisionPointwiseHint;
+
+  /// `precisionSimultaneous`.
+  String get precisionSimultaneous;
+
+  /// `precisionSimultaneousHint`.
+  String get precisionSimultaneousHint;
+
+  /// `precisionTargetPairs`.
+  String get precisionTargetPairs;
+
+  /// `previewSchedule`.
+  String get previewSchedule;
+
+  /// `ratingMethodology`.
+  String get ratingMethodology;
+
+  /// `ratingMethodologyPlain`.
+  String get ratingMethodologyPlain;
+
+  /// `schedulerNext`.
+  String get schedulerNext;
+
+  /// `schedulerOpponents`.
+  String get schedulerOpponents;
+
+  /// `schedulerParticipants`.
+  String get schedulerParticipants;
+
+  /// `schedulerPilotGames`.
+  String get schedulerPilotGames;
+
+  /// `schedulerPilotPairs`.
+  String get schedulerPilotPairs;
+
+  /// `schedulerPreflightExcluded`.
+  String get schedulerPreflightExcluded;
+
+  /// `schedulerPreview`.
+  String get schedulerPreview;
+
+  /// `schedulerPreviewHint`.
+  String get schedulerPreviewHint;
+
+  /// `schedulerTargets`.
+  String get schedulerTargets;
+
+  /// `schedulerWhy`.
+  String get schedulerWhy;
+
+  /// `startIntelligent`.
+  String get startIntelligent;
+
+  /// `storageBrowserManaged`.
+  String get storageBrowserManaged;
+
+  /// `schedulerParticipantStatus`.
+  String get schedulerParticipantStatus;
+
+  /// `schedulerConflict`.
+  String get schedulerConflict;
+
+  /// `engineDownloadMissing`.
+  String get engineDownloadMissing;
+
+  /// `engineDownloadOnlyApproved`.
+  String get engineDownloadOnlyApproved;
+
+  /// `cohortQualified`.
+  String get cohortQualified;
+
+  /// `calibrationNoAnchorUncertainty`.
+  String get calibrationNoAnchorUncertainty;
+
+  /// `engineLabPickOneTarget`.
+  String get engineLabPickOneTarget;
+
+  /// `livePrecisionAchieved`.
+  String get livePrecisionAchieved;
+
+  /// `livePrecisionNotAchieved`.
+  String get livePrecisionNotAchieved;
 }
 
 class _AppLocalizationsDelegate

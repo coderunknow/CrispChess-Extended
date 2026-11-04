@@ -49,3 +49,24 @@ once; guarded ios-release against dev tags. Genuine Stockfish `sf_16` built
 from pinned source runs in CI (11/11 on Linux x86-64, job 125139989647). Other
 platforms are build-only for this change. No SDK in the sandbox: CI was the
 oracle. Details: docs/audit/2026-11-02-engine-initialization-dev4.md.
+
+## 2026-11-03 — dev5 baseline, scope and implementation plan
+
+Read the design/agent logs, Engine Lab plan, prior audits, README/changelog,
+benchmark config/plan/runner/run/store, rating fit/Elo/calibration, Preflight,
+registry/profile storage, model/native download paths, Lab/Manager/Settings UI,
+localizations, platform adapters and CI/release workflows. Verified main SHA
+`09ce48228da30454362e184220c066916169bd92` and PR #11 facts against GitHub.
+No AGENTS.md was present. No production edit preceded this reconnaissance.
+
+Plan: (1) extend configuration with per-run precision and resource objectives;
+(2) add candidate assessment, connected pilot and adaptive information/cost
+allocation using the existing runner; (3) add global opening-cluster bootstrap,
+joint covariance and simultaneous pairwise intervals; (4) unify verified
+ downloads and platform-aware storage; (5) integrate setup/preview/live/report
+UI and EN/DE strings; (6) add deterministic regressions, independent statistical
+simulation and real-engine CI gates; (7) audit diff, run exact-head CI and
+CodeRabbit, then open/update the PR. Authorization ends at an open PR: no merge,
+tag, release or deployment. Local Flutter/Dart is absent; GitHub Actions is the
+compiler/runtime oracle, with local Python/reference and syntax checks used
+where possible. Unexecuted platform behavior will be reported as unverified.

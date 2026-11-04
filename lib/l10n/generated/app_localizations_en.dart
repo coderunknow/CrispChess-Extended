@@ -1898,4 +1898,229 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get enginePreflightReferenceExcluded => 'The gauntlet reference engine did not pass Engine Preflight.';
+
+  @override
+  String get bootstrapMissing => 'No opening-cluster bootstrap is stored for this run.';
+
+  @override
+  String get budget => 'Budget and resources';
+
+  @override
+  String get budgetEngineMinutes => 'Engine compute (min)';
+
+  @override
+  String get budgetHint => 'At least one budget must be set. The scheduler never invents a global time limit; it stops at your boundaries and reports the objective as unmet when they run out.';
+
+  @override
+  String get budgetMemory => 'Memory limit (MB)';
+
+  @override
+  String get budgetRequired => 'Set at least one budget: games, minutes or engine compute.';
+
+  @override
+  String get changeStorage => 'Change';
+
+  @override
+  String get customEngines => 'Custom UCI engines';
+
+  @override
+  String get customEnginesSupportedNote => 'Add a UCI engine from Engine Lab; it joins the opponent candidate pool for intelligent benchmarks.';
+
+  @override
+  String get customEnginesUnsupportedNote => 'Custom engine processes are not available on this platform. On the web no process can be spawned; on iOS a downloaded binary cannot be executed inside the app.';
+
+  @override
+  String get download => 'Download';
+
+  @override
+  String get downloadableEngines => 'Engines and models';
+
+  @override
+  String get downloadableEnginesSubtitle => 'Only the dependencies an approved benchmark schedule needs are downloaded. Every artifact comes from its official source.';
+
+  @override
+  String get engineLabPreflightNote => 'Each proposed participant is checked by Engine Preflight before any game. Missing official dependencies are requested separately and never downloaded silently.';
+
+  @override
+  String get engineStorage => 'Engine storage';
+
+  @override
+  String get engineStorageAndroidNote => 'Android cannot execute files from shared storage: models and archives use this folder, executables are installed in app-private storage.';
+
+  @override
+  String get engineStorageIosNote => 'iOS apps may only write inside their sandbox and cannot execute downloaded native binaries. Script/model engines remain available.';
+
+  @override
+  String get engineStorageLocation => 'Location';
+
+  @override
+  String get engineStoragePath => 'Absolute directory path';
+
+  @override
+  String get engineStorageShortHint => 'Missing dependencies are requested before anything is downloaded. Only engines the schedule needs are fetched.';
+
+  @override
+  String get formatIntelligent => 'Intelligent';
+
+  @override
+  String get formatIntelligentHint => 'You choose the target engines, the conditions and the budget. The scheduler chooses opponents, openings and game counts from measured uncertainty, and explains each decision in the report.';
+
+  @override
+  String get liveBootstrap => 'Bootstrap replicates';
+
+  @override
+  String get liveClusters => 'Independent opening clusters';
+
+  @override
+  String get liveElapsed => 'Elapsed';
+
+  @override
+  String get livePrecision => 'Live precision';
+
+  @override
+  String get liveWorstIndividual => 'Worst individual interval';
+
+  @override
+  String get liveWorstPairwise => 'Worst pairwise interval';
+
+  @override
+  String get manageDownloads => 'Downloads and storage';
+
+  @override
+  String get methodologyCompute => 'Bootstrap compute';
+
+  @override
+  String get methodologyFailures => 'Failure reasons';
+
+  @override
+  String get methodologyMonteCarlo => 'Monte Carlo endpoint range';
+
+  @override
+  String get methodologySeed => 'Seed';
+
+  @override
+  String get notAvailableOnPlatform => 'No official artifact is distributed for this platform.';
+
+  @override
+  String get precisionAchieved => 'Benchmark complete: objective achieved.';
+
+  @override
+  String get precisionAdditionalGames => 'Defensible additional estimate';
+
+  @override
+  String get precisionAllPairs => 'All participants';
+
+  @override
+  String get precisionBoth => 'Both';
+
+  @override
+  String get precisionConfidence => 'Confidence %';
+
+  @override
+  String get precisionIndividual => 'Individual';
+
+  @override
+  String get precisionIndividualElo => 'Individual ±Elo';
+
+  @override
+  String get precisionNotAchieved => 'Benchmark complete: objective not achieved within budget.';
+
+  @override
+  String get precisionObjective => 'Precision objective';
+
+  @override
+  String get precisionObjectiveHint => 'The run succeeds only when the collected independent evidence supports this objective.';
+
+  @override
+  String get precisionPairwise => 'Pairwise';
+
+  @override
+  String get precisionPairwiseElo => 'Pairwise ±Elo';
+
+  @override
+  String get precisionPointwise => 'Pointwise';
+
+  @override
+  String get precisionPointwiseHint => 'Pointwise intervals apply to one comparison at a time and do not claim joint coverage.';
+
+  @override
+  String get precisionSimultaneous => 'Simultaneous';
+
+  @override
+  String get precisionSimultaneousHint => 'Simultaneous intervals cover every requested comparison at once (maximum-statistic bootstrap); they are wider than pointwise intervals.';
+
+  @override
+  String get precisionTargetPairs => 'Targets only';
+
+  @override
+  String get previewSchedule => 'Preview schedule';
+
+  @override
+  String get ratingMethodology => 'Rating methodology';
+
+  @override
+  String get ratingMethodologyPlain => 'Games are paired: the same opening is played with both colours. The uncertainty comes from resampling entire openings, not single games, because games from one opening are related. Intervals therefore reflect how much independent evidence the run actually collected.';
+
+  @override
+  String get schedulerNext => 'Scheduler';
+
+  @override
+  String get schedulerOpponents => 'Selected opponents';
+
+  @override
+  String get schedulerParticipants => 'Participants in the joint model';
+
+  @override
+  String get schedulerPilotGames => 'Pilot games';
+
+  @override
+  String get schedulerPilotPairs => 'Initial matchups';
+
+  @override
+  String get schedulerPreflightExcluded => 'Participants excluded by Engine Preflight';
+
+  @override
+  String get schedulerPreview => 'Scheduler proposal';
+
+  @override
+  String get schedulerPreviewHint => 'Review the plan before it runs. Adaptive batches are chosen from measured uncertainty, so the final game count may be larger.';
+
+  @override
+  String get schedulerTargets => 'Targets';
+
+  @override
+  String get schedulerWhy => 'Why';
+
+  @override
+  String get startIntelligent => 'Start intelligent benchmark';
+
+  @override
+  String get storageBrowserManaged => 'A browser cannot choose a filesystem directory. Downloads use browser-managed Cache Storage, which the browser may evict; report exports are the durable record.';
+
+  @override
+  String get schedulerParticipantStatus => 'Participant status: failed, insufficient evidence or disconnected engines are reported explicitly and are not silently dropped.';
+
+  @override
+  String get schedulerConflict => 'The committed schedule changed while this was prepared. Review the new proposal.';
+
+  @override
+  String get engineDownloadMissing => 'This engine needs a download before it can start.';
+
+  @override
+  String get engineDownloadOnlyApproved => 'Only dependencies approved for this run are downloaded.';
+
+  @override
+  String get cohortQualified => 'Ratings are cohort-qualified: engines measured under different execution conditions are labelled and not ranked as directly comparable.';
+
+  @override
+  String get calibrationNoAnchorUncertainty => 'The anchor states no published uncertainty; these intervals do not include anchor error.';
+
+  @override
+  String get engineLabPickOneTarget => 'Select at least one target engine.';
+
+  @override
+  String get livePrecisionAchieved => 'Objective achieved by the evidence so far.';
+
+  @override
+  String get livePrecisionNotAchieved => 'Objective not achieved yet.';
 }

@@ -101,6 +101,50 @@ class OpeningSuite {
 
   int get length => openings.length;
 
+  Opening? openingById(String id) {
+    for (final opening in openings) {
+      if (opening.id == id) return opening;
+    }
+    return null;
+  }
+
+  /// A position-level cluster key. The same opening used by several pairings
+  /// or repetitions belongs to one cluster, never several independent ones.
+  ///
+  /// Deliberately *not* keyed on the pairing or the suite: the sampling unit is
+  /// the line of chess, so two different pairings that play the same moves are
+  /// one cluster of evidence. Only the starting position, which every first
+  /// move shares, is identified by its position rather than by a move list.
+  ///
+  /// A position defined by a FEN with no moves (an EPD-style book, which
+  /// `Opening.fromJson` accepts) has an empty move list, so keying on the moves
+  /// alone gave every such opening the same key — one cluster for a suite that
+  /// might hold dozens, and a bootstrap that could never reach its cluster
+  /// minimum. Those fall back to the position itself.
+  String clusterIdFor(Opening opening) {
+    if (opening.id == 'startpos') return 'startpos';
+    if (opening.moves.isEmpty) {
+      final fen = opening.fen;
+      // Without moves or a FEN there is nothing to distinguish the line by, so
+      // the id (unique within a suite) is the only honest key.
+      return fen == null || fen.isEmpty ? 'opening:${opening.id}' : 'fen:$fen';
+    }
+    return opening.moves.join(' ');
+  }
+
+  /// A deterministic permutation: no opening repeats within one cycle for a
+  /// pairing. Adaptive allocation stops adding a pair when its cycle is spent.
+  List<int> openingOrder({required int seed, required int pairingIndex}) {
+    if (openings.isEmpty) return const [];
+    var stride = 7;
+    while (BigInt.from(stride).gcd(BigInt.from(openings.length)) != BigInt.one) {
+      stride += 2;
+    }
+    final mixed = (seed ^ (pairingIndex * 0x9E3779B1)) & 0x7fffffff;
+    final offset = mixed % openings.length;
+    return [for (var i = 0; i < openings.length; i++) (offset + i * stride) % openings.length];
+  }
+
   bool get isEmpty => openings.isEmpty;
 
   Map<String, dynamic> toJson() => {
@@ -342,11 +386,76 @@ const OpeningSuite kDiverseSuite = OpeningSuite(
   ],
 );
 
+
+/// Forty project-original lines for opening-cluster inference. The lines are
+/// standard opening theory, not a copied third-party suite compilation.
+///
+/// Not `const`: the suite reuses the diverse lines, and Dart forbids reading a
+/// field off a constant object inside a constant expression.
+final OpeningSuite kClusterSuite = OpeningSuite(
+  id: 'cluster-40',
+  name: 'Cluster bootstrap (40 openings)',
+  description: 'Forty legal, varied lines. Independent opening clusters are '
+      'the sampling unit; more games on the same line do not create clusters.',
+  openings: [
+    ...kDiverseSuite.openings,
+    const Opening(id: 'scotch', name: 'Scotch Game', category: 'Open',
+      moves: ['e2e4','e7e5','g1f3','b8c6','d2d4','e5d4','f3d4']),
+    const Opening(id: 'four-knights', name: 'Four Knights', category: 'Open',
+      moves: ['e2e4','e7e5','g1f3','b8c6','b1c3','g8f6']),
+    const Opening(id: 'petrov', name: 'Petrov Defence', category: 'Open',
+      moves: ['e2e4','e7e5','g1f3','g8f6','f3e5','d7d6','e5f3','f6e4']),
+    const Opening(id: 'kings-gambit', name: "King's Gambit", category: 'Open',
+      moves: ['e2e4','e7e5','f2f4','e5f4','g1f3']),
+    const Opening(id: 'danish', name: 'Danish Gambit', category: 'Open',
+      moves: ['e2e4','e7e5','d2d4','e5d4','c2c3','d4c3','f1c4']),
+    const Opening(id: 'center-game', name: 'Centre Game', category: 'Open',
+      moves: ['e2e4','e7e5','d2d4','e5d4','d1d4','b8c6']),
+    const Opening(id: 'ponziani', name: 'Ponziani Opening', category: 'Open',
+      moves: ['e2e4','e7e5','g1f3','b8c6','c2c3']),
+    const Opening(id: 'philidor', name: 'Philidor Defence', category: 'Open',
+      moves: ['e2e4','e7e5','g1f3','d7d6','d2d4','e5d4','f3d4']),
+    const Opening(id: 'alapin', name: 'Sicilian, Alapin', category: 'Half-open',
+      moves: ['e2e4','c7c5','c2c3']),
+    const Opening(id: 'rossolimo', name: 'Sicilian, Rossolimo', category: 'Half-open',
+      moves: ['e2e4','c7c5','g1f3','b8c6','f1b5']),
+    const Opening(id: 'sveshnikov', name: 'Sicilian, Sveshnikov', category: 'Half-open',
+      moves: ['e2e4','c7c5','g1f3','b8c6','d2d4','c5d4','f3d4','g8f6','b1c3','e7e5']),
+    const Opening(id: 'kan', name: 'Sicilian, Kan', category: 'Half-open',
+      moves: ['e2e4','c7c5','g1f3','e7e6','d2d4','c5d4','f3d4','a7a6']),
+    const Opening(id: 'french-advance', name: 'French, Advance', category: 'Half-open',
+      moves: ['e2e4','e7e6','d2d4','d7d5','e4e5']),
+    const Opening(id: 'french-tarrasch', name: 'French, Tarrasch', category: 'Half-open',
+      moves: ['e2e4','e7e6','d2d4','d7d5','b1d2']),
+    const Opening(id: 'caro-advance', name: 'Caro-Kann, Advance', category: 'Half-open',
+      moves: ['e2e4','c7c6','d2d4','d7d5','e4e5']),
+    const Opening(id: 'caro-exchange', name: 'Caro-Kann, Exchange', category: 'Half-open',
+      moves: ['e2e4','c7c6','d2d4','d7d5','e4d5','c6d5']),
+    const Opening(id: 'qga', name: "Queen's Gambit Accepted", category: 'Closed',
+      moves: ['d2d4','d7d5','c2c4','d5c4','g1f3']),
+    const Opening(id: 'qgd-exchange', name: "Queen's Gambit Declined, Exchange", category: 'Closed',
+      moves: ['d2d4','d7d5','c2c4','e7e6','b1c3','g8f6','c4d5','e6d5']),
+    const Opening(id: 'catalan', name: 'Catalan Opening', category: 'Closed',
+      moves: ['d2d4','g8f6','c2c4','e7e6','g2g3','d7d5','f1g2']),
+    const Opening(id: 'london', name: 'London System', category: 'Closed',
+      moves: ['d2d4','d7d5','g1f3','g8f6','c1f4']),
+    const Opening(id: 'colle', name: 'Colle System', category: 'Closed',
+      moves: ['d2d4','d7d5','g1f3','g8f6','e2e3']),
+    const Opening(id: 'benoni', name: 'Benoni Defence', category: 'Closed',
+      moves: ['d2d4','g8f6','c2c4','c7c5','d4d5','e7e6']),
+    const Opening(id: 'grunfeld', name: 'Grünfeld Defence', category: 'Closed',
+      moves: ['d2d4','g8f6','c2c4','g7g6','b1c3','d7d5']),
+    const Opening(id: 'bogo-indian', name: 'Bogo-Indian Defence', category: 'Closed',
+      moves: ['d2d4','g8f6','c2c4','e7e6','g1f3','f8b4']),
+  ],
+);
+
 /// Suites that ship with the app, by id.
-const Map<String, OpeningSuite> kBuiltInOpeningSuites = {
+final Map<String, OpeningSuite> kBuiltInOpeningSuites = {
   'startpos': kStartPositionSuite,
   'balanced-8': kBalancedSuite,
   'diverse-16': kDiverseSuite,
+  'cluster-40': kClusterSuite,
 };
 
 /// Looks up a built-in suite, falling back to the balanced one.

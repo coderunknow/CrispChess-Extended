@@ -28,6 +28,8 @@ on:
       - 'lib/screens/engine_lab_screen.dart'
       - 'lib/screens/benchmark_report_screen.dart'
       - 'lib/screens/engine_preflight_screen.dart'
+      - 'lib/screens/intelligent_benchmark_panel.dart'
+      - 'lib/screens/engine_storage_screen.dart'
       - 'lib/engines/**'
       - 'lib/services/engine_match_service.dart'
       - 'lib/l10n/**'
@@ -46,6 +48,8 @@ on:
       - 'lib/screens/engine_lab_screen.dart'
       - 'lib/screens/benchmark_report_screen.dart'
       - 'lib/screens/engine_preflight_screen.dart'
+      - 'lib/screens/intelligent_benchmark_panel.dart'
+      - 'lib/screens/engine_storage_screen.dart'
       - 'lib/engines/**'
       - 'lib/services/engine_match_service.dart'
       - 'lib/l10n/**'
@@ -90,6 +94,25 @@ jobs:
       - name: Rating maths (second seed)
         run: python3 tool/bench/verify_rating_math.py --trials 400 --seed 20260101
 
+  cluster-statistics:
+    name: Opening-cluster statistics (independent implementation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # The dev5 primary interval is a clustered bootstrap. This harness is a
+      # second, independent implementation of the model: it re-derives the
+      # Bradley–Terry information matrix rather than calling the app's code.
+      - name: Cluster bootstrap and simultaneous intervals
+        run: python3 tool/bench/verify_cluster_bootstrap.py
+      - name: Same, second seed
+        run: python3 tool/bench/verify_cluster_bootstrap.py --seed 20260101
+
   localisations:
     name: Lab strings exist in every language
     runs-on: ubuntu-latest
@@ -122,6 +145,8 @@ jobs:
           flutter analyze --no-fatal-infos --no-fatal-warnings \
             lib/bench lib/widgets/engine_lab \
             lib/screens/engine_lab_screen.dart \
+            lib/screens/intelligent_benchmark_panel.dart \
+            lib/screens/engine_storage_screen.dart \
             lib/screens/benchmark_report_screen.dart \
             lib/services/engine_match_service.dart
       - name: Lab tests

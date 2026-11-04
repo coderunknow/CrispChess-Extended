@@ -604,4 +604,8 @@ class TournamentService {
 String tournamentFormatLabel(TournamentFormat format) => switch (format) {
       TournamentFormat.roundRobin => 'Round robin',
       TournamentFormat.gauntlet => 'Gauntlet',
+      // An intelligent schedule has no bracket of its own; the scheduler
+      // chooses the matchups, and the report says so rather than inventing a
+      // format name.
+      TournamentFormat.intelligent => 'Intelligent schedule',
     };

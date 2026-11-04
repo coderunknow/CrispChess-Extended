@@ -219,6 +219,13 @@ class BenchGame {
   /// Whether this game was a warm-up (played but not recorded in the fit).
   final bool warmUp;
 
+  /// Global opening cluster. Null in pre-dev5 documents; those are not
+  /// silently promoted to independent opening observations.
+  final String? clusterId;
+
+  /// The two colour-reversed games of one matched opening unit.
+  final String? pairId;
+
   const BenchGame({
     required this.index,
     required this.whiteId,
@@ -238,9 +245,22 @@ class BenchGame {
     this.black = SideTelemetry.none,
     this.durationMillis = 0,
     this.warmUp = false,
+    this.clusterId,
+    this.pairId,
   });
 
   int get plies => moves.length;
+
+  BenchGame withExperiment({String? clusterId, String? pairId}) => BenchGame(
+    index: index, whiteId: whiteId, blackId: blackId,
+    whiteLabel: whiteLabel, blackLabel: blackLabel,
+    openingId: openingId, openingName: openingName, startFen: startFen,
+    moves: moves, movetext: movetext, outcome: outcome,
+    forfeitReason: forfeitReason, forfeitedBy: forfeitedBy, detail: detail,
+    white: white, black: black, durationMillis: durationMillis,
+    warmUp: warmUp, clusterId: clusterId ?? this.clusterId,
+    pairId: pairId ?? this.pairId,
+  );
 
   /// Score for [engineId] in this game, or null when the game has no result
   /// for it (aborted, adjudicated, or it forfeited).
@@ -285,6 +305,10 @@ class BenchGame {
       '[Annotator "CrispChess benchmark"]',
       if (startFen.isNotEmpty) '[FEN "$startFen"]',
       if (startFen.isNotEmpty) '[SetUp "1"]',
+      if (clusterId != null) '[OpeningCluster "${escape(clusterId!)}"]',
+      if (pairId != null) '[PairUnit "${escape(pairId!)}"]',
+      '[WhiteEngineId "${escape(whiteId)}"]',
+      '[BlackEngineId "${escape(blackId)}"]',
       '',
       withResult,
       '',
@@ -320,6 +344,8 @@ class BenchGame {
         'blackTelemetry': black.toJson(),
         'durationMs': durationMillis,
         if (warmUp) 'warmUp': true,
+        if (clusterId != null) 'clusterId': clusterId,
+        if (pairId != null) 'pairId': pairId,
       };
 
   factory BenchGame.fromJson(Map<String, dynamic> json) {
@@ -360,6 +386,8 @@ class BenchGame {
       black: SideTelemetry.fromJson(sub('blackTelemetry')),
       durationMillis: intOr('durationMs', 0),
       warmUp: json['warmUp'] == true,
+      clusterId: json['clusterId'] as String?,
+      pairId: json['pairId'] as String?,
     );
   }
 

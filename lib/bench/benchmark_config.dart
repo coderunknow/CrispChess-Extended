@@ -6,6 +6,8 @@ library;
 
 import 'dart:math' as math;
 
+import 'precision.dart';
+
 /// Benchmark presets. The times are defaults, not limits — a custom
 /// configuration can use anything the validation below accepts.
 enum BenchmarkPreset {
@@ -148,6 +150,12 @@ class BenchmarkConfig {
   /// biases every rating toward the middle.
   final bool countAdjudicatedAsDraws;
 
+  /// Per-run statistical objective for intelligent benchmarks.
+  final PrecisionSettings precision;
+
+  /// Additional compute/memory boundaries for intelligent benchmarks.
+  final ResourceBudget resourceBudget;
+
   const BenchmarkConfig({
     required this.preset,
     required this.timePerMove,
@@ -169,6 +177,8 @@ class BenchmarkConfig {
     this.targetStdErr,
     this.minGamesBeforeStopping = 0,
     this.countAdjudicatedAsDraws = false,
+    this.precision = const PrecisionSettings(),
+    this.resourceBudget = const ResourceBudget(),
   });
 
   /// Fast estimation: short games, few of them, adaptive stop.
@@ -284,6 +294,8 @@ class BenchmarkConfig {
     double? Function()? targetStdErr,
     int? minGamesBeforeStopping,
     bool? countAdjudicatedAsDraws,
+    PrecisionSettings? precision,
+    ResourceBudget? resourceBudget,
   }) =>
       BenchmarkConfig(
         preset: preset ?? this.preset,
@@ -308,6 +320,8 @@ class BenchmarkConfig {
             minGamesBeforeStopping ?? this.minGamesBeforeStopping,
         countAdjudicatedAsDraws:
             countAdjudicatedAsDraws ?? this.countAdjudicatedAsDraws,
+        precision: precision ?? this.precision,
+        resourceBudget: resourceBudget ?? this.resourceBudget,
       );
 
   /// The `setoption` map this configuration asks for, before an engine's own
@@ -341,6 +355,8 @@ class BenchmarkConfig {
         if (targetStdErr != null) 'targetStdErr': targetStdErr,
         'minGamesBeforeStopping': minGamesBeforeStopping,
         'countAdjudicatedAsDraws': countAdjudicatedAsDraws,
+        'precision': precision.toJson(),
+        'resourceBudget': resourceBudget.toJson(),
       };
 
   /// Reads a saved configuration, tolerating a document from an older version.
@@ -398,6 +414,12 @@ class BenchmarkConfig {
       targetStdErr: doubleOf('targetStdErr'),
       minGamesBeforeStopping: intOf('minGamesBeforeStopping') ?? 0,
       countAdjudicatedAsDraws: json['countAdjudicatedAsDraws'] == true,
+      precision: json['precision'] is Map
+          ? PrecisionSettings.fromJson(Map<String, dynamic>.from(json['precision'] as Map))
+          : const PrecisionSettings(),
+      resourceBudget: json['resourceBudget'] is Map
+          ? ResourceBudget.fromJson(Map<String, dynamic>.from(json['resourceBudget'] as Map))
+          : const ResourceBudget(),
     );
   }
 
@@ -470,7 +492,7 @@ BenchmarkValidation validateConfig(
   required int engineCount,
   int? pairings,
 }) {
-  final errors = <String>[];
+  final errors = <String>[...config.precision.validationErrors(), ...config.resourceBudget.validationErrors()];
   final warnings = <String>[];
 
   if (engineCount < 2) {

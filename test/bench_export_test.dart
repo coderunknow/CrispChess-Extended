@@ -11,6 +11,8 @@
 //    a result it did not earn.
 import 'package:crispchess/bench/benchmark_run.dart';
 import 'package:crispchess/bench/game_record.dart';
+import 'package:crispchess/bench/intelligent_scheduler.dart'
+    show PrecisionEvaluation;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/bench_harness.dart';
@@ -165,6 +167,56 @@ void main() {
       expect(restored.ratings.ratings.length, run.ratings.ratings.length);
       expect(restored.config.seed, run.config.seed);
       expect(restored.stopReason, run.stopReason);
+    });
+
+    test('the schedule survives, so a reloaded run keeps its intelligent '
+        'sections', () async {
+      // The plan is written by _toJsonObject but nothing used to read it back:
+      // every stored run reloaded with plan == null, and the report screen --
+      // which loads through the store -- could not show the scheduler decisions,
+      // opening clusters or targets that the document contained.
+      final run = (await runScriptedBenchmark()).run;
+      final restored = BenchmarkRun.fromJson(run.toJson());
+      expect(run.plan, isNotNull);
+      expect(restored.plan, isNotNull,
+          reason: 'a stored plan must be restored, not dropped');
+      expect(restored.plan!.format, run.plan!.format);
+      expect(restored.plan!.games.length, run.plan!.games.length);
+      expect(restored.plan!.targetEngineIds, run.plan!.targetEngineIds);
+      expect(restored.plan!.engines.map((e) => e.engineId),
+          run.plan!.engines.map((e) => e.engineId));
+      // Every field a report reads off a scheduled game, including the opening
+      // identity the intelligent scheduler assigns.
+      final before = run.plan!.games.first;
+      final after = restored.plan!.games.first;
+      expect(after.whiteId, before.whiteId);
+      expect(after.blackId, before.blackId);
+      expect(after.pairingIndex, before.pairingIndex);
+      expect(after.gameInPairing, before.gameInPairing);
+      expect(after.openingId, before.openingId);
+      expect(after.clusterId, before.clusterId);
+    });
+
+    test('a precision objective keeps its numbers across a save and load', () {
+      // The half-width maps are the result of the objective. They used to be
+      // replaced with empty ones on load, so a reloaded report showed an
+      // objective with no numbers beside it.
+      const evaluation = PrecisionEvaluation(
+        achieved: false,
+        individualHalfWidths: {'alpha': 41.5, 'beta': 38.25},
+        pairwiseHalfWidths: {'alpha\u0000beta': 57.75},
+        unmet: ['alpha needs a narrower interval'],
+        additionalGamesEstimate: 12,
+        explanation: 'Not achieved within the budget.',
+      );
+      final restored =
+          PrecisionEvaluation.fromJson(evaluation.toJson());
+      expect(restored.achieved, isFalse);
+      expect(restored.individualHalfWidths, evaluation.individualHalfWidths);
+      expect(restored.pairwiseHalfWidths, evaluation.pairwiseHalfWidths);
+      expect(restored.unmet, evaluation.unmet);
+      expect(restored.additionalGamesEstimate, 12);
+      expect(restored.explanation, evaluation.explanation);
     });
 
     test('an aborted game does not turn into a draw on the way out', () async {
