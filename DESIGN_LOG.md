@@ -159,3 +159,13 @@ failed — no log exists for them, so this entry does not claim they passed at
 
 `tool/bench/verify_cluster_bootstrap.py` passes all 7 statistical checks on both
 seeds and `verify_rating_math.py` passes 25/25.
+
+At `acbb24d` all nine workflows are green — CI (every job), Engine Lab, Lab
+diagnostics (`flutter analyze` exit 0, `flutter test` exit 0), Release (Android,
+iOS, macOS, Windows, Linux, Linux+Frozenight, Web WASM, Frozenight libraries,
+asset verification), Stockfish RCA, Frozenight release validation, Engine
+latency and Secret scan. One intermediate run failed `flutter build apk` after
+104 seconds against 8 minutes for the passing run; the tree was byte-identical
+to the last green Release apart from `DESIGN_LOG.md`, so it was a dependency
+fetch, not a defect. That job was also the only release build that did not tee
+its output, which is why it produced no diagnostic — it does now.
