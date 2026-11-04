@@ -634,7 +634,7 @@ class IntelligentScheduler {
       for (var j = i + 1; j < participantIds.length; j++) {
         final a = participantIds[i], b = participantIds[j];
         if (!_availableParticipant(a) || !_availableParticipant(b)) continue;
-        final p = expectedScore(_rating(fit, a), _rating(fit, b));
+        final p = expectedScore(_rating(model, a), _rating(model, b));
         final w = 2 * p * (1 - p) / (ratingEloScale * ratingEloScale);
         final ia = model.players.indexOf(a), ib = model.players.indexOf(b);
         final u = List<double>.filled(model.players.length, 0);
