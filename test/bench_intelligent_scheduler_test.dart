@@ -275,7 +275,11 @@ void main() {
       labels: {for (final id in s.participantIds) id: id},
       participants: s.participantIds,
     );
-    expect(fit.isIsolated('builtin:Gamma'), isTrue,
+    final gamma = fit.ratings.firstWhere(
+        (r) => r.engineId == 'builtin:Gamma',
+        orElse: () => throw StateError('Gamma is not in the fit'),
+    );
+    expect(gamma.wins + gamma.draws + gamma.losses, 0,
         reason: 'the precondition: Gamma has no rated games');
     final decision = s.decideNext(
       games: const <BenchGame>[], fit: fit, bootstrap: null,
