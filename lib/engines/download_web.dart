@@ -37,6 +37,9 @@ Future<String?> hashFile(String path) async => null;
 
 Future<bool> fileExists(String path) async => false;
 
+/// No filesystem: an archive can never have been extracted here.
+Future<bool> directoryHasFiles(String path) async => false;
+
 Future<int?> fileLength(String path) async => null;
 
 Future<void> installFile(String partPath, String targetPath) async =>
