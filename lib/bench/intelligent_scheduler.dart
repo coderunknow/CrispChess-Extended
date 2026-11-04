@@ -663,6 +663,7 @@ class IntelligentScheduler {
           }
         }
         if (!uu.isFinite) uu = 0;
+        var gain = 0.0;
         for (final contrast in contrasts) {
           var cv = 0.0;
           for (final x in finite) {
