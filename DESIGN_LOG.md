@@ -144,9 +144,18 @@ Decisions worth keeping:
   `download_io.dart`). `Build Web (WASM)` now compiles and links, which is the
   evidence that the seam is right.
 
-Verification at the final SHA `6147fea`: all seven workflows green — CI (every
-job, including Linux/macOS/Windows/iOS/Android and the WASM web build), Engine
-Lab, Lab diagnostics (`flutter analyze` exit 0, `flutter test` exit 0), Release,
+Verification at SHA `6147fea`: all seven workflows green — CI (every job,
+including Linux/macOS/Windows/iOS/Android and the WASM web build), Engine Lab,
+Lab diagnostics (`flutter analyze` exit 0, `flutter test` exit 0), Release,
 Stockfish RCA, Frozenight release validation, Engine latency, Secret scan.
-`tool/bench/verify_cluster_bootstrap.py` passes all 7 statistical checks and
-`verify_rating_math.py --trials 50` passes 25/25.
+
+On the two commits after it (`dbb7285`, `857460b`) the same suites ran again and
+every job that got a runner passed: Engine Lab, Stockfish RCA, Frozenight
+validation, Lab diagnostics and Engine latency are green, and CI is green on
+Linux, Windows, Android, iOS, Frozenight-WASM and `Build Web (WASM)`. The macOS
+and iOS *build* jobs on those two commits were `cancelled` by the runner, not
+failed — no log exists for them, so this entry does not claim they passed at
+`857460b`; their last real evidence is the green run at `6147fea`.
+
+`tool/bench/verify_cluster_bootstrap.py` passes all 7 statistical checks on both
+seeds and `verify_rating_math.py` passes 25/25.
