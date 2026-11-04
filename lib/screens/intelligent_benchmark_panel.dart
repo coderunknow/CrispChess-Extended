@@ -64,7 +64,11 @@ class PrecisionObjectiveSelector extends StatelessWidget {
                 value: (settings.confidenceLevel * 100).round(),
                 enabled: enabled,
                 onChanged: (value) => onChanged(settings.copyWith(
-                    confidenceLevel: (value ?? 95).clamp(50, 999) / 100)),
+                    // PrecisionSettings.validationErrors accepts up to 99.9%, so the
+                    // field must not be able to produce 100% or more: a
+                    // clamped value that still fails validation turns a typing
+                    // slip into an unstartable run.
+                    confidenceLevel: (value ?? 95).clamp(50, 99.9) / 100)),
               ),
             ),
             const SizedBox(width: 12),

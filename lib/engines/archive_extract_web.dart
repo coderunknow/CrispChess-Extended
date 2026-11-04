@@ -16,3 +16,6 @@ Future<int> extractArchiveTo({
 
 /// Kept so the facade has one shape on every platform.
 String psLiteral(String value) => value;
+
+/// No filesystem and no processes: nothing to mark executable.
+Future<void> makeExecutable(String directory) async {}

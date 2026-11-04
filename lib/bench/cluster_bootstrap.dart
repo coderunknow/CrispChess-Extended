@@ -376,10 +376,27 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
 
   final individual = <String, BootstrapInterval>{};
   final pairwise = <String, PairwiseBootstrapInterval>{};
-  var mcRange = double.infinity;
+  // Elo: the largest endpoint jitter seen across every interval this report
+  // publishes. It starts at 0 and only ever grows, and `mcMeasured` records
+  // whether there was anything to measure at all -- `infinity` was used as the
+  // "nothing measured" sentinel, which made `math.max(mcRange, x)` a no-op and
+  // let the pairwise block below overwrite it outright.
+  var mcRange = 0.0;
+  var mcMeasured = false;
   if (valid > 0) {
     final alpha = 1 - precision.confidenceLevel;
+    // A participant with no rated games keeps its singleton value in every
+    // replicate (the fit anchor), so its percentile interval has zero width --
+    // and a zero half-width satisfies any individual tolerance. Reporting that
+    // as an achieved objective for an engine that played nothing is exactly the
+    // kind of false precision this report exists to prevent. Such participants
+    // are listed, with no interval, and the precision evaluation refuses them.
+    final singletons = <String>{
+      for (final component in original.components)
+        if (component.length == 1) component.single,
+    };
     for (var i = 0; i < ids.length; i++) {
+      if (singletons.contains(ids[i])) continue;
       final values = [for (final sample in samples) sample[i]]..sort();
       individual[ids[i]] = _percentile(values, alpha, _mean(samples.map((s) => s[i])));
       // The Monte Carlo adequacy check has to see the individual endpoints
@@ -393,6 +410,7 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
         _endpointMonteCarloRange(values, 1 - alpha / 2),
       );
       mcRange = math.max(mcRange, endpointRange);
+      mcMeasured = true;
     }
     final point = {for (final r in original.ratings) r.name: r.rating};
     final pairs = <(String, String)>[];
@@ -420,7 +438,11 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
     }
     final sortedMax = List<double>.of(maxErrors)..sort();
     final simultaneousHalf = valid == 0 ? double.infinity : _quantile(sortedMax, precision.confidenceLevel);
-    mcRange = _endpointMonteCarloRange(sortedMax, precision.confidenceLevel);
+    if (pairs.isNotEmpty) {
+      mcRange = math.max(
+          mcRange, _endpointMonteCarloRange(sortedMax, precision.confidenceLevel));
+      mcMeasured = true;
+    }
     for (final pair in pairs) {
       final key = pairwiseKey(pair.$1, pair.$2);
       final values = List<double>.of(diffSamples[key]!)..sort();
@@ -431,6 +453,7 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
         _endpointMonteCarloRange(values, 1 - alpha / 2),
       );
       mcRange = math.max(mcRange, endpointRange);
+      mcMeasured = true;
       final low = math.min(pointwise.low, diff - simultaneousHalf);
       final high = math.max(pointwise.high, diff + simultaneousHalf);
       pairwise[key] = PairwiseBootstrapInterval(
@@ -446,7 +469,7 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
   } else {
     reliable = false;
   }
-  if (reliable && mcRange.isFinite) {
+  if (reliable && mcMeasured) {
     warnings.add('Bootstrap endpoint Monte Carlo range is at most ${mcRange.toStringAsFixed(2)} Elo; increase replicates if this is large relative to the tolerance.');
   }
   return ClusterBootstrapReport(
@@ -457,7 +480,8 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
     validReplicates: valid, failedReplicates: failed,
     failureReasons: failures, individual: individual, pairwise: pairwise,
     warnings: warnings, computeMillis: clock.elapsedMilliseconds,
-    seed: settings.seed, maxEndpointMonteCarloRange: mcRange,
+    seed: settings.seed,
+    maxEndpointMonteCarloRange: mcMeasured ? mcRange : double.infinity,
     completed: completed, precision: precision,
   );
 }

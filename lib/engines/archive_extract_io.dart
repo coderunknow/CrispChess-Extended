@@ -98,3 +98,30 @@ Future<int> extractArchiveTo({
 /// doubled.
 String psLiteral(String value) => value.replaceAllMapped(
     RegExp('[\u0027\u2018\u2019\u201A\u201B]'), (m) => '${m[0]}${m[0]}');
+
+/// Marks every file in [directory] executable (non-Windows only).
+///
+/// An archive does not have to preserve a Unix mode, and `LynxEngine.isDownloaded`
+/// only checks that the binary exists — so a Manager-installed binary would be
+/// found, not re-downloaded, and then fail to start. Done here because this file
+/// is the one place in the extraction path that may use `dart:io`.
+Future<void> makeExecutable(String directory) async {
+  if (Platform.isWindows) return;
+  final dir = Directory(directory);
+  if (!await dir.exists()) return;
+  await for (final entity in dir.list(recursive: true, followLinks: false)) {
+    if (entity is! File) continue;
+    // Best effort per file: one unwritable file must not fail a good install,
+    // but a failure here surfaces later as "engine did not start", which is
+    // what the initialize contract reports with a diagnostic.
+    try {
+      final result = await Process.run('chmod', ['+x', entity.path]);
+      if (result.exitCode != 0) {
+        throw ProcessException('chmod', ['+x', entity.path],
+            '${result.stderr}', result.exitCode);
+      }
+    } on ProcessException {
+      rethrow;
+    } catch (_) {}
+  }
+}

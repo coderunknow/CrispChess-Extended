@@ -332,7 +332,6 @@ class _ComponentTally {
   const _ComponentTally(this.wins, this.observed, this.played, this.record);
 
   factory _ComponentTally.from(RatingTally tally, List<int> indexes) {
-    final n = indexes.length;
     return _ComponentTally(
       [for (final i in indexes) tally.wins[i]],
       [for (final i in indexes) [for (final j in indexes) tally.observed[i][j]]],

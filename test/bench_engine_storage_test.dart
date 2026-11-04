@@ -257,6 +257,34 @@ void main() {
         'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
 
+  group('installed archives', () {
+    test('an archive installs into a directory named after it', () {
+      // The Manager and LynxEngine must derive the same path from the same
+      // source URL, or a download lands where nothing looks for it.
+      expect(
+          installDirFor('/r/lynx/1.11.0/downloads/Lynx-1.11.0-win-x64.zip'),
+          '/r/lynx/1.11.0/downloads/Lynx-1.11.0-win-x64');
+      expect(
+          installDirFor('/r/linux/downloads/CrispChess-linux-x64.tar.gz'),
+          '/r/linux/downloads/CrispChess-linux-x64');
+      expect(installDirFor('plain.zip'), '/plain');
+    });
+
+    test('an extracted binary can be made executable', () async {
+      // The archive does not have to carry a Unix mode, and isDownloaded()
+      // only checks existence: an installed-but-not-executable binary would be
+      // found, not re-downloaded, and then fail to start.
+      final dir = Directory('${temp.path}/exe')..createSync(recursive: true);
+      final binary = File('${dir.path}/lynx')..writeAsStringSync('#!/bin/sh\n');
+      await makeExecutable(dir.path);
+      if (!Platform.isWindows) {
+        final mode = binary.statSync().mode;
+        expect(mode & 0x40, isNot(0),
+            reason: 'the owner execute bit must be set (mode ${mode.toRadixString(8)})');
+      }
+    });
+  });
+
   group('Lynx archive extraction', () {
     // The Windows extractor composes ONE -command string. Passing the paths as
     // separate argv items is the bug this guards: PowerShell would receive a

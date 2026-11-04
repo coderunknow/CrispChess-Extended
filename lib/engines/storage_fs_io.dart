@@ -39,7 +39,15 @@ Future<({int moved, int skipped, String? error})> storageCopyTree(
   onProgress?.call('Copying existing engines');
   await for (final entity in source.list(recursive: true, followLinks: false)) {
     if (entity is! File) continue;
-    final relative = entity.path.substring(source.path.length + 1);
+    // `source.path.length + 1` assumed exactly one separator. A root typed with
+    // a trailing slash ("/mnt/engines/") or a Windows drive root made every
+    // relative path drop or keep a character, so files landed outside the
+    // destination -- or the copy silently did nothing while reporting success.
+    final sourcePath = source.path;
+    final prefix = sourcePath.endsWith('/') || sourcePath.endsWith('\\')
+        ? sourcePath
+        : '$sourcePath${Platform.pathSeparator}';
+    final relative = entity.path.substring(prefix.length);
     final target = File('$to/$relative');
     try {
       if (await target.exists() &&

@@ -251,8 +251,17 @@ class EngineDownloadManager {
     if (isArchiveName(targetPath)) {
       emit(DownloadState.verifying, received: streamed.bytes, total: streamed.bytes);
       try {
-        await extractArchiveTo(
+        final installed = await extractArchiveTo(
             archivePath: targetPath, destinationDir: installDirFor(targetPath));
+        // The archive does not have to carry a Unix mode, and on Windows there
+        // is none to carry. LynxEngine only checks that the file exists, so
+        // without this the download path would install a binary that cannot be
+        // started -- and skip its own chmod because it believes the artifact is
+        // already there.
+        if (artifact.executable) {
+          await makeExecutable(installDirFor(targetPath));
+        }
+        debugPrint('installed $installed file(s) from ${source.effectiveName}');
       } catch (error) {
         await deleteQuietly(targetPath);
         emit(DownloadState.failed, error: 'extraction failed: $error');
