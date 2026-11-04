@@ -248,11 +248,13 @@ class EngineDownloadManager {
     // extracted binary, not a .zip. Nothing extracted it, so the Manager showed
     // Lynx as "Installed and hash-verified" while LynxEngine looked in its own
     // directory, found nothing and downloaded the archive a second time.
+    var installedFromArchive = 0;
     if (isArchiveName(targetPath)) {
       emit(DownloadState.verifying, received: streamed.bytes, total: streamed.bytes);
       try {
         final installed = await extractArchiveTo(
             archivePath: targetPath, destinationDir: installDirFor(targetPath));
+        installedFromArchive = installed;
         // The archive does not have to carry a Unix mode, and on Windows there
         // is none to carry. LynxEngine only checks that the file exists, so
         // without this the download path would install a binary that cannot be
@@ -261,7 +263,8 @@ class EngineDownloadManager {
         if (artifact.executable) {
           await makeExecutable(installDirFor(targetPath));
         }
-        debugPrint('installed $installed file(s) from ${source.effectiveName}');
+        // No console output here: `debugPrint` is not in scope in this file and
+        // `print` is linted. The count goes into the result message instead.
       } catch (error) {
         await deleteQuietly(targetPath);
         emit(DownloadState.failed, error: 'extraction failed: $error');
@@ -280,14 +283,16 @@ class EngineDownloadManager {
       'license': source.license,
     });
     _verifiedHashes[targetPath] = localHash;
+    final extracted = installedFromArchive > 0
+        ? ' Extracted $installedFromArchive file(s).'
+        : '';
+    final integrity = source.publishedSha256 != null
+        ? 'Verified against the published checksum.'
+        : 'Installed with a local hash; upstream publishes no checksum.';
     emit(DownloadState.installed, received: streamed.bytes, total: streamed.bytes,
-        message: source.publishedSha256 != null
-            ? 'Verified against the published checksum.'
-            : 'Downloaded; only a local hash is available for this artifact.');
+        message: '$integrity$extracted');
     return DownloadResult(true, path: targetPath, sha256: localHash,
-        message: source.publishedSha256 != null
-            ? 'Verified against the published checksum.'
-            : 'Installed with a local hash; upstream publishes no checksum.');
+        message: '$integrity$extracted');
   }
 
   /// SHA-256 of an installed artifact, for the Engine Manager's integrity row.
