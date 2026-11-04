@@ -634,6 +634,12 @@ class IntelligentScheduler {
       for (var j = i + 1; j < participantIds.length; j++) {
         final a = participantIds[i], b = participantIds[j];
         if (!_availableParticipant(a) || !_availableParticipant(b)) continue;
+        final key = pairwiseKey(a, b);
+        final remaining = _remainingOpenings(key, i * participantIds.length + j);
+        if (remaining.isEmpty) continue;
+        final cost = _measuredPairCost(a, b, state);
+        if (maxDuration != null && state.elapsed.inMilliseconds + cost + finalBootstrapReserveMillis > maxDuration.inMilliseconds) continue;
+        if (maxEngine != null && state.engineMillis + cost > maxEngine) continue;
         final p = expectedScore(_rating(model, a), _rating(model, b));
         final w = 2 * p * (1 - p) / (ratingEloScale * ratingEloScale);
         final ia = model.players.indexOf(a), ib = model.players.indexOf(b);
