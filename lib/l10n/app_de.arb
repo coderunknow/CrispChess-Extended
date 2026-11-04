@@ -672,5 +672,6 @@
   "engineDownloadMissing": "Diese Engine benötigt vor dem Start einen Download.",
   "engineDownloadOnlyApproved": "Nur für diesen Lauf genehmigte Abhängigkeiten werden geladen.",
   "cohortQualified": "Bewertungen sind kohortenspezifisch: unter abweichenden Ausführungsbedingungen gemessene Engines werden gekennzeichnet und nicht als direkt vergleichbar eingestuft.",
-  "calibrationNoAnchorUncertainty": "Der Anker nennt keine veröffentlichte Unsicherheit; diese Intervalle enthalten den Ankerfehler nicht."
+  "calibrationNoAnchorUncertainty": "Der Anker nennt keine veröffentlichte Unsicherheit; diese Intervalle enthalten den Ankerfehler nicht.",
+  "engineLabPickOneTarget": "Mindestens eine Ziel-Engine wählen."
 }

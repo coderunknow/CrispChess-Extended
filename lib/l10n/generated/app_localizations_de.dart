@@ -2121,4 +2121,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get calibrationNoAnchorUncertainty => 'Der Anker nennt keine veröffentlichte Unsicherheit; diese Intervalle enthalten den Ankerfehler nicht.';
+
+  @override
+  String get engineLabPickOneTarget => 'Mindestens eine Ziel-Engine wählen.';
 }

@@ -484,7 +484,8 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   Future<void> _previewSchedule() async {
     final l = AppLocalizations.of(context);
     if (_selected.isEmpty) {
-      _snack(l?.engineLabPickTwo ?? 'Select at least one target engine.', error: true);
+      _snack(l?.engineLabPickOneTarget ?? 'Select at least one target engine.',
+          error: true);
       return;
     }
     setState(() => _preparing = true);

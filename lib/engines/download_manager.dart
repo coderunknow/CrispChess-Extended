@@ -11,6 +11,7 @@ import 'dart:async';
 
 import 'package:crypto/crypto.dart';
 
+import 'archive_extract.dart';
 import 'download_io.dart'
     if (dart.library.js_interop) 'download_web.dart';
 import 'engine_storage.dart';
@@ -243,6 +244,23 @@ class EngineDownloadManager {
               'the file was discarded.');
     }
     await installFile(partialPath, targetPath);
+    // An archive is not an installable artifact: the engine launches an
+    // extracted binary, not a .zip. Nothing extracted it, so the Manager showed
+    // Lynx as "Installed and hash-verified" while LynxEngine looked in its own
+    // directory, found nothing and downloaded the archive a second time.
+    if (isArchiveName(targetPath)) {
+      emit(DownloadState.verifying, received: streamed.bytes, total: streamed.bytes);
+      try {
+        await extractArchiveTo(
+            archivePath: targetPath, destinationDir: installDirFor(targetPath));
+      } catch (error) {
+        await deleteQuietly(targetPath);
+        emit(DownloadState.failed, error: 'extraction failed: $error');
+        return DownloadResult(false,
+            message: 'The archive downloaded and verified but could not be '
+                'extracted: $error');
+      }
+    }
     await writeSidecar(targetPath, {
       'url': source.url,
       'sha256': localHash,
@@ -271,6 +289,28 @@ class EngineDownloadManager {
   }
 
   Future<void> dispose() => _events.close();
+}
+
+/// Whether an artifact name is an archive rather than a runnable file.
+bool isArchiveName(String path) {
+  final lower = path.toLowerCase();
+  return lower.endsWith('.zip') ||
+      lower.endsWith('.tar') ||
+      lower.endsWith('.tar.gz') ||
+      lower.endsWith('.tgz');
+}
+
+/// Where an archive's contents are installed: alongside the archive, in a
+/// directory named after it. Deterministic, so the engine adapter can compute
+/// the same path without asking the manager.
+String installDirFor(String archivePath) {
+  final name = archivePath.split(RegExp(r'[/\\]')).last;
+  final stem = name
+      .replaceAll(RegExp(r'\.tar\.gz$'), '')
+      .replaceAll(RegExp(r'\.(zip|tar|tgz)$'), '');
+  final slash = archivePath.lastIndexOf(RegExp(r'[/\\]'));
+  final parent = slash <= 0 ? '' : archivePath.substring(0, slash);
+  return '$parent/$stem';
 }
 
 /// Directory the verified artifacts of [artifact] live in. Shared with the
@@ -338,7 +378,11 @@ Future<ArtifactStatus> inspectArtifact(
   final authenticated = data?['authenticated'] == true;
   final actual = await hashFile(path);
   final length = await fileLength(path);
-  final sizeOk = source.bytes == null || length == source.bytes;
+  // For an archive, the installed state is "its contents were extracted", not
+  // "a .zip exists". Reporting the latter made the Manager claim Lynx was
+  // installed while the engine could not find a binary.
+  final sizeOk = (source.bytes == null || length == source.bytes) &&
+      (!isArchiveName(path) || await directoryHasFiles(installDirFor(path)));
   return ArtifactStatus(
     installed: sizeOk,
     verified: sizeOk && recorded != null && recorded == actual,

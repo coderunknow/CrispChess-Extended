@@ -284,7 +284,20 @@ BootstrapBatchResult computeBootstrapBatch(BootstrapBatchRequest request) {
         }
       }
     }
-    if (failure == null && fit.ratings.any((r) => !r.stdErr.isFinite)) {
+    // A participant with no rated games is its own singleton component and gets
+    // an infinite diagnostic standard error (rating_fit.dart). It must not
+    // condemn the replicate: one engine that failed to start would otherwise
+    // make EVERY replicate "singular", marking the whole bootstrap unreliable
+    // and blocking any precision objective, for a participant that contributes
+    // no information either way. Its stored value is the prior anchor, and the
+    // report must not present that as an interval.
+    final singletons = <String>{
+      for (final component in request.originalComponents)
+        if (component.length == 1) component.single,
+    };
+    if (failure == null &&
+        fit.ratings.any(
+            (r) => !singletons.contains(r.name) && !r.stdErr.isFinite)) {
       failure = 'singular';
     }
     if (failure != null) {
@@ -369,6 +382,17 @@ Future<ClusterBootstrapReport> runClusterBootstrap({
     for (var i = 0; i < ids.length; i++) {
       final values = [for (final sample in samples) sample[i]]..sort();
       individual[ids[i]] = _percentile(values, alpha, _mean(samples.map((s) => s[i])));
+      // The Monte Carlo adequacy check has to see the individual endpoints
+      // too. It used to be computed only from the max-statistic and pairwise
+      // distributions, so with no pairwise contrasts (targetPairs with a
+      // single target) the max-error array was all zeros, `mcRange` came out 0
+      // and `monteCarloAdequate` passed trivially -- the individual half-widths
+      // were never checked for replicate-to-replicate stability at all.
+      final endpointRange = math.max(
+        _endpointMonteCarloRange(values, alpha / 2),
+        _endpointMonteCarloRange(values, 1 - alpha / 2),
+      );
+      mcRange = math.max(mcRange, endpointRange);
     }
     final point = {for (final r in original.ratings) r.name: r.rating};
     final pairs = <(String, String)>[];

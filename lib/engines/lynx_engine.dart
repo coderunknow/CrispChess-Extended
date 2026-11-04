@@ -12,7 +12,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'chess_engine.dart';
+import 'archive_extract.dart' show extractArchiveTo;
 import 'download_io.dart' show hashFile;
+import 'download_manager.dart'
+    show artifactDir, currentArchName, currentPlatformName, installDirFor;
 import 'engine_storage.dart' show EngineStorage, EngineStorageError;
 import 'engine_artifacts.dart';
 import 'engine_initialization.dart';
@@ -447,9 +450,21 @@ class LynxEngine
   /// Install directory from the single user-selectable engine storage root.
   /// On Android executables must stay app-private, which the storage location
   /// reports; the loader follows it instead of assuming a writable shared path.
+  /// Where the managed binary lives.
+  ///
+  /// Must be the directory the Engine Manager installs an extracted archive
+  /// into, computed the same way: `artifactDir` for a `.zip` source, then
+  /// [installDirFor]. The two disagreed, so a download through the Manager put
+  /// the archive in one place and this adapter looked in another.
   static Future<Directory> _engineDir() async {
     final location = await EngineStorage.shared.location();
-    return Directory('${location.executableRoot}/lynx/$_lynxVersion/bin');
+    final artifact = lynxArtifact(currentPlatformName(), currentArchName());
+    final source = artifact.sourceFor(currentPlatformName(), currentArchName());
+    if (source == null) {
+      return Directory('${location.executableRoot}/lynx/$_lynxVersion/bin');
+    }
+    return Directory(
+        installDirFor('${artifactDir(location, artifact)}/${source.effectiveName}'));
   }
 
   /// Pre-dev5 install location, still read so an existing binary keeps working
@@ -516,27 +531,13 @@ class LynxEngine
       }
       // Extract into a staging directory and only move the verified binary
       // into place, so a half-extracted archive never becomes "installed".
+      // The extraction itself is shared with the Engine Manager's archive path
+      // so the two cannot disagree about the result.
       staging = Directory('${dir.path}/.staging-${DateTime.now().microsecondsSinceEpoch}');
       await staging.create(recursive: true);
       debugPrint('[Lynx] Extracting...');
-      // `-command` takes ONE string; passing 'Expand-Archive', '-Path', path as
-      // separate argv items hands PowerShell a list of positional strings, so a
-      // destination containing a space (a user-chosen storage root under
-      // C:\Users\Jane Doe\...) splits and the extraction fails. Quoting the
-      // paths inside a single -command string is what Expand-Archive documents.
-      final ProcessResult unzip = Platform.isWindows
-          ? await Process.run('powershell', [
-              '-NoProfile',
-              '-NonInteractive',
-              '-command',
-              "Expand-Archive -LiteralPath '${_psLiteral(zipFile.path)}' "
-                  "-DestinationPath '${_psLiteral(staging.path)}' -Force",
-            ])
-          : await Process.run('unzip', ['-o', zipFile.path, '-d', staging.path]);
-      if (unzip.exitCode != 0) {
-        throw ProcessException(Platform.isWindows ? 'powershell' : 'unzip',
-            const [], 'extracting Lynx failed: ${unzip.stderr}', unzip.exitCode);
-      }
+      await extractArchiveTo(
+          archivePath: zipFile.path, destinationDir: staging.path);
       final staged = File('${staging.path}/${asset.binary}');
       if (!staged.existsSync()) {
         throw FileSystemException(
@@ -577,22 +578,23 @@ class LynxEngine
     }
   }
 
-  /// Escapes a path for a single-quoted PowerShell literal.
-  ///
-  /// Inside `'...'` PowerShell interprets nothing except the closing quote, and
-  /// a literal quote is written by doubling it — so a `$` or a backtick in a
-  /// path cannot start a command. PowerShell also accepts the typographic
-  /// apostrophes U+2018, U+2019, U+201A and U+201B as string delimiters, so a
-  /// path such as `C:\Users\O’Brien\engines` would otherwise close the
-  /// literal early; all five are doubled.
-  static String _psLiteral(String value) => value.replaceAllMapped(
-      RegExp("[\u0027\u2018\u2019\u201A\u201B]"), (m) => '${m[0]}${m[0]}');
-
   /// Delete downloaded engine files.
   static Future<void> deleteDownload() async {
     final dir = await _engineDir();
     if (await dir.exists()) {
       await dir.delete(recursive: true);
+    }
+    // A pre-dev5 install is still discovered (and launched) by isDownloaded/
+    // _start, so deleting only the managed directory left the engine usable:
+    // the UI said "not installed" while the next run found the old binary.
+    try {
+      final legacy = _legacyDir;
+      if (await legacy.exists()) {
+        await legacy.delete(recursive: true);
+      }
+    } catch (_) {
+      // A legacy tree we cannot remove must not fail the managed delete that
+      // already succeeded; isDownloaded still reports what is actually there.
     }
   }
 }

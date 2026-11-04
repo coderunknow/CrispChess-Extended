@@ -291,7 +291,13 @@ class EngineStorage {
     if (kIsWeb) return;
     try {
       await storageWriteMigrationMarker(to, {
-        'from': redactStoragePath(from), 'complete': complete,
+        // The REAL path, not the redacted form. Restoration has to resolve it,
+        // and redaction (`HOME ?? USERPROFILE`) and restoration
+        // (`HOME ?? APPDATA`) do not even agree on which variable is the home
+        // directory, so a `~` in the marker could never be expanded back on
+        // Windows. The marker lives in the app's own storage directory, next to
+        // the engine files it describes, not in a report.
+        'from': from, 'complete': complete,
         'at': DateTime.now().toUtc().toIso8601String(),
       });
     } catch (_) {
@@ -307,7 +313,10 @@ class EngineStorage {
     if (data == null || data['complete'] == true) return null;
     final from = data['from'] as String?;
     if (from == null) return null;
-    final source = from.replaceFirst('~', fallbackHomeDirectory());
+    // Markers written before this version stored a redacted path; expand it the
+    // way those versions meant to. New markers store the real path.
+    final source =
+        from.startsWith('~') ? from.replaceFirst('~', fallbackHomeDirectory()) : from;
     // Nothing to finish if the old tree is gone, or if it is the root that is
     // already active (that is what "no migration needed" looks like).
     if (source == current.rootPath) return null;

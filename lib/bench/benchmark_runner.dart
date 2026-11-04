@@ -401,7 +401,7 @@ class BenchmarkRunner {
         // `continue` skipped it, so when the LAST scheduled game was aborted
         // the loop exited on its own condition and the intelligent run ended
         // early with a plan that still had budget to spend.
-        await _maybeExtendIntelligent(plan, clock);
+        await _maybeExtendIntelligent(plan, clock, scheduleIndex);
         continue;
       }
       if (white.failed || black.failed) {
@@ -412,7 +412,7 @@ class BenchmarkRunner {
         // finished benchmark with no results.
         _stopReason = 'engine failure';
         _recordAborted(planned, white, black);
-        await _maybeExtendIntelligent(plan, clock);
+        await _maybeExtendIntelligent(plan, clock, scheduleIndex);
         continue;
       }
 
@@ -503,7 +503,7 @@ class BenchmarkRunner {
       }
       // The scheduler appends to `_schedule`; the index already points at the
       // appended games, so the loop condition picks them up.
-      await _maybeExtendIntelligent(plan, clock);
+      await _maybeExtendIntelligent(plan, clock, scheduleIndex);
     }
 
     await _finalizeIntelligentStatistics(clock);
@@ -863,14 +863,21 @@ class BenchmarkRunner {
     _latestBootstrap = report;
   }
 
-  /// Runs the adaptive step when the current schedule is exhausted.
+  /// Runs the adaptive step only when the schedule is exhausted.
   ///
-  /// `_schedule` grows in place and `scheduleIndex` already points at the first
-  /// game the scheduler appended, so the loop picks the new games up with no
-  /// further bookkeeping. Returns whether the schedule actually grew.
-  Future<bool> _maybeExtendIntelligent(BenchmarkPlan plan, Stopwatch clock) async {
+  /// [nextIndex] is the caller's `scheduleIndex`. While games are still queued
+  /// the scheduler must not be consulted: it bills the game budget against
+  /// games already *played* (`state.gamesPlayed`), so deciding early would
+  /// overrun the cap, and each call refits the model and may run a bootstrap —
+  /// work that is wasted when games are still pending.
+  ///
+  /// `_schedule` grows in place and the caller's index already points at the
+  /// first appended game, so nothing else is needed for those games to play.
+  Future<bool> _maybeExtendIntelligent(
+      BenchmarkPlan plan, Stopwatch clock, int nextIndex) async {
     if (plan.format != TournamentFormat.intelligent) return false;
     if (_cancelled || _timeCapReached) return false;
+    if (nextIndex < _schedule.length) return false;
     final before = _schedule.length;
     final extended = await _extendIntelligentSchedule(clock);
     return extended && _schedule.length > before;

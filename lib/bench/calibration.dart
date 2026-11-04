@@ -469,6 +469,13 @@ double _calibratedStdErr(
     {required double fallback}) {
   final anchorVariance =
       anchorSe != null && anchorSe.isFinite && anchorSe > 0 ? anchorSe * anchorSe : 0.0;
+  if (engineId == anchorId) {
+    // Its calibrated value is r + A - r = A: the fitted part cancels exactly, so
+    // the only uncertainty left is the anchor's own published one. Building the
+    // coefficients as a map would have collapsed the two identical keys into
+    // `{anchorId: -1}` and returned the anchor's FITTED variance instead.
+    return anchorVariance > 0 ? math.sqrt(anchorVariance) : 0;
+  }
   final contrast = fit.inSameComponent(engineId, anchorId)
       ? fit.contrastVariance({engineId: 1, anchorId: -1})
       : double.infinity;

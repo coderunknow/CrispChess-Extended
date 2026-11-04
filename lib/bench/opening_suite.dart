@@ -115,8 +115,22 @@ class OpeningSuite {
   /// the line of chess, so two different pairings that play the same moves are
   /// one cluster of evidence. Only the starting position, which every first
   /// move shares, is identified by its position rather than by a move list.
-  String clusterIdFor(Opening opening) =>
-      opening.id == 'startpos' ? 'startpos' : opening.moves.join(' ');
+  ///
+  /// A position defined by a FEN with no moves (an EPD-style book, which
+  /// `Opening.fromJson` accepts) has an empty move list, so keying on the moves
+  /// alone gave every such opening the same key — one cluster for a suite that
+  /// might hold dozens, and a bootstrap that could never reach its cluster
+  /// minimum. Those fall back to the position itself.
+  String clusterIdFor(Opening opening) {
+    if (opening.id == 'startpos') return 'startpos';
+    if (opening.moves.isEmpty) {
+      final fen = opening.fen;
+      // Without moves or a FEN there is nothing to distinguish the line by, so
+      // the id (unique within a suite) is the only honest key.
+      return fen == null || fen.isEmpty ? 'opening:${opening.id}' : 'fen:$fen';
+    }
+    return opening.moves.join(' ');
+  }
 
   /// A deterministic permutation: no opening repeats within one cycle for a
   /// pairing. Adaptive allocation stops adding a pair when its cycle is spent.

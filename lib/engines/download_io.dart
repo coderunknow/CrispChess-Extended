@@ -149,6 +149,19 @@ Future<String?> hashFile(String path) async {
 
 Future<bool> fileExists(String path) => File(path).exists();
 
+/// Whether [path] is a directory holding at least one file, at any depth.
+///
+/// Used to decide whether an archive was actually extracted: the archive itself
+/// being present says nothing about whether its contents were installed.
+Future<bool> directoryHasFiles(String path) async {
+  final dir = Directory(path);
+  if (!await dir.exists()) return false;
+  await for (final entity in dir.list(recursive: true, followLinks: false)) {
+    if (entity is File) return true;
+  }
+  return false;
+}
+
 Future<int?> fileLength(String path) async {
   final file = File(path);
   return await file.exists() ? file.length() : null;

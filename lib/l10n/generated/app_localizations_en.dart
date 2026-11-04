@@ -2114,4 +2114,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calibrationNoAnchorUncertainty => 'The anchor states no published uncertainty; these intervals do not include anchor error.';
+
+  @override
+  String get engineLabPickOneTarget => 'Select at least one target engine.';
 }

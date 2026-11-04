@@ -641,9 +641,20 @@ class IntelligentScheduler {
         final openingId = remaining.firstWhere((id) => !_usedClusters.contains(suite.clusterIdFor(suite.openingById(id)!)), orElse: () => remaining.first);
         final opening = suite.openingById(openingId)!;
         final cluster = suite.clusterIdFor(opening);
-        final coverageBonus = _usedClusters.length < bootstrapSettings.minClusters && !_usedClusters.contains(cluster) ? 1.5 : 1.0;
+        final clusterNeeded = _usedClusters.length < bootstrapSettings.minClusters && !_usedClusters.contains(cluster);
+        final coverageBonus = clusterNeeded ? 1.5 : 1.0;
         final stability = 1 - math.max(_byId[a]!.failureProbability, _byId[b]!.failureProbability).clamp(0.0, 0.95);
-        final utility = gain * coverageBonus * stability / math.max(1, cost);
+        // A needed independent opening has value of its own, not only as a
+        // multiplier on an information gain. Multiplying alone meant that a unit
+        // which adds exactly the cluster the reliability gate is waiting for
+        // scored zero whenever every contrast was already narrow, and the
+        // scheduler then stopped calling the run "insufficient independent
+        // openings" -- with a matchup that would have added one sitting right
+        // there. The additive term follows the connectivity bonus above, which
+        // exists for the same reason.
+        final clusterValue = clusterNeeded ? 1.0 / math.max(1, cost) : 0.0;
+        final utility =
+            (gain * coverageBonus + clusterValue) * stability / math.max(1, cost);
         if (utility > bestUtility) {
           bestUtility = utility;
           bestA = a; bestB = b; bestOpening = openingId; bestCluster = cluster; bestCost = cost;

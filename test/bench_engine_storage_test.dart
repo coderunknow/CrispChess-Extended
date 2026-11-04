@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:crispchess/bench/benchmark_storage_base.dart';
+import 'package:crispchess/engines/archive_extract.dart';
 import 'package:crispchess/engines/download_io.dart';
 import 'package:crispchess/engines/download_manager.dart';
 import 'package:crispchess/engines/engine_artifacts.dart';
@@ -262,24 +263,75 @@ void main() {
     // list of positional strings, and a destination under a user profile with a
     // space in the name ("C:/Users/Jane Doe/...") split into two arguments.
     test('paths are quoted as PowerShell literals, spaces and quotes included', () {
-      String literal(String value) => value.replaceAll("'", "''");
       const zip = r"C:\Users\Jane Doe\AppData\crispchess\lynx.part.zip";
       const staging = r"C:\Users\Jane Doe\AppData\crispchess\.staging-1";
-      final command = "Expand-Archive -LiteralPath '${literal(zip)}' "
-          "-DestinationPath '${literal(staging)}' -Force";
+      final command = "Expand-Archive -LiteralPath '${psLiteral(zip)}' "
+          "-DestinationPath '${psLiteral(staging)}' -Force";
       expect(command, contains("-LiteralPath 'C:\\Users\\Jane Doe\\"));
       // Exactly two single-quoted regions: one path each, untouched otherwise.
       expect("'".allMatches(command).length, 4);
       // A quote inside a path is doubled, which is the only PowerShell escape.
-      expect(literal(r"a'b"), r"a''b");
+      expect(psLiteral(r"a'b"), r"a''b");
+      // PowerShell also treats the typographic apostrophes as delimiters, so a
+      // path under "O\u2019Brien" must not close the literal early.
+      expect(psLiteral('O\u2019Brien'), 'O\u2019\u2019Brien');
+      // Nothing else in a path can start a command inside '...'.
+      expect(psLiteral(r'$HOME`whoami;'), r'$HOME`whoami;');
     });
 
-    test('a staging tree is removable even when extraction throws', () async {
-      final staging = Directory('${temp.path}/.staging-1')..createSync(recursive: true);
-      File('${staging.path}/partial.bin').writeAsStringSync('x');
-      // The finally block in LynxEngine._download does exactly this.
-      if (staging.existsSync()) staging.deleteSync(recursive: true);
-      expect(staging.existsSync(), isFalse);
+    test('an archive is extracted beside itself, where the engine looks', () {
+      // The manager saved a verified .zip and called it installed while the
+      // engine adapter looked for an extracted binary in a different path.
+      expect(isArchiveName('CrispChess-linux-x64.zip'), isTrue);
+      expect(isArchiveName('CrispChess-linux-x64.tar.gz'), isTrue);
+      expect(isArchiveName('app-release.apk'), isFalse);
+      expect(
+          installDirFor('/root/lynx/1.11.0/downloads/Lynx-1.11.0-linux-x64.zip'),
+          '/root/lynx/1.11.0/downloads/Lynx-1.11.0-linux-x64');
+    });
+
+    test('extraction installs the contents and removes its staging tree',
+        () async {
+      // A real tar round trip: the extractor, not a hand-written copy loop.
+      final source = Directory('${temp.path}/payload/bin')
+        ..createSync(recursive: true);
+      final binary = File('${source.path}/lynx')..writeAsStringSync('#!/bin/sh');
+      final archive = '${temp.path}/payload.tar.gz';
+      final tar = await Process.run(
+          'tar', ['-czf', archive, '-C', '${temp.path}/payload', 'bin']);
+      if (tar.exitCode != 0) {
+        // tar is absent on some CI images; the assertion below is the point of
+        // the test, not the compression tool.
+        return;
+      }
+      final destination = '${temp.path}/install';
+      final installed = await extractArchiveTo(
+          archivePath: archive, destinationDir: destination);
+      expect(installed, greaterThan(0));
+      expect(File('$destination/bin/lynx').existsSync(), isTrue);
+      expect(binary.existsSync(), isTrue, reason: 'the archive is not consumed');
+      // No staging tree survives next to the destination.
+      final leftovers = Directory('${temp.path}')
+          .listSync()
+          .whereType<Directory>()
+          .where((d) => d.path.contains('.staging-'));
+      expect(leftovers, isEmpty);
+    });
+
+    test('a failed extraction leaves nothing that looks installed', () async {
+      final bogus = File('${temp.path}/broken.zip')..writeAsStringSync('not a zip');
+      final destination = '${temp.path}/install-failed';
+      await expectLater(
+        extractArchiveTo(archivePath: bogus.path, destinationDir: destination),
+        throwsA(isA<Exception>()),
+      );
+      expect(Directory(destination).existsSync(), isFalse,
+          reason: 'a half-install must not be created');
+      final leftovers = Directory('${temp.path}')
+          .listSync()
+          .whereType<Directory>()
+          .where((d) => d.path.contains('.staging-'));
+      expect(leftovers, isEmpty, reason: 'the staging tree is always removed');
     });
   });
 }

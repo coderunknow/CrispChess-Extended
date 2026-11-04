@@ -3534,6 +3534,9 @@ abstract class AppLocalizations {
 
   /// `calibrationNoAnchorUncertainty`.
   String get calibrationNoAnchorUncertainty;
+
+  /// `engineLabPickOneTarget`.
+  String get engineLabPickOneTarget;
 }
 
 class _AppLocalizationsDelegate
