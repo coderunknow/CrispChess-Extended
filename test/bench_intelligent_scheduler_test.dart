@@ -248,6 +248,47 @@ void main() {
     expect(decision.reason, 'precision objective achieved');
   });
 
+  test('a participant with no games does not stop every candidate scoring', () {
+    // A participant that failed to start has zero rated games, which makes its
+    // covariance diagonal infinite. Summing `uᵀCu` over it produced NaN, so
+    // every candidate's utility was NaN, `utility > bestUtility` was false for
+    // all of them, and the scheduler stopped with "no affordable informative
+    // matchup" no matter what budget was left.
+    final s = scheduler(pool: [
+      candidate('Alpha', rating: 1700),
+      candidate('Beta', rating: 1500),
+      candidate('Gamma', rating: 1400),
+    ], cfg: config(individual: 5, pairwise: 5));
+    final plan = s.buildPilotPlan();
+    // Alpha and Beta played; Gamma is present in the participant list but has
+    // no rated game.
+    final played = plan.games
+        .where((g) => !g.whiteId.endsWith('Gamma') && !g.blackId.endsWith('Gamma'))
+        .toList();
+    final fit = fitElo(
+      games: [
+        for (final g in played)
+          (white: g.whiteId, black: g.blackId,
+              score: g.whiteId.endsWith('Alpha') ? 1.0 : 0.0),
+        // A rated game for Gamma would defeat the point of the test.
+      ],
+      labels: {for (final id in s.participantIds) id: id},
+      participants: s.participantIds,
+    );
+    expect(fit.isIsolated('builtin:Gamma'), isTrue,
+        reason: 'the precondition: Gamma has no rated games');
+    final decision = s.decideNext(
+      games: const <BenchGame>[], fit: fit, bootstrap: null,
+      state: SchedulerState(gamesPlayed: played.length),
+      finalBootstrapReserveMillis: 0,
+    );
+    expect(decision.stop, isFalse,
+        reason: 'a usable matchup remains and the budget is untouched');
+    expect(decision.games, isNotEmpty);
+    // The score must stay comparable, not become NaN.
+    expect(decision.utility.isNaN, isFalse);
+  });
+
   test('an adaptive decision is one colour-reversed unit on a fresh opening', () {
     final s = scheduler(pool: [
       candidate('Alpha', rating: 1700),

@@ -634,63 +634,39 @@ class IntelligentScheduler {
       for (var j = i + 1; j < participantIds.length; j++) {
         final a = participantIds[i], b = participantIds[j];
         if (!_availableParticipant(a) || !_availableParticipant(b)) continue;
-        // A participant with no rated games has an infinite covariance
-        // diagonal, so `uᵀCu` and the contrast projections become NaN and
-        // EVERY candidate's utility is NaN -- the comparison `utility >
-        // bestUtility` is then false for all of them and the scheduler stops
-        // with "no affordable informative matchup" no matter what budget
-        // remains. Scheduling a game for such a participant is worthwhile
-        // (it is how it stops being isolated), so it is scored through the
-        // connectivity path instead of the variance formula it cannot enter.
-        final eitherIsolated = model.isIsolated(a) || model.isIsolated(b);
-        final key = pairwiseKey(a, b);
-        final remaining = _remainingOpenings(key, i * participantIds.length + j);
-        if (remaining.isEmpty) continue;
-        final cost = _measuredPairCost(a, b, state);
-        if (maxDuration != null && state.elapsed.inMilliseconds + cost + finalBootstrapReserveMillis > maxDuration.inMilliseconds) continue;
-        if (maxEngine != null && state.engineMillis + cost > maxEngine) continue;
-        final p = expectedScore(_rating(fit, a), _rating(fit, b));
-        final w = 2 * p * (1 - p) / (ratingEloScale * ratingEloScale);
-        final ia = model.players.indexOf(a), ib = model.players.indexOf(b);
-        var gain = 0.0;
-        if (eitherIsolated) {
-          // Not a variance question: this is the pair that would give an
-          // otherwise unpriced participant some evidence. Scored like the
-          // connectivity bonus, small and cost-normalised, so it competes with
-          // real information gains without pretending to be one.
-          gain = 1.0 / math.max(1, cost);
-          final cluster = suite.clusterIdFor(
-              suite.openingById(remaining.first)!);
-          final clusterNeeded = _usedClusters.length < bootstrapSettings.minClusters &&
-              !_usedClusters.contains(cluster);
-          final stability = 1 -
-              math.max(_byId[a]!.failureProbability, _byId[b]!.failureProbability)
-                  .clamp(0.0, 0.95);
-          final utility =
-              (gain + (clusterNeeded ? 1.0 / math.max(1, cost) : 0.0)) *
-                  stability / math.max(1, cost);
-          if (utility > bestUtility) {
-            bestUtility = utility;
-            bestA = a; bestB = b;
-            bestOpening = remaining.first; bestCluster = cluster; bestCost = cost;
-            bestReason = 'Adding evidence for a participant that has none yet '
-                '(${model.isIsolated(a) ? a : b} has no rated games).';
-          }
-          continue;
-        }
         final u = List<double>.filled(model.players.length, 0);
         u[ia] = 1; u[ib] = -1;
+        // A participant with no rated games has an INFINITE covariance
+        // diagonal. Summing over it made `uu` and `cv` NaN, so EVERY candidate's
+        // utility was NaN, `utility > bestUtility` was false for all of them,
+        // and the scheduler stopped with "no affordable informative matchup" no
+        // matter how much budget remained -- permanently, because the isolated
+        // participant never got the game that would have given it evidence.
+        //
+        // The infinite entries are skipped rather than accumulated: what a
+        // finite pair contributes does not depend on a third participant that
+        // shares no game with it. A pair that itself involves an isolated
+        // participant gets `uu == 0`, which is also the truth (it has no
+        // information to reduce) and leaves the contrast projection `cv` to
+        // price the value of connecting it.
+        final finite = [
+          for (var x = 0; x < model.players.length; x++)
+            if (!model.isIsolated(model.players[x])) x,
+        ];
         var uu = 0.0;
-        for (var x = 0; x < u.length; x++) {
-          for (var y = 0; y < u.length; y++) {
+        for (final x in finite) {
+          for (final y in finite) {
             uu += u[x] * model.covariance[x][y] * u[y];
           }
         }
+        if (!uu.isFinite) uu = 0;
         for (final contrast in contrasts) {
           var cv = 0.0;
-          for (var x = 0; x < u.length; x++) {
-            cv += (contrast.coefficients[model.players[x]] ?? 0) * (model.covariance[ia][x] - model.covariance[ib][x]);
+          for (final x in finite) {
+            cv += (contrast.coefficients[model.players[x]] ?? 0) *
+                (model.covariance[ia][x] - model.covariance[ib][x]);
           }
+          if (!cv.isFinite) cv = 0;
           final current = model.contrastVariance(contrast.coefficients);
           final target = contrast.targetVariance;
           if (!current.isFinite) {

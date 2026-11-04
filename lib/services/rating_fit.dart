@@ -146,15 +146,22 @@ class RatingModelFit {
     required this.games,
   });
 
-  /// Whether [id] carries no evidence of its own: it forms a component of one,
-  /// which is what a participant with zero rated games looks like. Its
-  /// covariance diagonal is infinite, so any expression that includes it
-  /// becomes infinite or NaN and cannot be compared with another candidate.
+  /// Whether [id] carries no rated evidence of its own, so its covariance
+  /// diagonal is infinite and any expression including it becomes infinite or
+  /// NaN and cannot be compared with another candidate.
+  ///
+  /// This is about GAMES, not component size: before the first game every
+  /// participant is a component of one, so a component-size test would call
+  /// them all isolated and make the pilot's own information gain unreachable.
+  /// A participant that played nothing is the case that actually needs handling.
   bool isIsolated(String id) {
-    final component = componentOf[id];
-    if (component == null) return true;
-    if (component < 0 || component >= components.length) return true;
-    return components[component].length <= 1;
+    final rating = ratingFor(id);
+    // GAMES, not component size. Before the first game every participant is a
+    // component of one, and keying on that made every candidate look isolated;
+    // after the pilot everyone is connected but one that played nothing is
+    // still an isolated singleton with an infinite diagonal. Zero rated games
+    // is the condition that is true in exactly the cases that matter.
+    return rating == null || rating.games == 0;
   }
 
   PlayerRating? ratingFor(String id) {
