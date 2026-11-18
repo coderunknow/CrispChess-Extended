@@ -68,12 +68,15 @@ jobs:
       - name: Provide the native ONNX Runtime
         run: |
           version=1.15.1
-          curl -sSLf --retry 3 -o ort.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-linux-x64-$version.tgz"
-          tar -xzf ort.tgz
+          # microsoft/onnxruntime removed its GitHub releases entirely; the
+          # same versioned shared library ships in the NuGet managed package.
+          curl -sSLf --retry 3 -o ort.nupkg \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$version/microsoft.ml.onnxruntime.$version.nupkg"
+          unzip -j ort.nupkg 'runtimes/linux-x64/native/libonnxruntime.so*' -d ort-lib
           mkdir -p "$GITHUB_WORKSPACE/linux"
-          cp -P "onnxruntime-linux-x64-$version/lib/"libonnxruntime.so* \
+          cp -P ort-lib/libonnxruntime.so* \
             "$GITHUB_WORKSPACE/linux/"
+          ln -sf libonnxruntime.so "$GITHUB_WORKSPACE/linux/libonnxruntime.so.$version"
           ls -la "$GITHUB_WORKSPACE/linux/"
 
       - name: Play

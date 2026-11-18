@@ -98,11 +98,16 @@ jobs:
       - name: Bundle the native ONNX Runtime
         run: |
           version=1.15.1
-          curl -sSLf --retry 3 -o ort.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-linux-x64-$version.tgz"
-          tar -xzf ort.tgz
-          cp -P "onnxruntime-linux-x64-$version/lib/"libonnxruntime.so* \
+          # microsoft/onnxruntime removed its GitHub releases entirely; the
+          # same versioned shared library ships in the NuGet managed package,
+          # which keeps old versions. The loader opens the unversioned name,
+          # and the versioned alias stays for anything that wants the soname.
+          curl -sSLf --retry 3 -o ort.nupkg \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$version/microsoft.ml.onnxruntime.$version.nupkg"
+          unzip -j ort.nupkg 'runtimes/linux-x64/native/libonnxruntime.so*' -d ort-lib
+          cp -P ort-lib/libonnxruntime.so* \
             build/linux/x64/release/bundle/lib/
+          ln -sf libonnxruntime.so build/linux/x64/release/bundle/lib//libonnxruntime.so.$version
           ls -la build/linux/x64/release/bundle/lib/ | grep onnx
       - name: Bundle CrispASR (voice moves)
         run: tool/bundle_crispasr.sh linux build/linux/x64/release/bundle
@@ -154,11 +159,16 @@ jobs:
       - name: Bundle the native ONNX Runtime
         run: |
           version=1.15.1
-          curl -sSLf --retry 3 -o ort.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-linux-x64-$version.tgz"
-          tar -xzf ort.tgz
-          cp -P "onnxruntime-linux-x64-$version/lib/"libonnxruntime.so* \
+          # microsoft/onnxruntime removed its GitHub releases entirely; the
+          # same versioned shared library ships in the NuGet managed package,
+          # which keeps old versions. The loader opens the unversioned name,
+          # and the versioned alias stays for anything that wants the soname.
+          curl -sSLf --retry 3 -o ort.nupkg \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$version/microsoft.ml.onnxruntime.$version.nupkg"
+          unzip -j ort.nupkg 'runtimes/linux-x64/native/libonnxruntime.so*' -d ort-lib
+          cp -P ort-lib/libonnxruntime.so* \
             build/linux/x64/release/bundle/lib/
+          ln -sf libonnxruntime.so build/linux/x64/release/bundle/lib//libonnxruntime.so.$version
           ls -la build/linux/x64/release/bundle/lib/ | grep onnx
       - name: Bundle CrispASR (voice moves)
         run: tool/bundle_crispasr.sh linux build/linux/x64/release/bundle
