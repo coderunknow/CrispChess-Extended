@@ -1125,7 +1125,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLab => 'Engine Lab';
 
   @override
-  String get engineLabSubtitle => 'Benchmark engines, keep the results and compare versions';
+  String get engineLabSubtitle =>
+      'Benchmark engines, keep the results and compare versions';
 
   @override
   String get engineLabDashboard => 'Dashboard';
@@ -1164,7 +1165,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get customConfiguration => 'Custom configuration';
 
   @override
-  String get engineLabCustomHint => 'Every setting is stored with the result, so the run can be repeated';
+  String get engineLabCustomHint =>
+      'Every setting is stored with the result, so the run can be repeated';
 
   @override
   String get timePerMoveMs => 'Time per move (ms)';
@@ -1203,7 +1205,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get optionOverrides => 'UCI option overrides (Name=Value, …)';
 
   @override
-  String get adaptiveStopping => 'Stop early when the uncertainty target is met';
+  String get adaptiveStopping =>
+      'Stop early when the uncertainty target is met';
 
   @override
   String get targetStdErr => 'Target standard error (Elo)';
@@ -1224,7 +1227,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabUnavailable => 'unavailable';
 
   @override
-  String get engineLabUnavailableHint => 'Engines marked ✕ cannot be benchmarked on this platform; the reason appears on hover';
+  String get engineLabUnavailableHint =>
+      'Engines marked ✕ cannot be benchmarked on this platform; the reason appears on hover';
 
   @override
   String get selectAll => 'Select all';
@@ -1242,7 +1246,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get referenceEngine => 'Reference engine';
 
   @override
-  String get engineLabGauntletNeedsReference => 'Pick a reference engine for the gauntlet.';
+  String get engineLabGauntletNeedsReference =>
+      'Pick a reference engine for the gauntlet.';
 
   @override
   String get startBenchmark => 'Start benchmark';
@@ -1329,13 +1334,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noBenchmarksYet => 'No benchmarks yet';
 
   @override
-  String get engineLabEmptyHint => 'Pick two or more engines and run a Quick benchmark. The result is kept.';
+  String get engineLabEmptyHint =>
+      'Pick two or more engines and run a Quick benchmark. The result is kept.';
 
   @override
-  String get engineLabLeaderboardHint => 'The leaderboard is built from the runs stored on this device.';
+  String get engineLabLeaderboardHint =>
+      'The leaderboard is built from the runs stored on this device.';
 
   @override
-  String get engineLabHistoryHint => 'Every run is stored on this device and can be exported as JSON, CSV or PGN.';
+  String get engineLabHistoryHint =>
+      'Every run is stored on this device and can be exported as JSON, CSV or PGN.';
 
   @override
   String get engineLabNoRatings => 'No rated games yet.';
@@ -1347,7 +1355,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabChanged => 'Engines that changed';
 
   @override
-  String get engineLabChangedSubtitle => 'These builds differ from the last benchmark';
+  String get engineLabChangedSubtitle =>
+      'These builds differ from the last benchmark';
 
   @override
   String get engineLabRebenchmark => 'Re-benchmark';
@@ -1356,7 +1365,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabAutomatic => 'Automatic benchmarks';
 
   @override
-  String get engineLabAutomaticSubtitle => 'Automatic runs are always a capped Quick benchmark';
+  String get engineLabAutomaticSubtitle =>
+      'Automatic runs are always a capped Quick benchmark';
 
   @override
   String get engineLabAutoAfterAdd => 'After adding an engine';
@@ -1368,13 +1378,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabAutoBudget => 'Budget';
 
   @override
-  String get engineLabRelativeScaleHint => 'Relative Elo: 1500 is the average of the engines in this run, not an absolute strength';
+  String get engineLabRelativeScaleHint =>
+      'Relative Elo: 1500 is the average of the engines in this run, not an absolute strength';
 
   @override
   String get engineLabCompareTwo => 'Compare two engines';
 
   @override
-  String get engineLabCompareHint => 'A difference without its uncertainty is not a result';
+  String get engineLabCompareHint =>
+      'A difference without its uncertainty is not a result';
 
   @override
   String get engineLabPickTwo => 'Pick two engines.';
@@ -1404,7 +1416,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get performanceMetrics => 'Performance';
 
   @override
-  String get engineLabPerformanceHint => 'Measured around every move; counters the engine does not report stay unavailable';
+  String get engineLabPerformanceHint =>
+      'Measured around every move; counters the engine does not report stay unavailable';
 
   @override
   String get nodesPerSecond => 'Nodes per second';
@@ -1458,7 +1471,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get stabilityFailed => 'Failed';
 
   @override
-  String get engineLabStabilityHint => 'Repeated initialisation, repeated searches and a clean shutdown';
+  String get engineLabStabilityHint =>
+      'Repeated initialisation, repeated searches and a clean shutdown';
 
   @override
   String get engineLabRunStability => 'Run check';
@@ -1467,10 +1481,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabIdentity => 'Engine identity';
 
   @override
-  String get engineLabIdentityHint => 'What the benchmark records, and what decides whether two runs are comparable';
+  String get engineLabIdentityHint =>
+      'What the benchmark records, and what decides whether two runs are comparable';
 
   @override
-  String get engineLabIdentityEmpty => 'Inspect an engine to see its id, fingerprint, backend and configuration digest.';
+  String get engineLabIdentityEmpty =>
+      'Inspect an engine to see its id, fingerprint, backend and configuration digest.';
 
   @override
   String get engineLabInspect => 'Inspect';
@@ -1485,13 +1501,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabVersion => 'Version';
 
   @override
-  String get engineLabMetricsHint => 'CPU time and memory usage are not exposed by the engine protocol, so they are reported as unavailable rather than estimated.';
+  String get engineLabMetricsHint =>
+      'CPU time and memory usage are not exposed by the engine protocol, so they are reported as unavailable rather than estimated.';
 
   @override
   String get engineLabLicense => 'Suite license';
 
   @override
-  String get engineLabProgressionHint => 'Relative rating of each engine over the runs stored here';
+  String get engineLabProgressionHint =>
+      'Relative rating of each engine over the runs stored here';
 
   @override
   String get engineLabDeleteTitle => 'Delete this run?';
@@ -1545,7 +1563,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabMethod => 'Method';
 
   @override
-  String get engineLabMethodBody => 'Bradley–Terry maximum likelihood over every rated game, centred on the average of the engines in the run. The 95% interval is the rating ± 1.96 × standard error, from the Fisher information of the fit. Adjudicated, aborted, cancelled and forfeited games are counted but not rated: a game that did not finish is not a draw.';
+  String get engineLabMethodBody =>
+      'Bradley–Terry maximum likelihood over every rated game, centred on the average of the engines in the run. The 95% interval is the rating ± 1.96 × standard error, from the Fisher information of the fit. Adjudicated, aborted, cancelled and forfeited games are counted but not rated: a game that did not finish is not a draw.';
 
   @override
   String get exportJson => 'Export JSON';
@@ -1575,7 +1594,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get retry => 'Try again';
 
   @override
-  String get engineLabAdaptiveStopping => 'Stop early once the rating is precise';
+  String get engineLabAdaptiveStopping =>
+      'Stop early once the rating is precise';
 
   @override
   String get engineLabAppVersion => 'App version';
@@ -1590,10 +1610,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabBuiltIn => 'Ships with the app';
 
   @override
-  String get engineLabCalibrationHint => 'A published rating for an engine in the run is the only way the relative scale becomes an absolute one.';
+  String get engineLabCalibrationHint =>
+      'A published rating for an engine in the run is the only way the relative scale becomes an absolute one.';
 
   @override
-  String get engineLabCalibrationUnavailable => 'No calibrated rating for this run:';
+  String get engineLabCalibrationUnavailable =>
+      'No calibrated rating for this run:';
 
   @override
   String get engineLabCompare => 'Compare two engines';
@@ -1602,13 +1624,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabCustom => 'custom';
 
   @override
-  String get engineLabDeleteBody => 'The stored games, ratings and report are removed from this device. Exported copies are not affected.';
+  String get engineLabDeleteBody =>
+      'The stored games, ratings and report are removed from this device. Exported copies are not affected.';
 
   @override
   String get engineLabFingerprint => 'Fingerprint';
 
   @override
-  String get engineLabGauntletHint => 'Each challenger plays the reference engine; the reference is not rated against itself.';
+  String get engineLabGauntletHint =>
+      'Each challenger plays the reference engine; the reference is not rated against itself.';
 
   @override
   String get engineLabHash => 'Hash (MB)';
@@ -1638,16 +1662,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabNoHistory => 'No stored runs';
 
   @override
-  String get engineLabNoHistoryHint => 'Finished benchmarks are kept here with their games, ratings and report.';
+  String get engineLabNoHistoryHint =>
+      'Finished benchmarks are kept here with their games, ratings and report.';
 
   @override
   String get engineLabNoMetrics => 'no move timing recorded';
 
   @override
-  String get engineLabNoRatedGames => 'This run produced no rating-eligible games.';
+  String get engineLabNoRatedGames =>
+      'This run produced no rating-eligible games.';
 
   @override
-  String get engineLabNoRatingsHint => 'Run a benchmark and the ratings for the engines that took part appear here, with the interval behind each number.';
+  String get engineLabNoRatingsHint =>
+      'Run a benchmark and the ratings for the engines that took part appear here, with the interval behind each number.';
 
   @override
   String get engineLabOpeningSuite => 'Opening suite';
@@ -1659,7 +1686,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabPlyCap => 'Ply cap';
 
   @override
-  String get engineLabPlyCapHint => 'A game stopped here is adjudicated, not drawn';
+  String get engineLabPlyCapHint =>
+      'A game stopped here is adjudicated, not drawn';
 
   @override
   String get engineLabPreset => 'Preset';
@@ -1716,7 +1744,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabWarmUp => 'Warm-up games';
 
   @override
-  String get engineLabWebNote => 'In a browser only the engines that ship with the app can run; a user-supplied executable cannot start.';
+  String get engineLabWebNote =>
+      'In a browser only the engines that ship with the app can run; a user-supplied executable cannot start.';
 
   @override
   String get engineLabZeroIsEngineDefault => '0 = engine\'s own';
@@ -1737,10 +1766,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabRemoveAnchor => 'Remove anchor';
 
   @override
-  String get engineLabAnchorUsedHint => 'The first anchor that matches an engine in the run is used; an anchor for an engine that is not in the run cannot calibrate anything.';
+  String get engineLabAnchorUsedHint =>
+      'The first anchor that matches an engine in the run is used; an anchor for an engine that is not in the run cannot calibrate anything.';
 
   @override
-  String get engineLabAnchorIntro => 'A published rating is only usable if its source, date, hardware and time control are recorded, and the engine takes part in the run.';
+  String get engineLabAnchorIntro =>
+      'A published rating is only usable if its source, date, hardware and time control are recorded, and the engine takes part in the run.';
 
   @override
   String get engineLabAnchorRating => 'Published rating';
@@ -1767,23 +1798,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabAnchorMissing => 'Missing';
 
   @override
-  String get engineLabAnchorDateHint => 'Write the publication date as YYYY-MM-DD.';
+  String get engineLabAnchorDateHint =>
+      'Write the publication date as YYYY-MM-DD.';
 
   @override
   String get engineLabPaused => 'Paused.';
+
   @override
   String get copied => 'copied';
+
   @override
   String get engineLabImportEmpty => 'The clipboard is empty.';
+
   @override
   String get engineLabImported => 'Run imported.';
+
   @override
-  String get engineLabImportRenamed => 'It was stored under a new id so the existing run was kept.';
+  String get engineLabImportRenamed =>
+      'It was stored under a new id so the existing run was kept.';
+
   @override
   String get enginePreflight => 'Engine Preflight';
 
   @override
-  String get enginePreflightSubtitle => 'Each engine is started, asked for a move and shut down before the benchmark runs.';
+  String get enginePreflightSubtitle =>
+      'Each engine is started, asked for a move and shut down before the benchmark runs.';
 
   @override
   String get enginePreflightRun => 'Check engines';
@@ -1798,13 +1837,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enginePreflightContinue => 'Continue with passed engines';
 
   @override
-  String get enginePreflightReviewed => 'I have reviewed the results; the engines marked as left out will not take part in this run.';
+  String get enginePreflightReviewed =>
+      'I have reviewed the results; the engines marked as left out will not take part in this run.';
 
   @override
   String get enginePreflightAcceptWarnings => 'Accept warnings for this engine';
 
   @override
-  String get enginePreflightNeedTwo => 'At least two engines must pass to run a benchmark.';
+  String get enginePreflightNeedTwo =>
+      'At least two engines must pass to run a benchmark.';
 
   @override
   String get enginePreflightCancel => 'Stop checking';
@@ -1813,7 +1854,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enginePreflightDownloadTitle => 'Download required';
 
   @override
-  String get enginePreflightDownloadBody => 'This engine needs to download a file before it can start. Nothing is downloaded without your approval.';
+  String get enginePreflightDownloadBody =>
+      'This engine needs to download a file before it can start. Nothing is downloaded without your approval.';
 
   @override
   String get enginePreflightDownloadAllow => 'Download';
@@ -1897,10 +1939,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLabRootCause => 'Root cause';
 
   @override
-  String get enginePreflightReferenceExcluded => 'The gauntlet reference engine did not pass Engine Preflight.';
+  String get enginePreflightReferenceExcluded =>
+      'The gauntlet reference engine did not pass Engine Preflight.';
 
   @override
-  String get bootstrapMissing => 'No opening-cluster bootstrap is stored for this run.';
+  String get bootstrapMissing =>
+      'No opening-cluster bootstrap is stored for this run.';
 
   @override
   String get budget => 'Budget and resources';
@@ -1909,13 +1953,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get budgetEngineMinutes => 'Engine compute (min)';
 
   @override
-  String get budgetHint => 'At least one budget must be set. The scheduler never invents a global time limit; it stops at your boundaries and reports the objective as unmet when they run out.';
+  String get budgetHint =>
+      'At least one budget must be set. The scheduler never invents a global time limit; it stops at your boundaries and reports the objective as unmet when they run out.';
 
   @override
   String get budgetMemory => 'Memory limit (MB)';
 
   @override
-  String get budgetRequired => 'Set at least one budget: games, minutes or engine compute.';
+  String get budgetRequired =>
+      'Set at least one budget: games, minutes or engine compute.';
 
   @override
   String get changeStorage => 'Change';
@@ -1924,10 +1970,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get customEngines => 'Custom UCI engines';
 
   @override
-  String get customEnginesSupportedNote => 'Add a UCI engine from Engine Lab; it joins the opponent candidate pool for intelligent benchmarks.';
+  String get customEnginesSupportedNote =>
+      'Add a UCI engine from Engine Lab; it joins the opponent candidate pool for intelligent benchmarks.';
 
   @override
-  String get customEnginesUnsupportedNote => 'Custom engine processes are not available on this platform. On the web no process can be spawned; on iOS a downloaded binary cannot be executed inside the app.';
+  String get customEnginesUnsupportedNote =>
+      'Custom engine processes are not available on this platform. On the web no process can be spawned; on iOS a downloaded binary cannot be executed inside the app.';
 
   @override
   String get download => 'Download';
@@ -1936,19 +1984,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get downloadableEngines => 'Engines and models';
 
   @override
-  String get downloadableEnginesSubtitle => 'Only the dependencies an approved benchmark schedule needs are downloaded. Every artifact comes from its official source.';
+  String get downloadableEnginesSubtitle =>
+      'Only the dependencies an approved benchmark schedule needs are downloaded. Every artifact comes from its official source.';
 
   @override
-  String get engineLabPreflightNote => 'Each proposed participant is checked by Engine Preflight before any game. Missing official dependencies are requested separately and never downloaded silently.';
+  String get engineLabPreflightNote =>
+      'Each proposed participant is checked by Engine Preflight before any game. Missing official dependencies are requested separately and never downloaded silently.';
 
   @override
   String get engineStorage => 'Engine storage';
 
   @override
-  String get engineStorageAndroidNote => 'Android cannot execute files from shared storage: models and archives use this folder, executables are installed in app-private storage.';
+  String get engineStorageAndroidNote =>
+      'Android cannot execute files from shared storage: models and archives use this folder, executables are installed in app-private storage.';
 
   @override
-  String get engineStorageIosNote => 'iOS apps may only write inside their sandbox and cannot execute downloaded native binaries. Script/model engines remain available.';
+  String get engineStorageIosNote =>
+      'iOS apps may only write inside their sandbox and cannot execute downloaded native binaries. Script/model engines remain available.';
 
   @override
   String get engineStorageLocation => 'Location';
@@ -1957,13 +2009,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineStoragePath => 'Absolute directory path';
 
   @override
-  String get engineStorageShortHint => 'Missing dependencies are requested before anything is downloaded. Only engines the schedule needs are fetched.';
+  String get engineStorageShortHint =>
+      'Missing dependencies are requested before anything is downloaded. Only engines the schedule needs are fetched.';
 
   @override
   String get formatIntelligent => 'Intelligent';
 
   @override
-  String get formatIntelligentHint => 'You choose the target engines, the conditions and the budget. The scheduler chooses opponents, openings and game counts from measured uncertainty, and explains each decision in the report.';
+  String get formatIntelligentHint =>
+      'You choose the target engines, the conditions and the budget. The scheduler chooses opponents, openings and game counts from measured uncertainty, and explains each decision in the report.';
 
   @override
   String get liveBootstrap => 'Bootstrap replicates';
@@ -1999,7 +2053,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get methodologySeed => 'Seed';
 
   @override
-  String get notAvailableOnPlatform => 'No official artifact is distributed for this platform.';
+  String get notAvailableOnPlatform =>
+      'No official artifact is distributed for this platform.';
 
   @override
   String get precisionAchieved => 'Benchmark complete: objective achieved.';
@@ -2023,13 +2078,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get precisionIndividualElo => 'Individual ±Elo';
 
   @override
-  String get precisionNotAchieved => 'Benchmark complete: objective not achieved within budget.';
+  String get precisionNotAchieved =>
+      'Benchmark complete: objective not achieved within budget.';
 
   @override
   String get precisionObjective => 'Precision objective';
 
   @override
-  String get precisionObjectiveHint => 'The run succeeds only when the collected independent evidence supports this objective.';
+  String get precisionObjectiveHint =>
+      'The run succeeds only when the collected independent evidence supports this objective.';
 
   @override
   String get precisionPairwise => 'Pairwise';
@@ -2041,13 +2098,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get precisionPointwise => 'Pointwise';
 
   @override
-  String get precisionPointwiseHint => 'Pointwise intervals apply to one comparison at a time and do not claim joint coverage.';
+  String get precisionPointwiseHint =>
+      'Pointwise intervals apply to one comparison at a time and do not claim joint coverage.';
 
   @override
   String get precisionSimultaneous => 'Simultaneous';
 
   @override
-  String get precisionSimultaneousHint => 'Simultaneous intervals cover every requested comparison at once (maximum-statistic bootstrap); they are wider than pointwise intervals.';
+  String get precisionSimultaneousHint =>
+      'Simultaneous intervals cover every requested comparison at once (maximum-statistic bootstrap); they are wider than pointwise intervals.';
 
   @override
   String get precisionTargetPairs => 'Targets only';
@@ -2059,7 +2118,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get ratingMethodology => 'Rating methodology';
 
   @override
-  String get ratingMethodologyPlain => 'Games are paired: the same opening is played with both colours. The uncertainty comes from resampling entire openings, not single games, because games from one opening are related. Intervals therefore reflect how much independent evidence the run actually collected.';
+  String get ratingMethodologyPlain =>
+      'Games are paired: the same opening is played with both colours. The uncertainty comes from resampling entire openings, not single games, because games from one opening are related. Intervals therefore reflect how much independent evidence the run actually collected.';
 
   @override
   String get schedulerNext => 'Scheduler';
@@ -2077,13 +2137,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get schedulerPilotPairs => 'Initial matchups';
 
   @override
-  String get schedulerPreflightExcluded => 'Participants excluded by Engine Preflight';
+  String get schedulerPreflightExcluded =>
+      'Participants excluded by Engine Preflight';
 
   @override
   String get schedulerPreview => 'Scheduler proposal';
 
   @override
-  String get schedulerPreviewHint => 'Review the plan before it runs. Adaptive batches are chosen from measured uncertainty, so the final game count may be larger.';
+  String get schedulerPreviewHint =>
+      'Review the plan before it runs. Adaptive batches are chosen from measured uncertainty, so the final game count may be larger.';
 
   @override
   String get schedulerTargets => 'Targets';
@@ -2095,32 +2157,43 @@ class AppLocalizationsEn extends AppLocalizations {
   String get startIntelligent => 'Start intelligent benchmark';
 
   @override
-  String get storageBrowserManaged => 'A browser cannot choose a filesystem directory. Downloads use browser-managed Cache Storage, which the browser may evict; report exports are the durable record.';
+  String get storageBrowserManaged =>
+      'A browser cannot choose a filesystem directory. Downloads use browser-managed Cache Storage, which the browser may evict; report exports are the durable record.';
 
   @override
-  String get schedulerParticipantStatus => 'Participant status: failed, insufficient evidence or disconnected engines are reported explicitly and are not silently dropped.';
+  String get schedulerParticipantStatus =>
+      'Participant status: failed, insufficient evidence or disconnected engines are reported explicitly and are not silently dropped.';
 
   @override
-  String get schedulerConflict => 'The committed schedule changed while this was prepared. Review the new proposal.';
+  String get schedulerConflict =>
+      'The committed schedule changed while this was prepared. Review the new proposal.';
 
   @override
-  String get engineDownloadMissing => 'This engine needs a download before it can start.';
+  String get engineDownloadMissing =>
+      'This engine needs a download before it can start.';
 
   @override
-  String get engineDownloadOnlyApproved => 'Only dependencies approved for this run are downloaded.';
+  String get engineDownloadOnlyApproved =>
+      'Only dependencies approved for this run are downloaded.';
 
   @override
-  String get cohortQualified => 'Ratings are cohort-qualified: engines measured under different execution conditions are labelled and not ranked as directly comparable.';
+  String get cohortQualified =>
+      'Ratings are cohort-qualified: engines measured under different execution conditions are labelled and not ranked as directly comparable.';
 
   @override
-  String get calibrationNoAnchorUncertainty => 'The anchor states no published uncertainty; these intervals do not include anchor error.';
+  String get calibrationNoAnchorUncertainty =>
+      'The anchor states no published uncertainty; these intervals do not include anchor error.';
 
   @override
   String get engineLabPickOneTarget => 'Select at least one target engine.';
 
   @override
-  String get livePrecisionAchieved => 'Objective achieved by the evidence so far.';
+  String get livePrecisionAchieved =>
+      'Objective achieved by the evidence so far.';
 
   @override
   String get livePrecisionNotAchieved => 'Objective not achieved yet.';
+
+  @override
+  String get diagnosticsTitle => 'Diagnostics';
 }

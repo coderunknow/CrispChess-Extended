@@ -11,6 +11,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import '../diagnostics/app_logger.dart';
+import '../diagnostics/resource_sampler.dart';
 import 'chess_engine.dart';
 import 'archive_extract.dart' show extractArchiveTo;
 import 'download_io.dart' show hashFile;
@@ -69,6 +71,11 @@ class LynxEngine
   LynxEngine({String? variantId});
 
   Process? _process;
+
+  /// True while the spawned Lynx child is reflected in the alive
+  /// counter; guards against double-decrement across death detection,
+  /// teardown and dispose.
+  bool _aliveCounted = false;
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
 
   StreamSubscription? _stdoutSub;
@@ -118,6 +125,13 @@ class LynxEngine
 
   @override
   void onProcessLost() {
+    if (_aliveCounted) {
+      _aliveCounted = false;
+      if (DiagCounters.enginesAlive > 0) DiagCounters.enginesAlive--;
+      DiagCounters.enginesDiedUnexpectedly++;
+      AppLogger.instance.warning('engine', 'process.lost',
+          message: 'lynx');
+    }
     final pending = [_uciOk, _readyOk];
     _uciOk = null;
     _readyOk = null;
@@ -208,6 +222,13 @@ class LynxEngine
     debugPrint('[Lynx] Starting: $binaryPath');
     final process = await Process.start(binaryPath, []);
     _process = process;
+    // Same diagnostics contract as GenericUciEngine (dev6): the
+    // engine-process metric counts Lynx children too.
+    _aliveCounted = true;
+    DiagCounters.enginesStarted++;
+    DiagCounters.enginesAlive++;
+    AppLogger.instance.info('engine', 'process.started',
+        message: 'lynx');
     watchProcess(process);
     if (scope.cancelled) {
       _closeProcess();
@@ -272,6 +293,12 @@ class LynxEngine
     _uciOk = null;
     _readyOk = null;
     if (process == null) return;
+    if (_aliveCounted) {
+      _aliveCounted = false;
+      if (DiagCounters.enginesAlive > 0) DiagCounters.enginesAlive--;
+      AppLogger.instance.info('engine', 'process.stopped',
+          message: 'lynx');
+    }
     beginProcessDispose();
     try {
       process.stdin.writeln('quit');

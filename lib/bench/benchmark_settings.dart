@@ -20,6 +20,12 @@ import 'opening_suite.dart';
 /// Automatic runs are deliberately capped: an "automatic" benchmark that costs
 /// an hour of battery is not a courtesy. These limits are enforced by building
 /// the config here rather than by trusting the caller.
+///
+/// Both automatic triggers default to **off** (dev6). A tournament starts
+/// engine processes and spends CPU for up to [maxDuration], so silently
+/// launching one from opening the Engine Manager is a resource-consumption
+/// bug, not a courtesy. A stored setting is honoured as it is: a user who
+/// explicitly turned a trigger on keeps it on.
 class AutoBenchmarkSettings {
   /// Run a quick benchmark when a new engine is added.
   final bool afterAdd;
@@ -34,8 +40,8 @@ class AutoBenchmarkSettings {
   final Duration maxDuration;
 
   const AutoBenchmarkSettings({
-    this.afterAdd = true,
-    this.afterVersionChange = true,
+    this.afterAdd = false,
+    this.afterVersionChange = false,
     this.maxGames = 24,
     this.maxDuration = const Duration(minutes: 10),
   });
@@ -81,11 +87,14 @@ class AutoBenchmarkSettings {
   factory AutoBenchmarkSettings.fromJson(Map<String, dynamic> json) {
     final maxGames = json['maxGames'];
     final maxMinutes = json['maxDurationMinutes'];
+    // A missing or malformed switch means "off": automatic benchmarking must
+    // be an explicit choice, never something a broken settings document
+    // silently enables.
     return AutoBenchmarkSettings(
-      afterAdd: json['afterAdd'] is bool ? json['afterAdd'] as bool : true,
+      afterAdd: json['afterAdd'] is bool ? json['afterAdd'] as bool : false,
       afterVersionChange: json['afterVersionChange'] is bool
           ? json['afterVersionChange'] as bool
-          : true,
+          : false,
       maxGames: maxGames is num ? maxGames.toInt().clamp(2, 24).toInt() : 24,
       maxDuration: maxMinutes is num
           ? Duration(minutes: maxMinutes.toInt().clamp(1, 10).toInt())

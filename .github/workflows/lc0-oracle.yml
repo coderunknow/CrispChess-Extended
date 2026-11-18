@@ -147,10 +147,13 @@ jobs:
       - name: Provide the native ONNX Runtime (Linux has none bundled)
         run: |
           version=1.15.1
-          curl -sSLf --retry 3 -o "$RUNNER_TEMP/ort.tgz" \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-linux-x64-$version.tgz"
-          tar -xzf "$RUNNER_TEMP/ort.tgz" -C "$RUNNER_TEMP"
-          lib="$RUNNER_TEMP/onnxruntime-linux-x64-$version/lib"
+          # microsoft/onnxruntime removed its GitHub releases entirely; the
+          # same versioned shared library ships in the NuGet managed package.
+          curl -sSLf --retry 3 -o "$RUNNER_TEMP/ort.nupkg" \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$version/microsoft.ml.onnxruntime.$version.nupkg"
+          unzip -j "$RUNNER_TEMP/ort.nupkg" 'runtimes/linux-x64/native/libonnxruntime.so*' -d "$RUNNER_TEMP/ort-lib"
+          lib="$RUNNER_TEMP/ort-lib"
+          ln -sf libonnxruntime.so "$lib/libonnxruntime.so.$version"
           ls "$lib"
           echo "LD_LIBRARY_PATH=$lib" >> "$GITHUB_ENV"
 

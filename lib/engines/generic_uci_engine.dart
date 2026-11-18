@@ -10,6 +10,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../diagnostics/app_logger.dart';
+import '../diagnostics/resource_sampler.dart';
 import 'chess_engine.dart';
 import 'engine_initialization.dart';
 import 'generic_uci_engine_stub.dart';
@@ -205,6 +207,11 @@ class GenericUciEngine
 
   Future<void> _initializeOnce() async {
     _stateNotifier.value = EngineState.initializing;
+    // Diagnostics (dev6): the whole lifecycle lands in the structured log so
+    // "why is the manager spinning?" is answerable from the viewer.
+    DiagCounters.initializationsActive++;
+    AppLogger.instance.info('engine', 'initialize.started',
+        profileId: profile.id);
     await _teardownProcess(announce: false);
     final watch = Stopwatch()..start();
     _initializationError = null;
@@ -227,6 +234,11 @@ class GenericUciEngine
         await _teardownProcess(announce: false);
         throw StateError('Engine disposed during initialization');
       }
+      _aliveCounted = true;
+      DiagCounters.enginesStarted++;
+      DiagCounters.enginesAlive++;
+      AppLogger.instance.info('engine', 'process.started',
+          profileId: profile.id);
       watchProcess(_process!);
       _initStage = EngineInitStage.handshake;
 
@@ -325,8 +337,24 @@ class GenericUciEngine
       if (processGone) throw await processDeathReport();
       _initStage = EngineInitStage.verifyReady;
       _stateNotifier.value = EngineState.ready;
+      DiagCounters.initializationsActive =
+          DiagCounters.initializationsActive > 0
+              ? DiagCounters.initializationsActive - 1
+              : 0;
+      AppLogger.instance.info('engine', 'initialize.completed',
+          profileId: profile.id,
+          durationMs: watch.elapsedMilliseconds,
+          fields: {'options': '${options.length}'});
       debugPrint('[UCI] $name ready (${options.length} options)');
     } catch (e, stack) {
+      DiagCounters.initializationsActive =
+          DiagCounters.initializationsActive > 0
+              ? DiagCounters.initializationsActive - 1
+              : 0;
+      AppLogger.instance.error('engine', 'initialize.failed',
+          profileId: profile.id,
+          error: e,
+          durationMs: watch.elapsedMilliseconds);
       debugPrint('[UCI] Init failed: $e');
       EngineProcessDiedException? death;
       if (e is EngineProcessDiedException) {
@@ -390,6 +418,13 @@ class GenericUciEngine
 
   @override
   void onProcessLost() {
+    if (_aliveCounted) {
+      _aliveCounted = false;
+      if (DiagCounters.enginesAlive > 0) DiagCounters.enginesAlive--;
+      DiagCounters.enginesDiedUnexpectedly++;
+      AppLogger.instance.warning('engine', 'process.lost',
+          profileId: profile.id);
+    }
     if (!disposingProcess) _stateNotifier.value = EngineState.error;
     resetSearches();
     final ready = _readyOk;
@@ -699,6 +734,12 @@ class GenericUciEngine
       return;
     }
 
+    if (_aliveCounted) {
+      _aliveCounted = false;
+      if (DiagCounters.enginesAlive > 0) DiagCounters.enginesAlive--;
+      AppLogger.instance.info('engine', 'process.stopped',
+          profileId: profile.id);
+    }
     beginProcessDispose();
     if (announce) {
       try {
@@ -719,6 +760,11 @@ class GenericUciEngine
     resetSearches();
   }
 
+  /// True while a spawned child process is reflected in the alive counter.
+  /// The flag prevents double-counting when death detection, teardown and
+  /// dispose all observe the same process.
+  bool _aliveCounted = false;
+
   /// Set when [dispose] was called from outside, as opposed to the internal
   /// teardown after a failed readiness barrier; only the former is a
   /// cancellation.
@@ -732,6 +778,12 @@ class GenericUciEngine
 
   void _disposeNow() {
     if (_stateNotifier.value == EngineState.disposed) return;
+    if (_aliveCounted) {
+      _aliveCounted = false;
+      if (DiagCounters.enginesAlive > 0) DiagCounters.enginesAlive--;
+      AppLogger.instance.info('engine', 'engine.disposed',
+          profileId: profile.id);
+    }
     beginProcessDispose();
     final ready = _readyOk;
     _readyOk = null;

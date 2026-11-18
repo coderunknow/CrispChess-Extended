@@ -1,5 +1,75 @@
 # Changelog
 
+## 2.3.2-dev6 — Custom UCI Engine resource repair and Diagnostics & Logs
+
+- **Engine Preflight shows every engine you chose.** When a benchmark start
+  needed preflight results for some participants, the preflight screen opened
+  listing only the engines that were not yet admitted — engines a previous
+  check had already passed never appeared, which read as "the engines I chose
+  don't show in Engine Preflight" (diagnostic report from Windows 10 IoT
+  Enterprise LTSC 2021, session `mwm5f7hn-72wn`). The screen now opens with
+  all chosen participants: admitted engines show their stored result without
+  being re-probed, pending ones are checked as before, and the manual path is
+  unchanged.
+- **Builds and CI use one pinned Flutter version.** Every CI job now pins the
+  same Flutter 3.44.2 that releases build with; an unpinned `stable` channel
+  let a test job drift onto a newer toolchain that fails on Kotlin-DSL
+  deprecations the release build never sees. CI-only change; release
+  artifacts are built exactly as before.
+- **Opening Custom UCI Engines no longer risks a silent full-CPU benchmark.**- **Opening Custom UCI Engines no longer risks a silent full-CPU benchmark.**
+  Both automatic-benchmark triggers (`afterAdd`, `afterVersionChange`) now
+  default to **off**. Previously they defaulted to on, and the Engine Manager
+  ran its version-change scan *before* consulting them, so a visit to the
+  manager could fingerprint every previously benchmarked binary and then start
+  a Quick-preset tournament (up to 24 games / 10 minutes with several engine
+  processes resident) without the user asking for one. A stored explicit
+  opt-in is honoured unchanged; missing or corrupt settings documents now read
+  as off instead of on. Automatic runs themselves are unchanged: same preset,
+  same caps, same visibility and cancellation.
+- **The open-time change scan only runs when it can matter.** With the
+  after-change trigger off, opening the Engine Manager performs no binary
+  fingerprinting at all (measured: the scan path costs ≈0.3 ms in settings
+  reads instead of hashing every known binary on every visit).
+- **Repeated visits stop repeating the work.** The benchmark store keeps the
+  fingerprint and identity caches in memory (refreshed by every write, dropped
+  when a write fails), so a scan no longer re-reads and re-decodes
+  `fingerprints.json` and `identities.json` from disk several times per open
+  (measured on the committed harness: same-session reopen 8.6 → 5.1 ms,
+  re-benchmark decision 1.4 → 0.43 ms for an unchanged engine, with the
+  after-change trigger enabled on both sides of the comparison).
+- **The built-in engine's runtime library is fingerprinted once, not on every
+  open.** The Frozenight identity used to construct the native engine and hash
+  the whole runtime library with no cache — twice per open when a change was
+  suspected. It now uses a path + size + mtime cache with the same
+  invalidation rules as the profile cache, so a replaced library is still
+  noticed.
+- **Binary hashing moved off the UI isolate.** SHA-256 of an engine binary
+  (tens of MB for neural-network engines) runs on a worker isolate, so a scan
+  never competes with the UI for the main isolate's time. Digest correctness
+  is pinned by tests (the refactor briefly hashed to a `Future`'s
+  string representation; that test now prevents it permanently).
+- **Diagnostics & Logs (new).** Settings → "Diagnostics & Logs" (and a
+  one-tap "Diagnostics" action on engine-failure messages in the Engine
+  Manager) opens a viewer over the app's structured log: filter by severity,
+  component or text, inspect entries and stack traces, copy single entries or
+  the visible range, clear local logs after confirmation, and export a
+  `diagnostic-report.zip` (`summary.md`, `metadata.json`, `application.log`,
+  `errors.json`, `lifecycle.json`, `performance.csv`). Every text in an export
+  passes redaction (tokens, credentials, personal paths, emails) and the user
+  previews the bundle before saving it anywhere; the app never uploads it.
+  Logs persist across restarts in rotating JSONL files (1 MB × 3) under the
+  application support directory; persistence failures degrade to in-memory
+  logging. Resource sampling (process RSS, engine/probe/benchmark counters)
+  runs only while the viewer is open and can be switched off there.
+- **Instrumented engine lifecycle.** UCI process start, readiness, loss,
+  teardown and disposal, initialization failures, benchmark start/finish and
+  the change scan now produce structured records with durations and engine
+  profile ids, so "why is the manager busy?" is answerable from the viewer.
+- Reproducibility evidence: `test/perf/engine_manager_open_perf_test.dart`
+  and the raw before/after JSONs in `docs/audit/`. Windows 10 LTSC (i5-7300U)
+  validation remains with the owner via the diagnostic build; no Windows 10
+  claim is made from CI.
+
 ## 2.3.2-dev4 — Engine initialization contract and Engine Preflight
 
 - **"Stockfish 16: failed — Bad state: initialize returned with state error"

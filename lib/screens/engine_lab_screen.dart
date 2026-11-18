@@ -601,19 +601,25 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       if (!admission.allAdmitted) {
         // The scheduler picks opponents the user never selected, so some
         // participants have no stored Preflight result yet. Reporting the
-        // exclusion and returning left the user with an error and no way to act
-        // on it: there was nothing to click that would produce the missing
-        // result. Open Preflight for exactly those participants instead, the
-        // same way the manual path does.
+        // exclusion and returning left the user with an error and no way to
+        // act on it: there was nothing to click that would produce the
+        // missing result.
+        //
+        // The screen opens with ALL participants, not only the excluded
+        // ones (dev7 report): an earlier run admitted some of the chosen
+        // engines, and a screen listing just the failures looked like the
+        // rest of the selection had vanished — "the engines I chose don't
+        // show in Engine Preflight". The screen itself skips re-checking
+        // engines a current result already admits, so admitted participants
+        // simply show their stored result while the pending ones are
+        // checked — the same view as the manual path above.
         setState(() => _running = false);
-        final excludedIds = admission.excluded.keys.toList();
         final chosen = await EnginePreflightScreen.open(
           context,
           service: _service,
-          engineIds: excludedIds,
+          engineIds: ids,
           labels: {
-            for (final id in excludedIds)
-              id: engineLabelForId(id, _profiles),
+            for (final id in ids) id: engineLabelForId(id, _profiles),
           },
           config: preparation.config,
         );

@@ -39,6 +39,10 @@ const String kBenchmarkIdentitiesKey = 'identities';
 /// Storage key for the executable fingerprint cache.
 const String kBenchmarkFingerprintKey = 'fingerprints';
 
+/// Storage key for the native-library fingerprint cache (built-in engines
+/// whose backend ships as a dynamic library, keyed by resolved path).
+const String kBenchmarkNativeLibKey = 'nativelibs';
+
 /// Prefix for run documents.
 const String kBenchmarkRunPrefix = 'run__';
 
@@ -103,6 +107,17 @@ class BenchmarkStore {
       : storage = storage ?? createDefaultBenchmarkStorage();
 
   bool _initialised = false;
+
+  /// In-memory copies of the small cache documents, loaded once per store
+  /// (dev6). The Engine Manager's open path used to decode `fingerprints.json`
+  /// and `identities.json` from disk on *every* call — several times per open,
+  /// on every visit — because nothing retained the decoded result. The caches
+  /// are owned by this store instance inside one process, so holding them here
+  /// cannot drift from disk: every write goes through these methods and
+  /// refreshes the memo, and a failed write drops it again.
+  Map<String, _FingerprintEntry>? _fingerprintMemo;
+  Map<String, EngineIdentity>? _identityMemo;
+  Map<String, _FingerprintEntry>? _nativeLibMemo;
 
   /// Serialises writes, so a background save cannot interleave with the save
   /// at the end of a run and lose the index update.
@@ -213,22 +228,45 @@ class BenchmarkStore {
       // version-change trigger.
       known[identity.engineId] = identity;
     }
-    await storage.write(
-      kBenchmarkIdentitiesKey,
-      jsonEncode({
-        for (final entry in known.entries) entry.key: entry.value.toJson()
-      }),
-    );
+    try {
+      await storage.write(
+        kBenchmarkIdentitiesKey,
+        jsonEncode({
+          for (final entry in known.entries) entry.key: entry.value.toJson()
+        }),
+      );
+      _identityMemo = known;
+    } catch (_) {
+      // The file may still hold the previous document: drop the memo so the
+      // next read sees what is actually on disk, like it always did.
+      _identityMemo = null;
+      rethrow;
+    }
   }
 
   /// The last identity each engine was benchmarked with.
+  ///
+  /// Decoded once per store; the memo is refreshed by every write and dropped
+  /// when a write fails, so a repeated read is a map copy instead of a disk
+  /// read plus a JSON decode (dev6). A *copy* is returned: callers treat the
+  /// result as owned (one of them mutates it before storing), so handing out
+  /// the memo itself would leak that mutation into the cache before the write
+  /// has succeeded.
   Future<Map<String, EngineIdentity>> knownIdentities() async {
     await init();
+    final memo = _identityMemo;
+    if (memo != null) return Map.of(memo);
     final raw = await storage.read(kBenchmarkIdentitiesKey);
-    if (raw == null || raw.isEmpty) return {};
+    if (raw == null || raw.isEmpty) {
+      _identityMemo = {};
+      return {};
+    }
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! Map) return {};
+      if (decoded is! Map) {
+        _identityMemo = {};
+        return {};
+      }
       final result = <String, EngineIdentity>{};
       decoded.forEach((key, value) {
         if (value is Map) {
@@ -236,8 +274,10 @@ class BenchmarkStore {
               EngineIdentity.fromJson(Map<String, dynamic>.from(value));
         }
       });
-      return result;
+      _identityMemo = result;
+      return Map.of(result);
     } catch (_) {
+      _identityMemo = {};
       return {};
     }
   }
@@ -623,21 +663,84 @@ class BenchmarkStore {
     await init();
     final stat = await statExecutable(path);
     if (stat == null) return (sha256: null, stat: null);
-    final cache = await _fingerprintCache();
-    final entry = cache[profileId];
+    final entry = await _fingerprintEntry(kBenchmarkFingerprintKey, profileId,
+        path, stat, () => _fingerprintCache());
+    return (sha256: entry, stat: stat);
+  }
+
+  /// SHA-256 for a built-in engine's resolved dynamic library, keyed by the
+  /// library path with the same size+mtime invalidation as the profile cache.
+  ///
+  /// Before dev6 this path had no cache at all, and `identityFor` called it
+  /// on every Engine Manager open — twice when a change was suspected — so a
+  /// visit hashed the whole runtime library each time (dev6).
+  Future<({String? sha256, ExecutableStat? stat})>
+      fingerprintForNativeLibrary(String path) async {
+    await init();
+    final stat = await statExecutable(path);
+    if (stat == null) return (sha256: null, stat: null);
+    final entry = await _fingerprintEntry(kBenchmarkNativeLibKey, path, path,
+        stat, () => _nativeLibCache());
+    return (sha256: entry, stat: stat);
+  }
+
+  /// Shared lookup for the two fingerprint caches: stat-validated memo hit,
+  /// otherwise hash the file and store it (in memory and on disk).
+  Future<String?> _fingerprintEntry(
+    String storageKey,
+    String cacheKey,
+    String path,
+    ExecutableStat stat,
+    Future<Map<String, _FingerprintEntry>> Function() loadCache,
+  ) async {
+    final cache = await loadCache();
+    final entry = cache[cacheKey];
     if (entry != null && entry.path == path && entry.stat == stat && entry.sha256 != null) {
-      return (sha256: entry.sha256, stat: stat);
+      return entry.sha256;
     }
     final digest = await sha256OfFile(path);
     if (digest != null) {
-      cache[profileId] = _FingerprintEntry(stat, digest, path);
-      await _writeFingerprintCache(cache);
+      cache[cacheKey] = _FingerprintEntry(stat, digest, path);
+      try {
+        await _writeFingerprintCache(storageKey, cache);
+        if (storageKey == kBenchmarkFingerprintKey) {
+          _fingerprintMemo = cache;
+        } else if (storageKey == kBenchmarkNativeLibKey) {
+          _nativeLibMemo = cache;
+        }
+      } catch (_) {
+        // Disk write failures must not lose the digest for this session; the
+        // memo is refreshed anyway and the next store reads it again.
+        if (storageKey == kBenchmarkFingerprintKey) {
+          _fingerprintMemo = cache;
+        } else if (storageKey == kBenchmarkNativeLibKey) {
+          _nativeLibMemo = cache;
+        }
+      }
     }
-    return (sha256: digest, stat: stat);
+    return digest;
   }
 
   Future<Map<String, _FingerprintEntry>> _fingerprintCache() async {
-    final raw = await storage.read(kBenchmarkFingerprintKey);
+    final memo = _fingerprintMemo;
+    if (memo != null) return memo;
+    final result =
+        await _decodeFingerprintCache(await storage.read(kBenchmarkFingerprintKey));
+    _fingerprintMemo = result;
+    return result;
+  }
+
+  Future<Map<String, _FingerprintEntry>> _nativeLibCache() async {
+    final memo = _nativeLibMemo;
+    if (memo != null) return memo;
+    final result =
+        await _decodeFingerprintCache(await storage.read(kBenchmarkNativeLibKey));
+    _nativeLibMemo = result;
+    return result;
+  }
+
+  Future<Map<String, _FingerprintEntry>> _decodeFingerprintCache(
+      String? raw) async {
     if (raw == null || raw.isEmpty) return {};
     try {
       final decoded = jsonDecode(raw);
@@ -662,9 +765,9 @@ class BenchmarkStore {
   }
 
   Future<void> _writeFingerprintCache(
-      Map<String, _FingerprintEntry> cache) async {
+      String storageKey, Map<String, _FingerprintEntry> cache) async {
     await storage.write(
-      kBenchmarkFingerprintKey,
+      storageKey,
       jsonEncode({
         for (final entry in cache.entries)
           entry.key: {

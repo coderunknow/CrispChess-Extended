@@ -14,6 +14,7 @@ import '../engines/engine_registry.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
 import '../widgets/ghost_profile_card.dart';
+import 'diagnostics_screen.dart';
 import 'engine_lab_screen.dart';
 import 'engine_manager_screen.dart';
 
@@ -636,6 +637,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
             ),
+
+          // Diagnostics & Logs (dev6): browse structured logs, watch resource
+          // snapshots, export a sanitized bug-report bundle.
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.bug_report_outlined, size: 18),
+              label: const Text('Diagnostics & Logs'),
+              onPressed: () async {
+                await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const DiagnosticsScreen()));
+              },
+            ),
+          ),
 
           if (_selectedBuiltInName == ghostEngineName) ...[
             const SizedBox(height: 16),

@@ -4,6 +4,7 @@ library;
 import 'dart:io';
 import 'package:crispchess/bench/benchmark_service.dart';
 import 'package:crispchess/bench/benchmark_run.dart';
+import 'package:crispchess/bench/benchmark_settings.dart';
 import 'package:crispchess/bench/benchmark_storage_base.dart';
 import 'package:crispchess/bench/benchmark_store.dart';
 import 'package:crispchess/engines/generic_uci_engine_stub.dart';
@@ -25,6 +26,12 @@ void main() {
     await profiles.add(profile);
     final store = BenchmarkStore(storage: MemoryBenchmarkStorage());
     final service = BenchmarkService(store: store, profileStore: profiles);
+    // The change-detection contract under test presupposes the user turned
+    // the automatic re-run on; since dev6 the factory default is off, and a
+    // decision made with the default would stop at the settings gate before
+    // detection ever runs.
+    await service.setAutoSettings(const AutoBenchmarkSettings(
+        afterAdd: false, afterVersionChange: true));
     final initial = await service.identityFor('custom:p');
     expect(initial.configuration, {'Hash': '16'});
     final run = (await runScriptedBenchmark()).run;

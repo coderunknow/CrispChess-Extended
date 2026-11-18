@@ -81,4 +81,63 @@ void main() {
         matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)));
     expect(continueButton.onPressed, isNull);
   });
+
+  testWidgets('an admitted engine keeps its stored result and still shows '
+      'its card next to the pending ones', (tester) async {
+    // Regression (dev7 diagnostic report): the start-benchmark flow used to
+    // open this screen with only the EXCLUDED engines, so the chosen
+    // engines a previous check had already admitted never rendered a card —
+    // the report read "the engines I chose don't show in Engine Preflight".
+    // Opening with all participants must show everyone, re-check only what
+    // is not admitted, and leave admitted results untouched.
+    SharedPreferences.setMockInitialValues({});
+    final service = BenchmarkService(
+      store: BenchmarkStore(storage: MemoryBenchmarkStorage()),
+      profileStore: EngineProfileStore(),
+    );
+    final builtIn = builtInEngineId('Built-in');
+    const gone = 'custom:gone';
+    final ids = [builtIn, gone];
+
+    // Produce a current, admitted result for the built-in engine first.
+    await tester.runAsync(() => service.preflight(
+        engineIds: [builtIn],
+        config: benchConfig(),
+        consent: (_, __) async => false));
+    final admittedBefore = service.preflightGate.results[builtIn]!;
+    expect(admittedBefore.status.admits, isTrue);
+
+    await tester.pumpWidget(MaterialApp(
+      home: EnginePreflightScreen(
+        service: service,
+        engineIds: ids,
+        labels: {builtIn: 'Built-in', gone: 'Gone engine'},
+        config: benchConfig(),
+      ),
+    ));
+
+    for (var i = 0; i < 150; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump(const Duration(milliseconds: 100));
+      if (service.preflightGate.results.length == ids.length &&
+          !service.isPreflighting) {
+        break;
+      }
+    }
+    await tester.pumpAndSettle();
+
+    // Both chosen engines are visible.
+    expect(find.text('Built-in'), findsWidgets);
+    expect(find.text('Removed engine'), findsOneWidget);
+
+    // Only the pending engine was re-checked: the admitted result is the
+    // very same object recorded before the screen opened.
+    final after = service.preflightGate.results[builtIn]!;
+    expect(identical(admittedBefore, after), isTrue,
+        reason: 'an admitted engine must not be re-probed on open');
+
+    // And the summary counts it: one of the two chosen engines admitted.
+    expect(find.textContaining('1 / 2'), findsOneWidget);
+  });
 }

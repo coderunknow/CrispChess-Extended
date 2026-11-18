@@ -675,5 +675,6 @@
   "calibrationNoAnchorUncertainty": "Der Anker nennt keine veröffentlichte Unsicherheit; diese Intervalle enthalten den Ankerfehler nicht.",
   "engineLabPickOneTarget": "Mindestens eine Ziel-Engine wählen.",
   "livePrecisionAchieved": "Ziel mit der bisherigen Datenlage erreicht.",
-  "livePrecisionNotAchieved": "Ziel noch nicht erreicht."
+  "livePrecisionNotAchieved": "Ziel noch nicht erreicht.",
+  "diagnosticsTitle": "Diagnose"
 }

@@ -386,6 +386,21 @@ GitHub Actions on every push to `main`:
 - **Build** — Android APK, iOS, macOS, Linux, Web (WASM)
 - **Deploy Web** — Builds Flutter WASM + Frozenight WASM, strips source maps, deploys to Vercel with caching headers
 
+## Diagnostics & Logs
+
+Settings → "Diagnostics & Logs" opens the in-app diagnostics viewer (also
+offered directly from an engine-failure message in the Engine Manager). It
+shows the structured application log with severity/component/text filters,
+live resource snapshots (process memory, engine processes, probes, active
+benchmarks) sampled only while the screen is open, and an export that writes a
+`diagnostic-report.zip` (summary, metadata, application log, errors, engine
+lifecycle, resource samples). Everything in an export passes privacy redaction
+— tokens, credentials, personal directory paths and emails are removed, while
+error codes, stages and timings are kept — and the app shows you the bundle
+contents before saving; nothing is ever uploaded by the app itself. Local log
+files (rotating, size-capped) live under the application support directory and
+can be cleared from the same screen after confirmation.
+
 ## License
 
 **MIT** — see [LICENSE](LICENSE).

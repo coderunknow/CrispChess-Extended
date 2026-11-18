@@ -51,6 +51,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          # onnxruntime 1.4.1 pins compileSdkVersion 33; AGP 9 needs >= 34
+          # for its androidx dependencies. Root-level Gradle overrides cannot
+          # reach the module (the Flutter plugin loader evaluates it during
+          # :app), so the pub-cache copy is patched before the build — see
+          # the tool's docstring for why this is the deterministic hook.
+          flutter pub get
+          python3 tool/patch_onnxruntime_compile_sdk.py
           flutter build apk --release 2>&1 | tee android-build.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -98,11 +105,16 @@ jobs:
       - name: Bundle the native ONNX Runtime
         run: |
           version=1.15.1
-          curl -sSLf --retry 3 -o ort.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-linux-x64-$version.tgz"
-          tar -xzf ort.tgz
-          cp -P "onnxruntime-linux-x64-$version/lib/"libonnxruntime.so* \
+          # microsoft/onnxruntime removed its GitHub releases entirely; the
+          # same versioned shared library ships in the NuGet managed package,
+          # which keeps old versions. The loader opens the unversioned name,
+          # and the versioned alias stays for anything that wants the soname.
+          curl -sSLf --retry 3 -o ort.nupkg \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$version/microsoft.ml.onnxruntime.$version.nupkg"
+          unzip -j ort.nupkg 'runtimes/linux-x64/native/libonnxruntime.so*' -d ort-lib
+          cp -P ort-lib/libonnxruntime.so* \
             build/linux/x64/release/bundle/lib/
+          ln -sf libonnxruntime.so build/linux/x64/release/bundle/lib//libonnxruntime.so.$version
           ls -la build/linux/x64/release/bundle/lib/ | grep onnx
       - name: Bundle CrispASR (voice moves)
         run: tool/bundle_crispasr.sh linux build/linux/x64/release/bundle
@@ -154,11 +166,16 @@ jobs:
       - name: Bundle the native ONNX Runtime
         run: |
           version=1.15.1
-          curl -sSLf --retry 3 -o ort.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-linux-x64-$version.tgz"
-          tar -xzf ort.tgz
-          cp -P "onnxruntime-linux-x64-$version/lib/"libonnxruntime.so* \
+          # microsoft/onnxruntime removed its GitHub releases entirely; the
+          # same versioned shared library ships in the NuGet managed package,
+          # which keeps old versions. The loader opens the unversioned name,
+          # and the versioned alias stays for anything that wants the soname.
+          curl -sSLf --retry 3 -o ort.nupkg \
+            "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$version/microsoft.ml.onnxruntime.$version.nupkg"
+          unzip -j ort.nupkg 'runtimes/linux-x64/native/libonnxruntime.so*' -d ort-lib
+          cp -P ort-lib/libonnxruntime.so* \
             build/linux/x64/release/bundle/lib/
+          ln -sf libonnxruntime.so build/linux/x64/release/bundle/lib//libonnxruntime.so.$version
           ls -la build/linux/x64/release/bundle/lib/ | grep onnx
       - name: Bundle CrispASR (voice moves)
         run: tool/bundle_crispasr.sh linux build/linux/x64/release/bundle

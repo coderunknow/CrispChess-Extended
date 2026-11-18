@@ -913,5 +913,6 @@
   "calibrationNoAnchorUncertainty": "The anchor states no published uncertainty; these intervals do not include anchor error.",
   "engineLabPickOneTarget": "Select at least one target engine.",
   "livePrecisionAchieved": "Objective achieved by the evidence so far.",
-  "livePrecisionNotAchieved": "Objective not achieved yet."
+  "livePrecisionNotAchieved": "Objective not achieved yet.",
+  "diagnosticsTitle": "Diagnostics"
 }
