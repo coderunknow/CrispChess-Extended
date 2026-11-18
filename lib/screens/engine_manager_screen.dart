@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../diagnostics/app_logger.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../bench/benchmark_service.dart';
 import '../engines/engine_registry.dart';
@@ -8,6 +9,7 @@ import '../engines/generic_uci_engine.dart'
     if (dart.library.js_interop) '../engines/generic_uci_engine_web.dart';
 import '../engines/uci_option.dart';
 import '../services/engine_profile_store.dart';
+import 'diagnostics_screen.dart';
 import 'engine_lab_screen.dart';
 
 /// Screen for managing user-added UCI engine profiles.
@@ -61,6 +63,13 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
       _profiles = profiles;
       _loading = false;
     });
+  }
+
+  /// Opens the diagnostics viewer. The entry point from an engine failure:
+  /// the user does not have to know the logs live under Settings.
+  void _openDiagnostics() {
+    Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const DiagnosticsScreen()));
   }
 
   Future<void> _addEngine() async {
@@ -152,6 +161,12 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
         );
       }
     } catch (e) {
+      // Log the failure where the diagnostics viewer can find it, and give
+      // the user a one-tap path to the logs (dev6): "engine failed to
+      // initialize" without the log behind it was exactly the report the
+      // diagnostics subsystem exists to replace.
+      AppLogger.instance.error('ui.engineManager', 'engine.add.failed',
+          profileId: result.id, error: e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -159,6 +174,10 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
                 'Engine failed to initialize: $e'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: l?.diagnosticsTitle ?? 'Diagnostics',
+              onPressed: () => _openDiagnostics(),
+            ),
           ),
         );
       }
@@ -173,10 +192,30 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
   /// Checked when the manager is opened rather than at every app start: that
   /// is the moment the user is looking at engines, and fingerprinting every
   /// known binary during start-up would delay the board for a background job.
+  ///
+  /// The scan costs one stat plus, on a cache miss, a full SHA-256 of every
+  /// previously benchmarked binary on this open. It is only worth that when an
+  /// automatic re-run can actually start: with the after-change trigger off,
+  /// opening the manager must not hash binaries at all (dev6). A user who
+  /// switched automatic benchmarks off previously still paid the scan; that is
+  /// the expensive preparatory work the setting claims to prevent.
   Future<void> _checkForChangedEngines() async {
     if (_checkedForChanges) return;
     _checkedForChanges = true;
     final service = BenchmarkService.shared;
+    try {
+      final settings = await service.autoSettings();
+      if (!settings.afterVersionChange) {
+        debugPrint('[EngineManager] change check skipped: automatic '
+            're-benchmarks are switched off');
+        return;
+      }
+    } catch (error) {
+      // Without settings the run gate cannot be consulted; skipping the scan
+      // is the safe side — it never loses data, only a re-measurement.
+      debugPrint('[EngineManager] settings read failed: $error');
+      return;
+    }
     List<ChangedEngine> changed;
     try {
       changed = await service.changedEngines();
@@ -318,12 +357,19 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
 
       engine.dispose();
     } catch (e) {
+      AppLogger.instance.error('ui.engineManager', 'engine.configure.failed',
+          profileId: profile.id, error: e);
       engine.dispose();
       if (mounted) {
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to load engine: $e'),
             backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: l?.diagnosticsTitle ?? 'Diagnostics',
+              onPressed: () => _openDiagnostics(),
+            ),
           ),
         );
       }

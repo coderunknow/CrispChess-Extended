@@ -8,14 +8,16 @@ library;
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart'
+    show debugPrint, kIsWeb, visibleForTesting;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../diagnostics/app_logger.dart';
+import '../diagnostics/resource_sampler.dart';
 import '../engines/chess_engine.dart' show ChessEngine;
 import '../engines/engine_initialization.dart' show RuntimeDigestSource;
 import '../engines/engine_registry.dart';
 import '../engines/frozenight_engine.dart' if (dart.library.js_interop) '../engines/frozenight_web_engine.dart';
-import 'benchmark_fingerprint.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
 import 'benchmark_config.dart';
@@ -145,9 +147,15 @@ class BenchmarkService {
 
   static BenchmarkService? _shared;
 
+  /// Test seam: set before first use of [shared] to control the instance the
+  /// Engine Manager screen talks to (dev6 scan-gate tests). Null in the app.
+  @visibleForTesting
+  static BenchmarkService? sharedOverride;
+
   /// The instance the whole app shares, so a run started from the Engine
   /// Manager is visible in the Lab and vice versa.
-  static BenchmarkService get shared => _shared ??= BenchmarkService();
+  static BenchmarkService get shared =>
+      sharedOverride ?? (_shared ??= BenchmarkService());
 
   /// Drops the shared instance. For tests, and for a sign-out-style reset that
   /// this app does not have yet.
@@ -265,7 +273,13 @@ class BenchmarkService {
         try {
           await engine.initialize();
           final path = engine.resolvedLibraryPath;
-          if (path != null) nativeHash = await sha256OfFile(path);
+          // Cached by path + size + mtime (dev6): before this, every open of
+          // the Engine Manager re-initialised the native engine and re-hashed
+          // the whole runtime library, twice when a change was suspected.
+          if (path != null) {
+            nativeHash =
+                (await store.fingerprintForNativeLibrary(path)).sha256;
+          }
         } catch (_) {
           // The runner reports the typed startup failure. Identity remains
           // build-based rather than preventing healthy engines from running.
@@ -388,6 +402,14 @@ class BenchmarkService {
     // and stopping engines; a run must not overlap it.
     if (_preflighting) throw StateError('Engine Preflight is still running.');
     _active = runner;
+    // Diagnostics (dev6): a background run keeps engine processes busy after
+    // the screen that started it is gone; the log must say so.
+    DiagCounters.benchmarksStarted++;
+    DiagCounters.benchmarksActive++;
+    final watch = Stopwatch()..start();
+    AppLogger.instance.info('benchmark', 'run.started',
+        fields: {'trigger': runner.trigger ?? 'manual',
+                 'engines': '${runner.plan.engines.length}'});
     try {
       final run = await runner.run();
       // The runner already performs the final save and records failures.
@@ -396,6 +418,10 @@ class BenchmarkService {
       return run;
     } finally {
       _active = null;
+      DiagCounters.benchmarksActive = DiagCounters.benchmarksActive > 0
+          ? DiagCounters.benchmarksActive - 1 : 0;
+      AppLogger.instance.info('benchmark', 'run.finished',
+          durationMs: watch.elapsedMilliseconds);
       await runner.dispose();
     }
   }
@@ -776,6 +802,12 @@ class BenchmarkService {
     final known = await store.knownIdentities();
     final all = await profiles();
     final changed = <ChangedEngine>[];
+    // Diagnostics (dev6): the scan's duration is the number to watch — it is
+    // the work the Engine Manager open path pays per visit when the
+    // after-change trigger is on.
+    final watch = Stopwatch()..start();
+    AppLogger.instance.info('benchmark', 'changeScan.started',
+        fields: {'engines': '${known.length}'});
     for (final entry in known.entries) {
       try {
         final identity = await identityFor(entry.key);
@@ -797,6 +829,9 @@ class BenchmarkService {
         debugPrint('[EngineLab] could not check ${entry.key}: $error');
       }
     }
+    AppLogger.instance.info('benchmark', 'changeScan.completed',
+        durationMs: watch.elapsedMilliseconds,
+        fields: {'changed': '${changed.length}'});
     return changed;
   }
 

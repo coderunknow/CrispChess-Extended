@@ -70,3 +70,25 @@ CodeRabbit, then open/update the PR. Authorization ends at an open PR: no merge,
 tag, release or deployment. Local Flutter/Dart is absent; GitHub Actions is the
 compiler/runtime oracle, with local Python/reference and syntax checks used
 where possible. Unexecuted platform behavior will be reported as unverified.
+
+## 2026-11-18 — v2.3.2-dev6: Custom UCI resource repair and Diagnostics & Logs
+
+Reproduced the Engine Manager open path against fake binaries (harness
+committed at test/perf/engine_manager_open_perf_test.dart) and measured the
+baseline on unmodified main 56e0fc8: both automatic triggers defaulted ON, the
+version-change scan ran before the settings were consulted, cache documents
+were re-read from disk per call, the built-in engine's runtime library was
+re-hashed uncached, and hashing sat on the UI isolate. Repairs: defaults off
+(opt-ins preserved), scan gated on the after-change setting, in-memory cache
+memos with write refresh and failed-write drop, a stat-invalidated
+native-library fingerprint cache, and worker-isolate SHA-256 pinned by digest
+tests (which caught a dropped await during the refactor). New diagnostics
+subsystem: structured logger with rotating JSONL persistence, resource sampler
+bounded to the viewer session, in-app viewer reachable from Settings and from
+engine failures, and a redacted diagnostic-report.zip export the user previews
+and saves deliberately; nothing uploads itself. Evidence: raw before/after
+JSONs, execution status, acceptance checklist, resource architecture and
+comprehensive audit under docs/. Full suite 980 passed / 31 skipped / 1 fixed
+default-reliant test (bench_service_identity_test now opts in explicitly).
+Windows 10 LTSC on the i5-7300U stays with the owner; no target-hardware claim
+is made, no tag, no release, no merge.

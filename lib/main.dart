@@ -5,6 +5,7 @@ import 'l10n/generated/app_localizations.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'diagnostics/app_logger.dart';
 import 'engines/engine_storage.dart';
 import 'screens/chess_game_screen.dart';
 
@@ -19,6 +20,14 @@ void main() {
   Logger.root.onRecord.listen((record) {
     debugPrint('${record.level.name}: ${record.time}: ${record.message}');
   });
+
+  // Structured diagnostics (dev6): every subsystem logs through AppLogger,
+  // uncaught errors land in the same stream, and the viewer in Settings →
+  // Diagnostics & Logs reads both the live buffer and the persisted files.
+  // `installErrorHooks` is synchronous and set before the first frame; the
+  // file sink initialises lazily and never blocks start-up.
+  final diagnostics = AppLogger.instance..installErrorHooks();
+  unawaited(diagnostics.init());
 
   // Load saved theme and locale before app starts
   SharedPreferences.getInstance().then((prefs) {

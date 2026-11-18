@@ -1,0 +1,20 @@
+{
+  "profileLoadMs": 0.46,
+  "autoSettingsReadMs": 0.33,
+  "defaultAfterAdd": false,
+  "defaultAfterVersionChange": false,
+  "coldScanChangedCount_run0": 0,
+  "coldScanChangedCount_run1": 0,
+  "coldScanChangedCount_run2": 0,
+  "coldScanMsMedian": 50.262,
+  "warmScanNewServiceMsMedian": 7.283,
+  "warmScanSameServiceMsMedian": 3.763,
+  "decideAfterChangeMsMedian": 0.044,
+  "decideAfterAddOffMs": 0.513,
+  "decideAfterAddOffShouldRun": false,
+  "hash20MBMaxEventLoopGapMs": 5.856,
+  "hash20MBWallMs": 211.194,
+  "binaryCount": 10,
+  "totalBinaryMB": 84,
+  "platform": "Linux 5.10.134-013.15.kangaroo.al8.x86_64 #1 SMP Thu Jul 30 12:54:59 UTC 2026"
+}

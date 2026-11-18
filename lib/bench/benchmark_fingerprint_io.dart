@@ -5,6 +5,7 @@
 library;
 
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart' as crypto;
 
@@ -77,12 +78,27 @@ String hostSummary() {
 }
 
 /// SHA-256 of the file at [path], or null when it cannot be read.
+///
+/// The hash runs on a worker isolate (dev6): the Engine Manager's change scan
+/// fingerprints every previously benchmarked binary, and a neural-network
+/// engine binary is tens of megabytes of pure-Dart SHA-256 — CPU the UI
+/// isolate should never spend while the screen is open. The streamed reading
+/// stays: no binary is ever held in memory to be identified.
 Future<String?> sha256OfFile(String path) async {
   try {
     final file = File(path);
     if (!await file.exists()) return null;
-    // Streamed, so a large neural-network engine binary does not have to be
-    // held in memory to be identified.
+    return await Isolate.run(() => _hashFile(path));
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The hashing itself, executed inside the worker isolate.
+Future<String?> _hashFile(String path) async {
+  try {
+    final file = File(path);
+    if (!file.existsSync()) return null;
     final digest = await crypto.sha256.bind(file.openRead()).first;
     return digest.toString();
   } catch (_) {
