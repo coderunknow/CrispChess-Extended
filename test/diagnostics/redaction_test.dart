@@ -5,8 +5,11 @@ import 'package:crispchess/diagnostics/redaction.dart';
 void main() {
   test('GitHub tokens are removed in both classic and fine-grained form',
       () {
+    // Synthetic fixtures only: both are shorter than the repository's
+    // no-secrets scanner threshold but long enough to exercise the redaction
+    // rules (16+ characters after the prefix).
     final text = 'clone url https://x:ghp_0123456789abcdefghijklmnop@host '
-        'and github_pat_11B6A356Y0pz056wWQc91i_token_here12345';
+        'and github_pat_0123456789abcdefghij';
     final redacted = redactText(text);
     expect(redacted, isNot(contains('ghp_0123')));
     expect(redacted, isNot(contains('github_pat_')));
