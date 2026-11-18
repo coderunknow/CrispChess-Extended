@@ -121,6 +121,34 @@ void main() {
     expect(redacted['command'], 'uci');
   });
 
+  test('profile paths on any drive letter are redacted', () {
+    // Regression (CodeRabbit dev6 review): only C:\Users matched, so a
+    // missing binary on D: kept the username in the export.
+    final redacted = redactText(r'D:\Users\Alice\engine.exe');
+    expect(redacted, isNot(contains('Alice')));
+  });
+
+  test('bare bearer credentials in exception text are redacted', () {
+    // Regression (CodeRabbit dev6 review): a stringified error can carry a
+    // credential without an Authorization header name.
+    final redacted = redactText('request failed: Bearer abcdef1234567890abcdef');
+    expect(redacted, isNot(contains('abcdef1234567890')));
+    expect(redacted, contains('<redacted-credentials>'));
+  });
+
+  test('credential aliases are recognized as secret field names', () {
+    // Regression (CodeRabbit dev6 review): an authToken field carries a
+    // credential even though its value has no recognizable markers.
+    final redacted = redactFields({
+      'authToken': 'opaque-credential-value',
+      'oauthClientSecret': 'also-secret',
+      'command': 'uci',
+    });
+    expect(redacted['authToken'], '<redacted>');
+    expect(redacted['oauthClientSecret'], '<redacted>');
+    expect(redacted['command'], 'uci');
+  });
+
   test('the redacted output itself is not detected as sensitive', () {
     // Regression: the detector once flagged its own placeholder
     // `C:\Users\<user>` as sensitive, because the username run in the

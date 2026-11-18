@@ -46,6 +46,8 @@ class DiagLogSink {
   Timer? _flushTimer;
   bool _warnedUnavailable = false;
   int _writesSinceFlush = 0;
+  bool _drainQueued = false;
+  int _droppedLines = 0;
 
   /// Serialization for every file-system operation: flushes, reads and
   /// clears join this chain, so a clear cannot delete files under a write in
@@ -98,20 +100,50 @@ class DiagLogSink {
     debugPrint('[Diagnostics] $message');
   }
 
-  /// Appends one JSON line. Buffered; the flush happens in batches or after
-  /// [flushInterval], whichever comes first, so a burst of entries costs one
-  /// small file write instead of one per line. This method touches memory
-  /// only — the file work belongs to [flush] on the operation queue.
+  /// Upper bound on lines waiting to be written. If a disk stalls, logging
+  /// must degrade by dropping the oldest entries — never grow without limit
+  /// and never queue a new flush per call (dev6 review).
+  static const int _maxPendingLines = 8000;
+
+  /// Appends one JSON line. Touches memory only: at most one drain is ever
+  /// scheduled at a time, batched or after [flushInterval], so a burst of
+  /// entries costs one small file write instead of one per line or one per
+  /// queued flush.
   Future<void> appendLine(String line) async {
+    if (_pending.length >= _maxPendingLines) {
+      _pending.removeAt(0);
+      _droppedLines++;
+      if (_droppedLines == 1 || _droppedLines % 100 == 0) {
+        _warnOnce('diagnostic log backlog full: '
+            '$_droppedLines oldest entries dropped');
+      }
+    }
     _pending.add(line);
     _writesSinceFlush++;
+    _scheduleDrain();
+  }
+
+  /// Ensures exactly one drain is queued. When it completes and lines
+  /// arrived during the write, the next drain schedules itself here.
+  void _scheduleDrain() {
+    if (_drainQueued) return;
+    _drainQueued = true;
+    Future<void> run() {
+      return flush().whenComplete(() {
+        _drainQueued = false;
+        _flushTimer?.cancel();
+        _flushTimer = null;
+        if (_pending.isNotEmpty) _scheduleDrain();
+      });
+    }
+
     if (_writesSinceFlush >= flushBatch) {
-      await flush();
+      unawaited(run());
       return;
     }
     _flushTimer ??= Timer(flushInterval, () {
       _flushTimer = null;
-      unawaited(flush());
+      unawaited(run());
     });
   }
 

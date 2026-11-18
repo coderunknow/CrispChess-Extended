@@ -44,6 +44,29 @@ class DiagnosticPreview {
   const DiagnosticPreview({required this.files, required this.totalBytes});
 }
 
+/// One exported log line: structured fields pass field-aware redaction
+/// first (a `password` field with several words would otherwise leak the
+/// words after the first one through the text-only pass), then the whole
+/// line goes through text redaction. Used for `application.log` and for the
+/// viewer's copy action, which have the same ordering requirement.
+String redactedRecordLine(DiagLogRecord record) {
+  final safe = DiagLogRecord(
+    timestamp: record.timestamp,
+    level: record.level,
+    component: record.component,
+    event: record.event,
+    message: record.message,
+    sessionId: record.sessionId,
+    correlationId: record.correlationId,
+    profileId: record.profileId,
+    durationMs: record.durationMs,
+    error: record.error,
+    stackTrace: record.stackTrace,
+    fields: redactFields(record.fields),
+  );
+  return redactText(safe.toLine());
+}
+
 /// Assembles and encodes the diagnostic bundle.
 class DiagnosticReportBuilder {
   final AppLogger logger;
@@ -71,7 +94,7 @@ class DiagnosticReportBuilder {
 
     final applicationLog = StringBuffer();
     for (final record in all) {
-      applicationLog.writeln(redactText(record.toLine()));
+      applicationLog.writeln(redactedRecordLine(record));
     }
     files['application.log'] = _bytes(applicationLog.toString());
 

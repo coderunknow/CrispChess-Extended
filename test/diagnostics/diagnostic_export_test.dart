@@ -41,7 +41,8 @@ void main() {
         profileId: 'p1',
         error: r'binary missing at C:\Users\alice\engine.exe',
         fields: {'path': r'C:\Users\alice\engine.exe'});
-    logger.info('benchmark', 'run.started', fields: {'trigger': 'automatic'});
+    logger.info('benchmark', 'run.started',
+        fields: {'trigger': 'automatic', 'password': 'correct horse battery staple'});
     await logger.sink.flush();
     sampler.sample();
     sampler.sample();
@@ -91,6 +92,8 @@ void main() {
     // The local record carries the personal path; the bundle must not.
     expect(containsSensitiveText(applicationLog), isFalse);
     expect(applicationLog, isNot(contains(r'C:\Users\alice')));
+    expect(applicationLog, isNot(contains('horse battery')),
+        reason: 'structured secrets must be redacted before toLine');
 
     final errorsJson = utf8
         .decode(decoded.files.firstWhere((f) => f.name == 'errors.json').content as List<int>);

@@ -134,7 +134,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
 
   void _copyVisible() {
     final text = [
-      for (final record in _visible.reversed) record.toLine(),
+      for (final record in _visible.reversed) redactedRecordLine(record),
     ].join('\n');
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -441,7 +441,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
 
   void _showRecord(DiagLogRecord record) {
     final pretty = const JsonEncoder.withIndent('  ').convert(record.toJson());
-    final sanitized = redactText(record.toLine());
+    final sanitized = redactedRecordLine(record);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
