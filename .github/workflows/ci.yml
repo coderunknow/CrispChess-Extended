@@ -368,6 +368,13 @@ jobs:
         with:
           channel: stable
           cache: true
+      # onnxruntime 1.4.1 pins compileSdkVersion 33; AGP 9 needs >= 34 for
+      # its androidx dependencies. Root-level Gradle overrides cannot reach
+      # the module (the Flutter plugin loader evaluates it during :app), so
+      # the pub-cache copy is patched before the build — see the tool's
+      # docstring for why this is the deterministic hook.
+      - run: flutter pub get
+      - run: python3 tool/patch_onnxruntime_compile_sdk.py
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
