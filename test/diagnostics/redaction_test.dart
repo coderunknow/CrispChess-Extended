@@ -85,6 +85,42 @@ void main() {
         isFalse);
   });
 
+  test('quoted secret values are redacted whole, spaces included', () {
+    // Regression (dev6 review): the unquoted value matcher stopped at the
+    // first space, leaving most of a quoted passphrase in the export.
+    final text = 'password="correct horse battery staple" and api_key: "sk live 123"';
+    final redacted = redactText(text);
+    expect(redacted, isNot(contains('horse battery')));
+    expect(redacted, isNot(contains('sk live 123')));
+    expect(redacted, contains('<redacted>'));
+  });
+
+  test('Windows profile paths containing spaces are redacted as one segment',
+      () {
+    final text = r'failed at C:\Users\Alice Smith\engines\stockfish.exe '
+        'and /home/Bob Smith/bin/x';
+    final redacted = redactText(text);
+    expect(redacted, isNot(contains('Alice Smith')));
+    expect(redacted, isNot(contains('Bob Smith')));
+    expect(redacted, contains(r'C:\Users\<user>\engines\stockfish.exe'));
+    expect(redacted, contains('/home/<user>/bin/x'));
+  });
+
+  test('a field whose key names a secret loses its whole value', () {
+    // Regression (dev6 review): structured fields were only redacted by
+    // value text, so {'password': 'private-value'} survived unchanged.
+    final redacted = redactFields({
+      'password': 'private-value',
+      'authorization': 'Bearer abc.def',
+      'enginePath': '/home/someone/x',
+      'command': 'uci',
+    });
+    expect(redacted['password'], '<redacted>');
+    expect(redacted['authorization'], '<redacted>');
+    expect(redacted['enginePath'], isNot(contains('someone')));
+    expect(redacted['command'], 'uci');
+  });
+
   test('the redacted output itself is not detected as sensitive', () {
     // Regression: the detector once flagged its own placeholder
     // `C:\Users\<user>` as sensitive, because the username run in the

@@ -75,12 +75,20 @@ Raw: `docs/audit/2026-11-18-dev6-baseline-measurements.json`,
 | Metric | Before | After | Note |
 |---|---:|---:|---|
 | Default `afterAdd` / `afterVersionChange` | ON / ON | OFF / OFF | spec-mandated; opt-ins preserved |
-| Open-path work with factory settings | full change scan (≥8.6 ms warm, 62.3 ms cold) + possible tournament | ≈0.3 ms (settings read only) | the tournament is the field's ~100% CPU suspect |
-| Warm scan, same service (per visit) | 8.6 ms | 3.8 ms | when the user opted in |
-| Cold scan (cache deleted) | 62.3 ms | 50.3 ms | hashing on worker isolate; wall time dominated by hashing itself |
-| `decideAfterChange` (unchanged) | 2.0 ms | 0.04 ms | cache memos |
-| SHA-256 20 MB | 227 ms on UI isolate (max event-loop gap 1.8 ms) | 211 ms on worker isolate | off the UI thread |
-| Profile load | 0.43 ms | 0.46 ms | +diagnostics instrumentation overhead ≈ 0.03 ms |
+| Open-path work with factory settings | full change scan (8.6 ms warm, 962 ms cold) + possible tournament | ≈0.3 ms (settings read only) | the tournament is the field's ~100% CPU suspect |
+| Warm scan, same service (per visit) | 8.6 ms | 5.1 ms | when the user opted in |
+| Cold scan (both cache copies deleted) | 962.5 ms | 946.4 ms | wall time is the full 84 MB re-hash; the worker isolate buys responsiveness, not total CPU |
+| `decideAfterChange` (trigger on, unchanged engine) | 1.4 ms | 0.43 ms | cache memos; measured with the trigger enabled so both revisions run the same detection path |
+| SHA-256 20 MB, max event-loop gap | 16.3 ms (UI isolate — a dropped frame at 60 fps) | 4.1 ms (worker isolate) | wall ≈ 221/208 ms either way |
+| Profile load | 0.45 ms | 0.60 ms | +diagnostics instrumentation overhead ≈ 0.15 ms |
+
+Methodology note (dev6 review fix): the first harness deleted only
+`fingerprints.json`, but `FileBenchmarkStorage.read()` recovers from
+`fingerprints.json.bak`, so the originally published "cold" 62.3/50.3 ms
+numbers were actually near-warm scans. Both columns above delete the cache
+through the storage API (primary + backup) and the re-benchmark decision is
+measured with the after-change trigger explicitly enabled, with the decision
+asserted unchanged before timing. Raw JSONs in this directory.
 
 These are the harness's environment. **Windows 10 LTSC 21H2 on the i5-7300U
 has NOT been measured** — that remains the owner's gate. Procedure: install

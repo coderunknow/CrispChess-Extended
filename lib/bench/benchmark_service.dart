@@ -518,6 +518,9 @@ class BenchmarkService {
     }
     if (_preflighting) throw StateError('Engine Preflight is already running.');
     _preflighting = true;
+    // Preflight runs UCI handshake probes too (dev6 review): the
+    // diagnostics 'probes' metric brackets the whole scope.
+    DiagCounters.probesActive++;
     try {
       final all = await profiles();
       final byId = {for (final c in await candidates()) c.engineId: c};
@@ -569,6 +572,8 @@ class BenchmarkService {
       return results;
     } finally {
       _preflighting = false;
+      DiagCounters.probesActive =
+          DiagCounters.probesActive > 0 ? DiagCounters.probesActive - 1 : 0;
     }
   }
 

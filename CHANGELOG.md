@@ -20,8 +20,9 @@
   fingerprint and identity caches in memory (refreshed by every write, dropped
   when a write fails), so a scan no longer re-reads and re-decodes
   `fingerprints.json` and `identities.json` from disk several times per open
-  (measured on the committed harness: same-session reopen 8.6 → 3.8 ms,
-  re-benchmark decision 2.0 → 0.04 ms for an unchanged engine).
+  (measured on the committed harness: same-session reopen 8.6 → 5.1 ms,
+  re-benchmark decision 1.4 → 0.43 ms for an unchanged engine, with the
+  after-change trigger enabled on both sides of the comparison).
 - **The built-in engine's runtime library is fingerprinted once, not on every
   open.** The Frozenight identity used to construct the native engine and hash
   the whole runtime library with no cache — twice per open when a change was

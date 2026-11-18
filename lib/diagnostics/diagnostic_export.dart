@@ -96,8 +96,12 @@ class DiagnosticReportBuilder {
     final metadata = await _metadata();
     files['metadata.json'] = _bytes(jsonEncode(metadata));
 
+    // The summary interpolates values straight out of log records (the
+    // latest error and its message), so it passes the same redaction pass as
+    // everything else in the bundle — a personal path inside an error string
+    // must not survive into the one file users read first.
     final summary = _summary(all, metadata);
-    files['summary.md'] = _bytes(summary);
+    files['summary.md'] = _bytes(redactText(summary));
 
     final archive = Archive();
     for (final entry in files.entries) {

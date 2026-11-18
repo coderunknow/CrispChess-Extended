@@ -98,13 +98,6 @@ class _Harness {
             storage: FileBenchmarkStorage(rootOverride: root)),
       );
 
-  /// Deletes the on-disk fingerprint cache, like the first open after an
-  /// install or after the cache was cleared.
-  Future<void> deleteFingerprintCache() async {
-    final file = File('${root.path}/benchmark/fingerprints.json');
-    if (await file.exists()) await file.delete();
-  }
-
   Future<void> tearDown() async {
     try {
       await root.delete(recursive: true);
@@ -169,11 +162,15 @@ void main() {
       results['defaultAfterVersionChange'] = defaults.afterVersionChange;
 
       // --- Change scan, cold (fingerprint cache deleted) --------------------
+      // The cache has a crash-recovery copy (fingerprints.json.bak) that
+      // storage.read() falls back to when the primary is missing, so deleting
+      // only the file leaves a near-warm cache (dev6 review). The storage
+      // API's delete removes both copies — that is a real cold cache.
       final coldScan = <double>[];
       for (var i = 0; i < reps; i++) {
         final service = harness.freshService();
         await service.init();
-        await harness.deleteFingerprintCache();
+        await harness.service.store.storage.delete('fingerprints');
         final stopwatch = Stopwatch()..start();
         final changed = await service.changedEngines();
         stopwatch.stop();
@@ -207,6 +204,16 @@ void main() {
       results['warmScanSameServiceMsMedian'] = _median(sameScan);
 
       // --- Re-benchmark decision for an unchanged engine --------------------
+      // With the factory defaults the decision stops at its settings gate,
+      // which is a different operation from the baseline's change detection
+      // (dev6 review). The trigger is enabled here so both revisions measure
+      // the same path, and the decision is asserted unchanged before timing.
+      await harness.service.setAutoSettings(const AutoBenchmarkSettings(
+          afterAdd: false, afterVersionChange: true));
+      final decisionProbe = await harness.service
+          .decideAfterChange(customEngineId(harness.profiles.first));
+      results['decisionProbeShouldRun'] = decisionProbe.shouldRun;
+      results['decisionProbeReason'] = decisionProbe.reason;
       final decision = <double>[];
       for (var i = 0; i < reps; i++) {
         final stopwatch = Stopwatch()..start();

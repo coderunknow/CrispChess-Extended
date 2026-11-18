@@ -29,11 +29,12 @@ permission). Evidence classes: VERIFIED / REASONED / HYPOTHESIS / BLOCKED.
 - Baseline on the unmodified code (Linux sandbox, JIT debug, VERIFIED for this
   environment; `docs/audit/2026-11-18-dev6-baseline-measurements.json`):
   - default settings `afterAdd=true`, `afterVersionChange=true`;
-  - change scan, cold fingerprint cache: 62.3 ms median;
-  - change scan, warm, next launch: 10.0 ms; same-session reopen: 8.6 ms —
+  - change scan, cold (both cache copies deleted): 962.5 ms median;
+  - change scan, warm, next launch: 10.5 ms; same-session reopen: 8.6 ms —
     i.e. every open repeats the work;
-  - `decideAfterChange` for an unchanged engine: 2.0 ms;
-  - SHA-256 of a 20 MB binary: 227 ms (on the UI isolate before dev6).
+  - `decideAfterChange` for an unchanged engine (trigger on): 1.4 ms;
+  - SHA-256 of a 20 MB binary: 221 ms on the UI isolate, max event-loop gap
+    16.3 ms (a dropped frame).
 - The dominant field symptom — an automatic Quick-preset tournament (multiple
   engine processes, up to 24 games / 10 minutes at full CPU) started by merely
   opening the manager when an engine was added or changed — is REASONED from
@@ -95,8 +96,13 @@ Implemented and covered by deterministic regression tests:
 After-numbers (same harness, same machine; VERIFIED):
 `docs/audit/2026-11-18-dev6-after-measurements.json` — with factory settings the
 open path performs no scan at all (≈0.3 ms settings read); with the scan
-opted in, the same-session reopen cost dropped 8.6 → 3.8 ms and the
-re-benchmark decision 2.0 → 0.04 ms; hashing no longer runs on the UI isolate.
+opted in, the same-session reopen cost dropped 8.6 → 5.1 ms and the
+re-benchmark decision (trigger on, unchanged engine) 1.4 → 0.43 ms; hashing
+no longer runs on the UI isolate (max event-loop gap 16.3 → 4.1 ms). The
+first published cold/decision figures (62.3 ms cold, 0.04 ms decision) came
+from a flawed harness that left the `.bak` recovery copy in place and timed
+the settings gate; both the harness and every published number were corrected
+after review (dev6 review, methodology fix).
 
 ## PHASE 5 — Diagnostics & Logs — COMPLETE (feature), PARTIALLY VERIFIED (runtime)
 

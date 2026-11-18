@@ -107,6 +107,7 @@ class ResourceSampler {
   Timer? _timer;
   bool _enabled = true;
   int? _peakRssBytes;
+  final StreamController<void> _changes = StreamController<void>.broadcast();
 
   ResourceSampler({
     this.interval = const Duration(seconds: 2),
@@ -119,6 +120,12 @@ class ResourceSampler {
     _enabled = value;
     if (!value) stop();
   }
+
+  /// Emits every time a sample is taken. The diagnostics screen listens and
+  /// rebuilds its resource header — without this, a quiet app (no log
+  /// events) would leave the displayed memory and counters frozen at the
+  /// opening snapshot despite sampling continuing.
+  Stream<void> get changes => _changes.stream;
 
   /// Peak resident memory seen while sampling, for the report header.
   int? get peakRssBytes => _peakRssBytes;
@@ -150,6 +157,9 @@ class ResourceSampler {
     ));
     while (samples.length > maxSamples) {
       samples.removeAt(0);
+    }
+    if (_changes.hasListener && !_changes.isClosed) {
+      _changes.add(null);
     }
   }
 

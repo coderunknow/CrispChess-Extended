@@ -39,7 +39,7 @@ void main() {
     logger.warning('engine', 'process.slow', message: 'handshake 900ms');
     logger.error('engine', 'initialize.failed',
         profileId: 'p1',
-        error: 'binary missing',
+        error: r'binary missing at C:\Users\alice\engine.exe',
         fields: {'path': r'C:\Users\alice\engine.exe'});
     logger.info('benchmark', 'run.started', fields: {'trigger': 'automatic'});
     await logger.sink.flush();
@@ -104,6 +104,17 @@ void main() {
         .decode(decoded.files.firstWhere((f) => f.name == 'lifecycle.json').content as List<int>);
     expect(lifecycleJson, contains('process.started'));
     expect(lifecycleJson, contains('run.started'));
+  });
+
+  test('summary.md is redacted like the rest of the bundle', () async {
+    await seed();
+    final result = await DiagnosticReportBuilder(logger: logger).build();
+    final decoded = ZipDecoder().decodeBytes(result.zip);
+    final summary = utf8.decode(
+        decoded.files.firstWhere((f) => f.name == 'summary.md').content as List<int>);
+    expect(summary, isNot(contains(r'C:\Users\alice')));
+    expect(summary, contains(r'C:\Users\<user>'));
+    expect(summary, contains('engine.initialize.failed'));
   });
 
   test('errors.json holds only ERROR and above', () async {

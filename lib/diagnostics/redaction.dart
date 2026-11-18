@@ -18,20 +18,39 @@ final RegExp _authorizationHeader = RegExp(
     r'''(authorization|proxy-authorization)("|')?\s*[:=]\s*("|')?(bearer|basic)\s+[A-Za-z0-9._\-+/=]+''',
     caseSensitive: false);
 
-/// Key/value pairs whose key names a secret. The value runs until whitespace
-/// or a quote, which covers `password=...`, `"apiKey": "..."` and
-/// `token: ...` in log text.
-final RegExp _secretKeyValues = RegExp(
-    r'''(api[_-]?key|apikey|secret|password|passwd|pwd|token|access[_-]?token|refresh[_-]?token|client[_-]?secret)("|')?\s*[:=]\s*("|')?[^\s"',;}]+''',
+/// Key names that mark a value as a secret. Used for structured record
+/// fields, where the key alone decides: a field called `password` carries a
+/// password whatever its value looks like.
+final RegExp _secretKeyNames = RegExp(
+    r'^(api[_-]?key|apikey|secret|password|passwd|pwd|token|access[_-]?token|refresh[_-]?token|client[_-]?secret|authorization|proxy-authorization)$',
     caseSensitive: false);
 
-/// Personal home directories on Windows, Linux and macOS. `<>` are excluded
-/// from the username run so the redaction *output* (`C:\Users\<user>`) does
-/// not itself read as sensitive: the detector is used to prove that an
-/// export is clean, and a real username cannot contain those characters.
+/// Key/value pairs whose value is a *complete quoted string* — matched
+/// before the whitespace-delimited form, so a quoted value containing spaces
+/// (`password="correct horse battery staple"`) is redacted whole. The
+/// closing quote is required; an unclosed quote falls through to the
+/// unquoted pattern below. Raw triple-quoted: the pattern holds both quote
+/// characters, and Dart's RegExp has no inline flags.
+final RegExp _secretQuotedValues = RegExp(
+    r'''(api[_-]?key|apikey|secret|password|passwd|pwd|token|access[_-]?token|refresh[_-]?token|client[_-]?secret)("|')?\s*[:=]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')''',
+    caseSensitive: false);
+
+/// Key/value pairs whose key names a secret, with an unquoted value running
+/// to whitespace or a quote. Covers `password=...`, `token: ...` in log text.
+final RegExp _secretKeyValues = RegExp(
+    r'''(api[_-]?key|apikey|secret|password|passwd|pwd|token|access[_-]?token|refresh[_-]?token|client[_-]?secret)("|')?\s*[:=]\s*[^\s"',;}]+''',
+    caseSensitive: false);
+
+/// Personal home directories on Windows, Linux and macOS. The username is
+/// exactly one path segment — the match runs to the next separator, quote or
+/// line end — so a profile directory containing spaces (`C:\Users\Alice
+/// Smith\...`) is redacted as one segment instead of leaking "Smith" after
+/// the placeholder. `<>` are excluded so the redaction *output* does not
+/// read as sensitive, and a real Windows username cannot contain them.
 final RegExp _windowsHome =
-    RegExp(r'''C:\\Users\\[^\\:\s"',;<>]+''', caseSensitive: false);
-final RegExp _posixHome = RegExp(r'''/(?:home|Users)/[^/\s"',;<>]+''');
+    RegExp(r'''C:\\Users\\[^\\:\r\n"',;<>]+''', caseSensitive: false);
+final RegExp _posixHome =
+    RegExp(r'''/(?:home|Users)/[^/:\r\n"',;<>]+''');
 
 /// Email addresses, which occasionally appear in engine author strings or
 /// error messages copied from elsewhere.
@@ -44,18 +63,32 @@ String redactText(String input) {
   output = output.replaceAllMapped(_githubToken, (_) => '<redacted-token>');
   output = output.replaceAllMapped(_authorizationHeader,
       (match) => '${match.group(1)}: <redacted-credentials>');
-  output = output.replaceAllMapped(_secretKeyValues,
-      (match) => '${match.group(1)}=<redacted>');
+  // Quoted secret values first (they may contain spaces), then the
+  // whitespace-delimited form for everything the quoted pass did not close.
+  output = output.replaceAllMapped(
+      _secretQuotedValues, (match) => '${match.group(1)}=<redacted>');
+  output = output.replaceAllMapped(
+      _secretKeyValues, (match) => '${match.group(1)}=<redacted>');
   output = output.replaceAllMapped(_windowsHome, (_) => 'C:\\Users\\<user>');
   output = output.replaceAllMapped(_posixHome, (_) => '/home/<user>');
   output = output.replaceAllMapped(_email, (_) => '<email>');
   return output;
 }
 
-/// Redacts every value of a string map (log record fields, metadata).
+/// True when a field *key* names a secret, in which case the whole value is
+/// replaced regardless of its content.
+bool isSecretFieldName(String key) => _secretKeyNames.hasMatch(key);
+
+/// Redacts a string map (log record fields, metadata): a key that names a
+/// secret loses its whole value, every other value passes through the text
+/// redaction. Structured fields must not rely on the value text alone —
+/// `{'password': 'private-value'}` must not survive because the flattened
+/// line happened to be sanitized.
 Map<String, String> redactFields(Map<String, String> fields) => {
       for (final entry in fields.entries)
-        entry.key: redactText(entry.value),
+        entry.key: isSecretFieldName(entry.key)
+            ? '<redacted>'
+            : redactText(entry.value),
     };
 
 /// True when [text] still contains something the redaction rules cover.
@@ -63,6 +96,7 @@ Map<String, String> redactFields(Map<String, String> fields) => {
 bool containsSensitiveText(String text) {
   return _githubToken.hasMatch(text) ||
       _authorizationHeader.hasMatch(text) ||
+      _secretQuotedValues.hasMatch(text) ||
       _secretKeyValues.hasMatch(text) ||
       _windowsHome.hasMatch(text) ||
       _posixHome.hasMatch(text) ||

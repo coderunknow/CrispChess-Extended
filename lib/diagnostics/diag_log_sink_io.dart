@@ -6,8 +6,10 @@
 // JSON lines are appended to `app.log` under the application support
 // directory. The file rotates by size, keeping a bounded number of
 // generations, so the logs survive ordinary restarts without ever growing
-// without limit. Every call is failure-tolerant: a missing or unwritable
-// storage location degrades to in-memory-only logging, never to a crash.
+// without limit. All file operations run on one internal queue — a flush, a
+// read and a clear can never interleave or overtake each other — and every
+// call is failure-tolerant: a missing or unwritable storage location
+// degrades to in-memory-only logging, never to a crash.
 library;
 
 import 'dart:async';
@@ -21,7 +23,9 @@ class DiagLogSink {
   /// Size at which `app.log` rotates into the numbered generations.
   final int maxFileBytes;
 
-  /// Number of files kept in total: the current one plus this many old ones.
+  /// Total number of files kept: the current one plus this many minus one
+  /// numbered generations (`maxGenerations = 3` → `app.log`, `app.log.1`,
+  /// `app.log.2`).
   final int maxGenerations;
 
   /// Lines buffered before a flush happens without waiting for the timer.
@@ -38,11 +42,15 @@ class DiagLogSink {
   final Directory? rootOverride;
 
   Directory? _directory;
-  int _currentBytes = 0;
   final List<String> _pending = [];
   Timer? _flushTimer;
   bool _warnedUnavailable = false;
   int _writesSinceFlush = 0;
+
+  /// Serialization for every file-system operation: flushes, reads and
+  /// clears join this chain, so a clear cannot delete files under a write in
+  /// flight and a read always sees everything queued before it.
+  Future<void> _ops = Future<void>.value();
 
   DiagLogSink({
     this.maxFileBytes = 1024 * 1024,
@@ -51,6 +59,14 @@ class DiagLogSink {
     this.flushInterval = const Duration(seconds: 2),
     this.rootOverride,
   });
+
+  /// Runs [action] after every operation queued before it. Errors do not
+  /// break the chain for later operations.
+  Future<T> _queued<T>(Future<T> Function() action) {
+    final run = _ops.then((_) => action());
+    _ops = run.then<void>((_) {}, onError: (_) {});
+    return run;
+  }
 
   Future<Directory?> _logDirectory() async {
     final existing = _directory;
@@ -84,10 +100,9 @@ class DiagLogSink {
 
   /// Appends one JSON line. Buffered; the flush happens in batches or after
   /// [flushInterval], whichever comes first, so a burst of entries costs one
-  /// small file write instead of one per line.
+  /// small file write instead of one per line. This method touches memory
+  /// only — the file work belongs to [flush] on the operation queue.
   Future<void> appendLine(String line) async {
-    final directory = await _logDirectory();
-    if (directory == null) return;
     _pending.add(line);
     _writesSinceFlush++;
     if (_writesSinceFlush >= flushBatch) {
@@ -101,10 +116,13 @@ class DiagLogSink {
   }
 
   /// Writes the buffered lines and rotates when the file has grown past
-  /// [maxFileBytes]. Appends are small (one batch) and asynchronous, so the
-  /// UI isolate never waits on disk; concurrent flushes serialize through
-  /// the shared buffer, which is drained by the first caller.
-  Future<void> flush() async {
+  /// [maxFileBytes]. The write itself measures the file's real length after
+  /// appending — UTF-8 bytes, including content written by earlier sessions
+  /// this instance never saw — so the rotation threshold cannot be fooled by
+  /// a stale in-memory counter.
+  Future<void> flush() => _queued<void>(_flushNow);
+
+  Future<void> _flushNow() async {
     _flushTimer?.cancel();
     _flushTimer = null;
     final directory = await _logDirectory();
@@ -120,78 +138,89 @@ class DiagLogSink {
       final file = _currentFile(directory);
       final text = lines.map((line) => '$line\n').join();
       await file.writeAsString(text, mode: FileMode.append);
-      _currentBytes += text.length;
-      if (_currentBytes >= maxFileBytes) {
+      final length = await file.length();
+      if (length >= maxFileBytes) {
         await _rotate(directory);
       }
     } catch (error) {
       // Losing a flush to a full disk or a locked file must not take the app
-      // down; the entries stay in memory and the console copy was already made.
+      // down; the entries stay in memory and the console copy was already
+      // made.
       _warnOnce('diagnostic log flush failed: $error');
     }
   }
 
-  /// app.log -> app.log.1 -> app.log.2, the oldest generation deleted.
+  /// The current file becomes generation 1, every generation shifts by one,
+  /// and the oldest one (which would exceed the total file budget) is
+  /// deleted first. With `maxGenerations = 1` there is no room for any
+  /// generation, so the current file simply resets.
   Future<void> _rotate(Directory directory) async {
     try {
-      for (var generation = maxGenerations - 1; generation >= 1; generation--) {
-        final source = File('${directory.path}/app.log.${generation}');
-        if (generation + 1 > maxGenerations) {
-          if (await source.exists()) await source.delete();
-          continue;
-        }
+      if (maxGenerations < 2) {
+        final file = _currentFile(directory);
+        if (await file.exists()) await file.delete();
+        return;
+      }
+      final oldest = File('${directory.path}/app.log.${maxGenerations - 1}');
+      if (await oldest.exists()) await oldest.delete();
+      for (var generation = maxGenerations - 2; generation >= 1; generation--) {
+        final source = File('${directory.path}/app.log.$generation');
         if (await source.exists()) {
-          await source
-              .rename('${directory.path}/app.log.${generation + 1}');
+          await source.rename('${directory.path}/app.log.${generation + 1}');
         }
       }
       await _currentFile(directory).rename('${directory.path}/app.log.1');
-      _currentBytes = 0;
     } catch (error) {
       _warnOnce('diagnostic log rotation failed: $error');
     }
   }
 
   /// Newest-first lines from all generations, bounded to [maxLines]. Used by
-  /// the in-app viewer to show what earlier sessions logged.
-  Future<List<String>> readLines({int maxLines = 5000}) async {
-    final directory = await _logDirectory();
-    if (directory == null) return const [];
-    await flush();
-    final lines = <String>[];
-    final files = <File>[
-      _currentFile(directory),
-      for (var generation = 1; generation <= maxGenerations; generation++)
-        File('${directory.path}/app.log.$generation'),
-    ];
-    for (final file in files.reversed) {
-      try {
-        if (!await file.exists()) continue;
-        final content = await file.readAsString();
-        lines.addAll(
-            content.split('\n').where((line) => line.trim().isNotEmpty));
-      } catch (error) {
-        _warnOnce('diagnostic log read failed: $error');
+  /// the in-app viewer to show what earlier sessions logged; queued after
+  /// the pending flush so nothing buffered is missed.
+  Future<List<String>> readLines({int maxLines = 5000}) {
+    return _queued<List<String>>(() async {
+      final directory = await _logDirectory();
+      if (directory == null) return const [];
+      await _flushNow();
+      final lines = <String>[];
+      final files = <File>[
+        _currentFile(directory),
+        for (var generation = 1; generation < maxGenerations; generation++)
+          File('${directory.path}/app.log.$generation'),
+      ];
+      for (final file in files.reversed) {
+        try {
+          if (!await file.exists()) continue;
+          final content = await file.readAsString();
+          lines.addAll(
+              content.split('\n').where((line) => line.trim().isNotEmpty));
+        } catch (error) {
+          _warnOnce('diagnostic log read failed: $error');
+        }
       }
-    }
-    return lines.length <= maxLines ? lines : lines.sublist(lines.length - maxLines);
+      return lines.length <= maxLines
+          ? lines
+          : lines.sublist(lines.length - maxLines);
+    });
   }
 
-  /// Deletes every log file. Called after the user confirms the clear.
-  Future<void> clear() async {
-    _pending.clear();
-    _currentBytes = 0;
-    final directory = await _logDirectory();
-    if (directory == null) return;
-    for (final name in [
-      'app.log',
-      for (var generation = 1; generation <= maxGenerations; generation++)
-        'app.log.$generation'
-    ]) {
-      final file = File('${directory.path}/$name');
-      try {
-        if (await file.exists()) await file.delete();
-      } catch (_) {}
-    }
-  }
+  /// Deletes every log file. Called after the user confirms the clear;
+  /// queued behind any write in flight, so nothing re-creates the files
+  /// afterwards.
+  Future<void> clear() => _queued<void>(() async {
+        _pending.clear();
+        final directory = await _logDirectory();
+        if (directory == null) return;
+        for (final name in [
+          'app.log',
+          for (var generation = 1; generation < maxGenerations; generation++)
+            'app.log.$generation'
+        ]) {
+          final file = File('${directory.path}/$name');
+          try {
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+        }
+      });
 }

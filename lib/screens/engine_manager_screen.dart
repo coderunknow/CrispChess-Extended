@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../diagnostics/app_logger.dart';
+import '../diagnostics/resource_sampler.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../bench/benchmark_service.dart';
 import '../engines/engine_registry.dart';
@@ -135,6 +136,9 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
 
     final engine = GenericUciEngine(result);
     var disposed = false;
+    // A UCI handshake probe is exactly the work this counter exists
+    // for (dev6 review): the bracket covers the whole add scope.
+    DiagCounters.probesActive++;
     try {
       // initialize() throws when the binary cannot be started or does not
       // answer `uci`. It used to swallow that and return normally, so a broken
@@ -182,6 +186,8 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
         );
       }
     } finally {
+      DiagCounters.probesActive =
+          DiagCounters.probesActive > 0 ? DiagCounters.probesActive - 1 : 0;
       if (!disposed) engine.dispose();
     }
   }
@@ -322,6 +328,7 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
 
   Future<void> _configureEngine(EngineProfile profile) async {
     final engine = GenericUciEngine(profile);
+    DiagCounters.probesActive++;
 
     // Show loading
     if (mounted) {
@@ -373,6 +380,9 @@ class _EngineManagerScreenState extends State<EngineManagerScreen> {
           ),
         );
       }
+    } finally {
+      DiagCounters.probesActive =
+          DiagCounters.probesActive > 0 ? DiagCounters.probesActive - 1 : 0;
     }
   }
 

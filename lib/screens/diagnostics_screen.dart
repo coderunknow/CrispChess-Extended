@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -34,13 +35,23 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   String? _componentFilter;
   List<DiagLogRecord> _persisted = const [];
   bool _loading = true;
+  StreamSubscription<void>? _loggerSub;
+  StreamSubscription<void>? _samplerSub;
 
   @override
   void initState() {
     super.initState();
     _refresh();
     _sampler.start();
-    _logger.updates.listen((_) {
+    // Both subscriptions are stored and cancelled in dispose: the process-
+    // wide logger keeps its listeners forever, so an anonymous callback here
+    // would retain every closed viewer (dev6 review).
+    _loggerSub = _logger.updates.listen((_) {
+      if (mounted) setState(() {});
+    });
+    // New samples must refresh the resource header even when the app is
+    // otherwise quiet — the sampler's timer only appends to its list.
+    _samplerSub = _sampler.changes.listen((_) {
       if (mounted) setState(() {});
     });
     _logger.info('ui.diagnostics', 'viewer.opened');
@@ -48,6 +59,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
 
   @override
   void dispose() {
+    _loggerSub?.cancel();
+    _samplerSub?.cancel();
     _sampler.stop();
     _query.dispose();
     _logger.info('ui.diagnostics', 'viewer.closed');
@@ -222,6 +235,12 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     final components = [
       for (final record in _all) record.component,
     ]..sort();
+    // A selected component can disappear from the list (logs cleared, older
+    // session's component gone); handing the dropdown a value with no
+    // matching item is an assertion, so reset instead (dev6 review).
+    if (_componentFilter != null && !components.contains(_componentFilter)) {
+      _componentFilter = null;
+    }
     final latest = _sampler.samples.isEmpty ? null : _sampler.samples.last;
     return Scaffold(
       appBar: AppBar(
