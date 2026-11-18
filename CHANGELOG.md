@@ -2,7 +2,21 @@
 
 ## 2.3.2-dev6 — Custom UCI Engine resource repair and Diagnostics & Logs
 
-- **Opening Custom UCI Engines no longer risks a silent full-CPU benchmark.**
+- **Engine Preflight shows every engine you chose.** When a benchmark start
+  needed preflight results for some participants, the preflight screen opened
+  listing only the engines that were not yet admitted — engines a previous
+  check had already passed never appeared, which read as "the engines I chose
+  don't show in Engine Preflight" (diagnostic report from Windows 10 IoT
+  Enterprise LTSC 2021, session `mwm5f7hn-72wn`). The screen now opens with
+  all chosen participants: admitted engines show their stored result without
+  being re-probed, pending ones are checked as before, and the manual path is
+  unchanged.
+- **Builds and CI use one pinned Flutter version.** Every CI job now pins the
+  same Flutter 3.44.2 that releases build with; an unpinned `stable` channel
+  let a test job drift onto a newer toolchain that fails on Kotlin-DSL
+  deprecations the release build never sees. CI-only change; release
+  artifacts are built exactly as before.
+- **Opening Custom UCI Engines no longer risks a silent full-CPU benchmark.**- **Opening Custom UCI Engines no longer risks a silent full-CPU benchmark.**
   Both automatic-benchmark triggers (`afterAdd`, `afterVersionChange`) now
   default to **off**. Previously they defaulted to on, and the Engine Manager
   ran its version-change scan *before* consulting them, so a visit to the
