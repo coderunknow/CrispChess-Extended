@@ -52,7 +52,7 @@ enum ResourcePressureLevel {
   String get id => name;
 
   /// Ordering used by the evaluator: higher index means more pressure.
-  int get severity => indexOf(this);
+  int get severity => ResourcePressureLevel.indexOf(this);
 
   static ResourcePressureLevel fromId(String? id) => values.firstWhere(
         (value) => value.id == id,
@@ -897,7 +897,7 @@ PressureDecision evaluatePressure(
   final highAt = limit * settings.highRatio;
   final criticalAt = limit * settings.criticalRatio;
 
-  final double ratioOf(double threshold, double hysteresis) =>
+  double ratioOf(double threshold, double hysteresis) =>
       threshold * (1 - hysteresis);
 
   ResourcePressureLevel next;

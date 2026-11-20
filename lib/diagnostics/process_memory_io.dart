@@ -33,12 +33,68 @@ HardwarePlatform hardwarePlatform() {
 /// The application process's cumulative CPU time, for the sampling window's
 /// CPU percentage. Summed across threads, so it can exceed the wall-clock
 /// window on a multi-threaded process; the metric is labelled accordingly.
+///
+/// `dart:io`'s [ProcessInfo] exposes no CPU-time figure, so on Linux this
+/// reads `/proc/self/stat` (the process's own user + system time) and on
+/// every other platform reports zero rather than inventing a value.
 Duration readApplicationCpu() {
   try {
-    return ProcessInfo.totalCpu;
+    if (Platform.isLinux) return _linuxApplicationCpu();
   } catch (_) {
-    return Duration.zero;
+    // Fall through.
   }
+  return Duration.zero;
+}
+
+/// Cumulative CPU time of this process from `/proc/self/stat`: the sum of the
+/// user and system time fields, converted from clock ticks to a duration.
+Duration _linuxApplicationCpu() {
+  final text = File('/proc/self/stat').readAsStringSync();
+  final close = text.lastIndexOf(')');
+  if (close < 0) return Duration.zero;
+  final rest = text.substring(close + 1).split(RegExp(r'\s+'));
+  // After ')' the fields are: state(0) ppid(1) ... utime(11) stime(12).
+  final utime = int.tryParse(rest.length > 11 ? rest[11] : '');
+  final stime = int.tryParse(rest.length > 12 ? rest[12] : '');
+  if (utime == null || stime == null) return Duration.zero;
+  final ticksPerSecond = _linuxClockTicksPerSecond();
+  return Duration(milliseconds: ((utime + stime) * 1000) / ticksPerSecond);
+}
+
+int? _pageSizeCache;
+int? _clkTckCache;
+
+/// The OS memory page size in bytes (`getconf PAGE_SIZE`), cached after the
+/// first read. `dart:io`'s [Platform] exposes no page size, so this is read
+/// once from `getconf`; 4096 is the standard fallback when it is unavailable.
+int _linuxPageSize() {
+  final cached = _pageSizeCache;
+  if (cached != null) return cached;
+  int size;
+  try {
+    final result = Process.runSync('getconf', ['PAGE_SIZE']);
+    size = int.tryParse(String.fromCharCodes(result.stdout).trim()) ?? 4096;
+  } catch (_) {
+    size = 4096;
+  }
+  _pageSizeCache = size;
+  return size;
+}
+
+/// Clock ticks per second (`getconf CLK_TCK`), cached after the first read.
+/// 100 is the near-universal Linux default when `getconf` is unavailable.
+int _linuxClockTicksPerSecond() {
+  final cached = _clkTckCache;
+  if (cached != null) return cached;
+  int ticks;
+  try {
+    final result = Process.runSync('getconf', ['CLK_TCK']);
+    ticks = int.tryParse(String.fromCharCodes(result.stdout).trim()) ?? 100;
+  } catch (_) {
+    ticks = 100;
+  }
+  _clkTckCache = ticks;
+  return ticks;
 }
 
 /// The application process's resident memory, or null where the platform
@@ -90,10 +146,7 @@ SystemMemorySample _linuxSystemMemory() {
 }
 
 SystemMemorySample _macosSystemMemory() {
-  final result = Process.runSync(
-    ['sysctl', '-n', 'hw.memsize'],
-    runSynchronous: true,
-  );
+  final result = Process.runSync('sysctl', ['-n', 'hw.memsize']);
   if (result.exitCode != 0) return const SystemMemorySample();
   final totalBytes = int.tryParse(String.fromCharCodes(result.stdout).trim());
   return SystemMemorySample(totalBytes: totalBytes);
@@ -118,14 +171,14 @@ ProcessMemorySample _linuxProcessMemory(int pid) {
   if (fields.length < 2) return ProcessMemorySample(pid: pid);
   final residentPages = int.tryParse(fields[1]);
   if (residentPages == null) return ProcessMemorySample(pid: pid);
-  return ProcessMemorySample(pid: pid, rssBytes: residentPages * Platform.pageSize);
+  return ProcessMemorySample(
+    pid: pid,
+    rssBytes: residentPages * _linuxPageSize(),
+  );
 }
 
 ProcessMemorySample _macosProcessMemory(int pid) {
-  final result = Process.runSync(
-    ['ps', '-o', 'rss=', '-p', '$pid'],
-    runSynchronous: true,
-  );
+  final result = Process.runSync('ps', ['-o', 'rss=', '-p', '$pid']);
   if (result.exitCode != 0) return ProcessMemorySample(pid: pid);
   final kb = int.tryParse(String.fromCharCodes(result.stdout).trim());
   if (kb == null) return ProcessMemorySample(pid: pid);
