@@ -432,26 +432,28 @@ class HardwareProtectionRuntime {
   /// records, so the run's saved document contains the complete diagnostic
   /// data. The full records are only included at the final save, not at every
   /// per-game checkpoint, to keep checkpoints low-overhead.
-  Map<String, dynamic> snapshotJson({bool includeTelemetry = false}) => {
-        'schema': 1,
-        'platform': probe.platform().id,
-        'capabilities': capabilities.toJson(),
-        'settings': settings.toJson(),
-        'budget': _budget.toJson(),
-        'level': _lastDecision.level.id,
-        'action': _lastDecision.action.id,
-        'reason': _lastDecision.reason,
-        'cpuPercent': _cpuPercent,
-        'pressureEvents': [for (final e in _pressureEvents) e.toJson()],
-        if (includeTelemetry)
-          'telemetry': telemetry.toJson()
-        else
-          'telemetry': {
+  Map<String, dynamic> snapshotJson({bool includeTelemetry = false}) {
+    final telemetryJson = includeTelemetry
+        ? telemetry.toJson()
+        : <String, dynamic>{
             'schema': 1,
             'recordCount': telemetry.count,
             'peakTotalBytes': telemetry.peakTotalBytes,
-          },
-      };
+          };
+    return <String, dynamic>{
+      'schema': 1,
+      'platform': probe.platform().id,
+      'capabilities': capabilities.toJson(),
+      'settings': settings.toJson(),
+      'budget': _budget.toJson(),
+      'level': _lastDecision.level.id,
+      'action': _lastDecision.action.id,
+      'reason': _lastDecision.reason,
+      'cpuPercent': _cpuPercent,
+      'pressureEvents': [for (final e in _pressureEvents) e.toJson()],
+      'telemetry': telemetryJson,
+    };
+  }
 
   Future<void> dispose() async {
     stop();
