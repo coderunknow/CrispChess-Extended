@@ -58,7 +58,8 @@ Duration _linuxApplicationCpu() {
   final stime = int.tryParse(rest.length > 12 ? rest[12] : '');
   if (utime == null || stime == null) return Duration.zero;
   final ticksPerSecond = _linuxClockTicksPerSecond();
-  return Duration(milliseconds: ((utime + stime) * 1000) / ticksPerSecond);
+  final millis = ((utime + stime) * 1000 / ticksPerSecond).toInt();
+  return Duration(milliseconds: millis);
 }
 
 int? _pageSizeCache;

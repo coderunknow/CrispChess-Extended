@@ -1308,7 +1308,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// Hardware Protection settings section. Every control writes through to
   /// persisted preferences immediately and updates local state, so the
   /// protection policy is live for the next benchmark run without a save.
-  Widget _buildHardwareProtectionSection(AppLocalizations l) {
+  Widget _buildHardwareProtectionSection(AppLocalizations? l) {
+    if (l == null) return const SizedBox.shrink();
     final s = _hardwareSettings;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -12,12 +12,13 @@ import 'dart:async';
 import 'package:crispchess/bench/benchmark_config.dart';
 import 'package:crispchess/bench/benchmark_environment.dart';
 import 'package:crispchess/bench/benchmark_plan.dart';
+import 'package:crispchess/bench/benchmark_run.dart';
 import 'package:crispchess/bench/benchmark_runner.dart';
 import 'package:crispchess/diagnostics/hardware_protection.dart';
 import 'package:crispchess/diagnostics/hardware_protection_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'support/bench_harness.dart';
+import '../support/bench_harness.dart';
 
 /// A [ResourceProbe] that reports a fixed application footprint so the pressure
 /// policy can be driven deterministically in a runner test.
