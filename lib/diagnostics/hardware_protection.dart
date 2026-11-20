@@ -429,7 +429,7 @@ class HardwareProtectionSettings {
         (percentageLimit! <= 0 || percentageLimit! > 100)) {
       errors.add('A percentage memory limit must be between 1 and 100.');
     }
-    for (final (name, ratio) of <(String, double)>[
+    for (final (name, ratio) in <(String, double)>[
       ('warning', warningRatio),
       ('high', highRatio),
       ('critical', criticalRatio),
@@ -444,7 +444,7 @@ class HardwareProtectionSettings {
     if (highRatio >= criticalRatio) {
       errors.add('The high threshold must be below the critical threshold.');
     }
-    for (final (name, hysteresis) of <(String, double)>[
+    for (final (name, hysteresis) in <(String, double)>[
       ('warning', warningHysteresis),
       ('high', highHysteresis),
       ('critical', criticalHysteresis),

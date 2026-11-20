@@ -134,7 +134,7 @@ class BenchmarkPressureEvent extends BenchmarkEvent {
   final ResourcePressureLevel level;
   final PressureAction action;
   final String reason;
-  final int usageBytes;
+  final int? usageBytes;
   final int? budgetLimitBytes;
 
   const BenchmarkPressureEvent({
@@ -411,14 +411,15 @@ class BenchmarkRunner {
     // Hardware Protection: start the monitor and forward level changes. It
     // only observes and, at a game boundary, requests a safe pause or stop.
     _hardware = hardwareProtection;
-    if (_hardware != null) {
-      _hardware.start(
+    final hardware = _hardware;
+    if (hardware != null) {
+      hardware.start(
         selectedEngineCount: plan.engines.length,
         benchmarkMode: plan.format.id,
         threads: config.threads,
         hashMb: config.hashMb,
       );
-      _hardwareSub = _hardware.samples.listen((sample) => _onPressure(sample));
+      _hardwareSub = hardware.samples.listen((sample) => _onPressure(sample));
     }
 
     for (final identity in plan.engines) {

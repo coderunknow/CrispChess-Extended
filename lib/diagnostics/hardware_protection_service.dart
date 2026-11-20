@@ -141,8 +141,6 @@ class HardwareProtectionRuntime {
   DateTime? _lastCpuAt;
   double? _cpuPercent;
 
-  int _elapsedTicks = 0;
-
   /// The platform capability matrix, computed once.
   HardwareCapabilitySet get capabilities =>
       hardwareCapabilitiesFor(probe.platform());
@@ -187,7 +185,6 @@ class HardwareProtectionRuntime {
     _lastCpu = null;
     _lastCpuAt = null;
     _cpuPercent = null;
-    _elapsedTicks = 0;
     _runStartedAt = DateTime.now();
     _timer?.cancel();
     if (!settings.enabled) return;
@@ -229,7 +226,6 @@ class HardwareProtectionRuntime {
   /// Takes one sample and evaluates it. Public so tests can drive the monitor
   /// without a real timer.
   void tick() {
-    _elapsedTicks++;
     final reading = _sample();
     _lastReading = reading;
 
