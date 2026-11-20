@@ -29,7 +29,6 @@ class _FakeProbe implements ResourceProbe {
     this.appRssBytes,
     this.engineRssByPid = const <int, int>{},
     this.childPidsByPid = const <int, List<int>>{},
-    this.cpu = Duration.zero,
     HardwarePlatform platform = HardwarePlatform.linux,
     String? powerState,
     String? thermalState,
@@ -44,7 +43,10 @@ class _FakeProbe implements ResourceProbe {
   int? appRssBytes;
   Map<int, int> engineRssByPid;
   Map<int, List<int>> childPidsByPid;
-  Duration cpu;
+
+  /// Application CPU time reported by [applicationCpu]. Mutable so a test can
+  /// drive the CPU-percent path; defaults to zero.
+  Duration cpu = Duration.zero;
   String? _powerState;
   String? _thermalState;
 
