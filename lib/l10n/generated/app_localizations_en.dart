@@ -2196,4 +2196,56 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get diagnosticsTitle => 'Diagnostics';
+
+  @override
+  String get hardwareProtection => 'Hardware Protection';
+
+  @override
+  String get hardwareProtectionSummary =>
+      'Monitors app and engine-process memory, applies safe pressure responses, and throttles the live board without reducing benchmark strength.';
+
+  @override
+  String get hardwareProtectionEnabled => 'Enable protection';
+
+  @override
+  String get ramBudgetMode => 'RAM budget mode';
+
+  @override
+  String get ramBudgetAutomatic => 'Automatic';
+
+  @override
+  String get ramBudgetAbsolute => 'Absolute MB';
+
+  @override
+  String get ramBudgetPercentage => 'Percentage';
+
+  @override
+  String get memoryReserve => 'OS memory reserve (MB)';
+
+  @override
+  String get absoluteLimit => 'Absolute limit (MB)';
+
+  @override
+  String get percentageLimit => 'Percentage limit (%)';
+
+  @override
+  String get thermalPowerMonitoring => 'Monitor thermal / power state';
+
+  @override
+  String get liveBoardMode => 'Live board mode';
+
+  @override
+  String get liveBoardAuto => 'Auto';
+
+  @override
+  String get liveBoardOn => 'On';
+
+  @override
+  String get liveBoardOff => 'Off';
+
+  @override
+  String get liveBoardRefresh => 'Live board refresh rate';
+
+  @override
+  String get telemetryEnabled => 'Record resource telemetry';
 }

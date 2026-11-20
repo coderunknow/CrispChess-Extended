@@ -13,6 +13,9 @@ import '../engines/searchless_engine.dart';
 import '../engines/engine_registry.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
+import '../services/preferences_service.dart';
+import '../diagnostics/hardware_protection.dart'
+    show HardwareProtectionSettings, LiveBoardMode, RamBudgetMode;
 import '../widgets/ghost_profile_card.dart';
 import 'diagnostics_screen.dart';
 import 'engine_lab_screen.dart';
@@ -87,6 +90,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _playAsBlack = false;
   String _pieceTheme = 'chessnut';
 
+  /// Hardware Protection settings, loaded from persisted preferences. These
+  /// persist immediately (they are diagnostics/protection policy, not a
+  /// gameplay choice), so they do not go through the save-result map.
+  HardwareProtectionSettings _hardwareSettings = const HardwareProtectionSettings();
+  final _prefs = PreferencesService();
+
+  HardwareProtectionSettings get hardwareSettings => _hardwareSettings;
+
+  void _updateHardware(HardwareProtectionSettings updated) {
+    setState(() => _hardwareSettings = updated);
+    _prefs.saveHardwareProtectionSettings(updated);
+  }
+
   static const _pieceThemes = [
     ('chessnut', 'Chessnut', 'MIT'),
     ('rhosgfx', 'Rhosgfx', 'CC0'),
@@ -120,6 +136,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _chessVariant = widget.chessVariant;
     _lc0Backend = widget.lc0Backend;
     _loadSavedPrefs();
+    _hardwareSettings = _prefs.hardwareProtectionSettings();
     _loadProfiles();
   }
 
@@ -1221,6 +1238,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           const SizedBox(height: 24),
+          _buildHardwareProtectionSection(l),
+          const SizedBox(height: 24),
           Center(
             child: TextButton.icon(
               icon: const Icon(Icons.restore, size: 18),
@@ -1241,6 +1260,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _showValidMoves = true;
                   _playAsBlack = false;
                   _pieceTheme = 'chessnut';
+                  _hardwareSettings = const HardwareProtectionSettings();
+                  _prefs.saveHardwareProtectionSettings(_hardwareSettings);
                 });
               },
             ),
@@ -1282,6 +1303,177 @@ class _SettingsScreenState extends State<SettingsScreen> {
         label: Text(l?.save ?? 'Save'),
       ),
     );
+  }
+
+  /// Hardware Protection settings section. Every control writes through to
+  /// persisted preferences immediately and updates local state, so the
+  /// protection policy is live for the next benchmark run without a save.
+  Widget _buildHardwareProtectionSection(AppLocalizations l) {
+    final s = _hardwareSettings;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l.hardwareProtection ?? 'Hardware Protection',
+            style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        Text(l.hardwareProtectionSummary ??
+            'Monitors app and engine-process memory, applies safe pressure '
+            'responses, and throttles the live board without reducing benchmark '
+            'strength.',
+            style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Column(
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.memory),
+                title: Text(l.hardwareProtectionEnabled ?? 'Enable protection'),
+                value: s.enabled,
+                onChanged: (v) => _updateHardware(s.copyWith(enabled: v)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.tune),
+                title: Text(l.ramBudgetMode ?? 'RAM budget mode'),
+                trailing: DropdownButton<RamBudgetMode>(
+                  value: s.ramBudgetMode,
+                  items: RamBudgetMode.values
+                      .map((m) => DropdownMenuItem<RamBudgetMode>(
+                            value: m,
+                            child: Text(_ramBudgetLabel(l, m)),
+                          ))
+                      .toList(),
+                  onChanged: (v) =>
+                      v != null ? _updateHardware(s.copyWith(ramBudgetMode: v)) : null,
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.storage),
+                title: Text(l.memoryReserve ?? 'OS memory reserve (MB)'),
+                trailing: SizedBox(
+                  width: 120,
+                  child: Slider(
+                    value: s.memoryReserveMb.toDouble().clamp(128.0, 16384.0),
+                    min: 128,
+                    max: 16384,
+                    divisions: 0,
+                    label: s.memoryReserveMb.toString(),
+                    onChanged: (v) =>
+                        _updateHardware(s.copyWith(memoryReserveMb: v.round())),
+                  ),
+                ),
+                subtitle: Text('${s.memoryReserveMb} MB'),
+              ),
+              if (s.ramBudgetMode == RamBudgetMode.absolute)
+                ListTile(
+                  leading: const Icon(Icons.data_usage),
+                  title: Text(l.absoluteLimit ?? 'Absolute limit (MB)'),
+                  trailing: SizedBox(
+                    width: 120,
+                    child: Slider(
+                      value: (s.absoluteLimitMb ?? 2048).toDouble()
+                          .clamp(256.0, 65536.0),
+                      min: 256,
+                      max: 65536,
+                      divisions: 0,
+                      label: (s.absoluteLimitMb ?? 2048).toString(),
+                      onChanged: (v) => _updateHardware(
+                          s.copyWith(absoluteLimitMb: v.round())),
+                    ),
+                  ),
+                  subtitle: Text('${s.absoluteLimitMb ?? 2048} MB'),
+                ),
+              if (s.ramBudgetMode == RamBudgetMode.percentage)
+                ListTile(
+                  leading: const Icon(Icons.percent),
+                  title: Text(l.percentageLimit ?? 'Percentage limit (%)'),
+                  trailing: SizedBox(
+                    width: 120,
+                    child: Slider(
+                      value: (s.percentageLimit ?? 80).toDouble().clamp(10.0, 99.0),
+                      min: 10,
+                      max: 99,
+                      divisions: 0,
+                      label: (s.percentageLimit ?? 80).toString(),
+                      onChanged: (v) =>
+                          _updateHardware(s.copyWith(percentageLimit: v)),
+                    ),
+                  ),
+                  subtitle: Text('${s.percentageLimit ?? 80}%'),
+                ),
+              SwitchListTile(
+                secondary: const Icon(Icons.thermostat),
+                title: Text(l.thermalPowerMonitoring ??
+                    'Monitor thermal / power state'),
+                value: s.thermalPowerMonitoring,
+                onChanged: (v) =>
+                    _updateHardware(s.copyWith(thermalPowerMonitoring: v)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.live_tv),
+                title: Text(l.liveBoardMode ?? 'Live board mode'),
+                trailing: DropdownButton<LiveBoardMode>(
+                  value: s.liveBoardMode,
+                  items: LiveBoardMode.values
+                      .map((m) => DropdownMenuItem<LiveBoardMode>(
+                            value: m,
+                            child: Text(_liveBoardLabel(l, m)),
+                          ))
+                      .toList(),
+                  onChanged: (v) =>
+                      v != null ? _updateHardware(s.copyWith(liveBoardMode: v)) : null,
+                ),
+              ),
+              if (s.liveBoardMode != LiveBoardMode.off)
+                ListTile(
+                  leading: const Icon(Icons.refresh),
+                  title: Text(l.liveBoardRefresh ?? 'Live board refresh rate'),
+                  trailing: DropdownButton<int>(
+                    value: s.liveBoardRefreshPerSecond,
+                    items: const [2, 4, 6, 8, 12]
+                        .map((r) => DropdownMenuItem<int>(
+                              value: r,
+                              child: Text('$r /s'),
+                            ))
+                        .toList(),
+                    onChanged: (v) => v != null
+                        ? _updateHardware(s.copyWith(liveBoardRefreshPerSecond: v))
+                        : null,
+                  ),
+                ),
+              SwitchListTile(
+                secondary: const Icon(Icons.analytics),
+                title: Text(l.telemetryEnabled ?? 'Record resource telemetry'),
+                value: s.telemetryEnabled,
+                onChanged: (v) => _updateHardware(s.copyWith(telemetryEnabled: v)),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _ramBudgetLabel(AppLocalizations l, RamBudgetMode m) {
+    switch (m) {
+      case RamBudgetMode.automatic:
+        return l.ramBudgetAutomatic ?? 'Automatic';
+      case RamBudgetMode.absolute:
+        return l.ramBudgetAbsolute ?? 'Absolute MB';
+      case RamBudgetMode.percentage:
+        return l.ramBudgetPercentage ?? 'Percentage';
+    }
+  }
+
+  String _liveBoardLabel(AppLocalizations l, LiveBoardMode m) {
+    switch (m) {
+      case LiveBoardMode.auto:
+        return l.liveBoardAuto ?? 'Auto';
+      case LiveBoardMode.on:
+        return l.liveBoardOn ?? 'On';
+      case LiveBoardMode.off:
+        return l.liveBoardOff ?? 'Off';
+    }
   }
 }
 

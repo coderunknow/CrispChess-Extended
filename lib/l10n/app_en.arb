@@ -914,5 +914,22 @@
   "engineLabPickOneTarget": "Select at least one target engine.",
   "livePrecisionAchieved": "Objective achieved by the evidence so far.",
   "livePrecisionNotAchieved": "Objective not achieved yet.",
-  "diagnosticsTitle": "Diagnostics"
+  "diagnosticsTitle": "Diagnostics",
+  "hardwareProtection": "Hardware Protection",
+  "hardwareProtectionSummary": "Monitors app and engine-process memory, applies safe pressure responses, and throttles the live board without reducing benchmark strength.",
+  "hardwareProtectionEnabled": "Enable protection",
+  "ramBudgetMode": "RAM budget mode",
+  "ramBudgetAutomatic": "Automatic",
+  "ramBudgetAbsolute": "Absolute MB",
+  "ramBudgetPercentage": "Percentage",
+  "memoryReserve": "OS memory reserve (MB)",
+  "absoluteLimit": "Absolute limit (MB)",
+  "percentageLimit": "Percentage limit (%)",
+  "thermalPowerMonitoring": "Monitor thermal / power state",
+  "liveBoardMode": "Live board mode",
+  "liveBoardAuto": "Auto",
+  "liveBoardOn": "On",
+  "liveBoardOff": "Off",
+  "liveBoardRefresh": "Live board refresh rate",
+  "telemetryEnabled": "Record resource telemetry"
 }

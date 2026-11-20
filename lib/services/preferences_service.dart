@@ -4,6 +4,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../chess/chess_clock.dart';
 import '../chess/game_state.dart' show ChessVariant;
+import '../diagnostics/hardware_protection.dart'
+    show HardwareProtectionSettings, LiveBoardMode, RamBudgetMode;
 
 class PreferencesService {
   static const _keyEngine = 'engine';
@@ -27,6 +29,30 @@ class PreferencesService {
   static const _keyNotationStyle = 'notationStyle';
   static const _keyBlindfold = 'blindfold';
   static const _keyLc0Backend = 'lc0Backend';
+
+  // Hardware Protection (dev7). Persisted individually so the defaults remain
+  // sensible when a stored value is missing or corrupt.
+  static const _keyHpEnabled = 'hpEnabled';
+  static const _keyHpRamBudgetMode = 'hpRamBudgetMode';
+  static const _keyHpMemoryReserveMb = 'hpMemoryReserveMb';
+  static const _keyHpAbsoluteLimitMb = 'hpAbsoluteLimitMb';
+  static const _keyHpPercentageLimit = 'hpPercentageLimit';
+  static const _keyHpWarningRatio = 'hpWarningRatio';
+  static const _keyHpHighRatio = 'hpHighRatio';
+  static const _keyHpCriticalRatio = 'hpCriticalRatio';
+  static const _keyHpWarningHysteresis = 'hpWarningHysteresis';
+  static const _keyHpHighHysteresis = 'hpHighHysteresis';
+  static const _keyHpCriticalHysteresis = 'hpCriticalHysteresis';
+  static const _keyHpCpuManagementEnabled = 'hpCpuManagementEnabled';
+  static const _keyHpBackgroundConcurrency = 'hpBackgroundConcurrency';
+  static const _keyHpReducedConcurrency = 'hpReducedConcurrency';
+  static const _keyHpThermalPower = 'hpThermalPower';
+  static const _keyHpLiveBoardMode = 'hpLiveBoardMode';
+  static const _keyHpLiveBoardRefresh = 'hpLiveBoardRefresh';
+  static const _keyHpSamplingInterval = 'hpSamplingInterval';
+  static const _keyHpTelemetryEnabled = 'hpTelemetryEnabled';
+  static const _keyHpTelemetryMax = 'hpTelemetryMax';
+  static const _keyHpCheckpointEvery = 'hpCheckpointEvery';
 
   SharedPreferences? _prefs;
 
@@ -310,6 +336,151 @@ class PreferencesService {
 
   int get gamesPlayed => _prefs?.getInt(_keyGamesPlayed) ?? 0;
   set gamesPlayed(int v) => _prefs?.setInt(_keyGamesPlayed, v);
+
+  // Hardware Protection
+
+  bool get hardwareProtectionEnabled =>
+      _prefs?.getBool(_keyHpEnabled) ?? true;
+  set hardwareProtectionEnabled(bool v) => _prefs?.setBool(_keyHpEnabled, v);
+
+  RamBudgetMode get ramBudgetMode => RamBudgetMode.values.firstWhere(
+        (mode) => mode.id == _prefs?.getString(_keyHpRamBudgetMode),
+        orElse: () => RamBudgetMode.automatic,
+      );
+  set ramBudgetMode(RamBudgetMode v) =>
+      _prefs?.setString(_keyHpRamBudgetMode, v.id);
+
+  int get memoryReserveMb => _prefs?.getInt(_keyHpMemoryReserveMb) ?? 1024;
+  set memoryReserveMb(int v) => _prefs?.setInt(_keyHpMemoryReserveMb, v);
+
+  int? get absoluteLimitMb {
+    final value = _prefs?.getInt(_keyHpAbsoluteLimitMb);
+    return value != null && value > 0 ? value : null;
+  }
+  set absoluteLimitMb(int? v) =>
+      _prefs?.setInt(_keyHpAbsoluteLimitMb, v ?? 0);
+
+  double get percentageLimit =>
+      _prefs?.getDouble(_keyHpPercentageLimit) ?? 0;
+  set percentageLimit(double v) => _prefs?.setDouble(_keyHpPercentageLimit, v);
+
+  double get warningRatio => _prefs?.getDouble(_keyHpWarningRatio) ?? 0.75;
+  set warningRatio(double v) => _prefs?.setDouble(_keyHpWarningRatio, v);
+
+  double get highRatio => _prefs?.getDouble(_keyHpHighRatio) ?? 0.85;
+  set highRatio(double v) => _prefs?.setDouble(_keyHpHighRatio, v);
+
+  double get criticalRatio => _prefs?.getDouble(_keyHpCriticalRatio) ?? 0.95;
+  set criticalRatio(double v) => _prefs?.setDouble(_keyHpCriticalRatio, v);
+
+  double get warningHysteresis =>
+      _prefs?.getDouble(_keyHpWarningHysteresis) ?? 0.05;
+  set warningHysteresis(double v) =>
+      _prefs?.setDouble(_keyHpWarningHysteresis, v);
+
+  double get highHysteresis => _prefs?.getDouble(_keyHpHighHysteresis) ?? 0.05;
+  set highHysteresis(double v) => _prefs?.setDouble(_keyHpHighHysteresis, v);
+
+  double get criticalHysteresis =>
+      _prefs?.getDouble(_keyHpCriticalHysteresis) ?? 0.05;
+  set criticalHysteresis(double v) =>
+      _prefs?.setDouble(_keyHpCriticalHysteresis, v);
+
+  bool get cpuManagementEnabled =>
+      _prefs?.getBool(_keyHpCpuManagementEnabled) ?? true;
+  set cpuManagementEnabled(bool v) => _prefs?.setBool(_keyHpCpuManagementEnabled, v);
+
+  int get backgroundConcurrency =>
+      _prefs?.getInt(_keyHpBackgroundConcurrency) ?? 2;
+  set backgroundConcurrency(int v) =>
+      _prefs?.setInt(_keyHpBackgroundConcurrency, v);
+
+  int get reducedConcurrency =>
+      _prefs?.getInt(_keyHpReducedConcurrency) ?? 1;
+  set reducedConcurrency(int v) => _prefs?.setInt(_keyHpReducedConcurrency, v);
+
+  bool get thermalPowerMonitoring =>
+      _prefs?.getBool(_keyHpThermalPower) ?? true;
+  set thermalPowerMonitoring(bool v) => _prefs?.setBool(_keyHpThermalPower, v);
+
+  LiveBoardMode get liveBoardMode => LiveBoardMode.values.firstWhere(
+        (mode) => mode.id == _prefs?.getString(_keyHpLiveBoardMode),
+        orElse: () => LiveBoardMode.auto,
+      );
+  set liveBoardMode(LiveBoardMode v) =>
+      _prefs?.setString(_keyHpLiveBoardMode, v.id);
+
+  int get liveBoardRefreshPerSecond =>
+      _prefs?.getInt(_keyHpLiveBoardRefresh) ?? 4;
+  set liveBoardRefreshPerSecond(int v) =>
+      _prefs?.setInt(_keyHpLiveBoardRefresh, v);
+
+  int get samplingIntervalSeconds =>
+      _prefs?.getInt(_keyHpSamplingInterval) ?? 5;
+  set samplingIntervalSeconds(int v) =>
+      _prefs?.setInt(_keyHpSamplingInterval, v);
+
+  bool get telemetryEnabled => _prefs?.getBool(_keyHpTelemetryEnabled) ?? true;
+  set telemetryEnabled(bool v) => _prefs?.setBool(_keyHpTelemetryEnabled, v);
+
+  int get telemetryMaxRecords => _prefs?.getInt(_keyHpTelemetryMax) ?? 2000;
+  set telemetryMaxRecords(int v) => _prefs?.setInt(_keyHpTelemetryMax, v);
+
+  int get checkpointEveryGame => _prefs?.getInt(_keyHpCheckpointEvery) ?? 1;
+  set checkpointEveryGame(int v) => _prefs?.setInt(_keyHpCheckpointEvery, v);
+
+  /// Builds a [HardwareProtectionSettings] from the persisted values. Any
+  /// field the user never set falls back to its default, so an older prefs
+  /// store cannot yield a half-configured policy.
+  HardwareProtectionSettings hardwareProtectionSettings() =>
+      HardwareProtectionSettings(
+        enabled: hardwareProtectionEnabled,
+        ramBudgetMode: ramBudgetMode,
+        memoryReserveMb: memoryReserveMb,
+        absoluteLimitMb: absoluteLimitMb,
+        percentageLimit: percentageLimit > 0 ? percentageLimit : null,
+        warningRatio: warningRatio,
+        highRatio: highRatio,
+        criticalRatio: criticalRatio,
+        warningHysteresis: warningHysteresis,
+        highHysteresis: highHysteresis,
+        criticalHysteresis: criticalHysteresis,
+        cpuManagementEnabled: cpuManagementEnabled,
+        backgroundWorkConcurrency: backgroundConcurrency,
+        reducedBackgroundConcurrency: reducedConcurrency,
+        thermalPowerMonitoring: thermalPowerMonitoring,
+        liveBoardMode: liveBoardMode,
+        liveBoardRefreshPerSecond: liveBoardRefreshPerSecond,
+        samplingIntervalSeconds: samplingIntervalSeconds,
+        telemetryEnabled: telemetryEnabled,
+        telemetryMaxRecords: telemetryMaxRecords,
+        checkpointEveryGame: checkpointEveryGame,
+      );
+
+  /// Persists a full settings object.
+  void saveHardwareProtectionSettings(HardwareProtectionSettings s) {
+    hardwareProtectionEnabled = s.enabled;
+    ramBudgetMode = s.ramBudgetMode;
+    memoryReserveMb = s.memoryReserveMb;
+    absoluteLimitMb = s.absoluteLimitMb;
+    percentageLimit = s.percentageLimit ?? 0;
+    warningRatio = s.warningRatio;
+    highRatio = s.highRatio;
+    criticalRatio = s.criticalRatio;
+    warningHysteresis = s.warningHysteresis;
+    highHysteresis = s.highHysteresis;
+    criticalHysteresis = s.criticalHysteresis;
+    cpuManagementEnabled = s.cpuManagementEnabled;
+    backgroundConcurrency = s.backgroundWorkConcurrency;
+    reducedConcurrency = s.reducedBackgroundConcurrency;
+    thermalPowerMonitoring = s.thermalPowerMonitoring;
+    liveBoardMode = s.liveBoardMode;
+    liveBoardRefreshPerSecond = s.liveBoardRefreshPerSecond;
+    samplingIntervalSeconds = s.samplingIntervalSeconds;
+    telemetryEnabled = s.telemetryEnabled;
+    telemetryMaxRecords = s.telemetryMaxRecords;
+    checkpointEveryGame = s.checkpointEveryGame;
+  }
 
   /// Reset all preferences to defaults.
   Future<void> resetToDefaults() async {

@@ -33,6 +33,11 @@ import '../bench/engine_identity.dart';
 import '../bench/game_record.dart';
 import '../bench/opening_suite.dart';
 import '../bench/stability_probe.dart';
+import '../bench/live_board.dart' show LiveBoardThrottle;
+import '../diagnostics/hardware_protection.dart' show LiveBoardMode;
+import '../diagnostics/hardware_protection_service.dart'
+    show HardwareProtectionRuntime;
+import '../services/preferences_service.dart';
 import '../engines/engine_registry.dart';
 // EngineProfile comes from the platform-independent stub, the same type the
 // profile store persists: importing the io engine would drag dart:io into the
@@ -127,6 +132,17 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   final List<({String white, String black, int game, int total})> _liveGames = [];
   List<String> _liveNotices = const [];
 
+  /// Hardware Protection runtime for the active run, built from persisted
+  /// settings. Disposed when the run ends so the telemetry stream closes.
+  HardwareProtectionRuntime? _hardware;
+  final PreferencesService _prefs = PreferencesService();
+
+  /// Throttles live-board rebuilds. Moves are always recorded; only the
+  /// rendering of the board is paced so a long run does not rebuild the whole
+  /// screen on every ply.
+  LiveBoardThrottle _boardThrottle =
+      LiveBoardThrottle(mode: LiveBoardMode.auto, refreshPerSecond: 4);
+
   // History
   List<BenchmarkRunSummary> _history = const [];
   BenchmarkRun? _latestRun;
@@ -154,6 +170,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   @override
   void dispose() {
     _subscription?.cancel();
+    // dev7: stop the monitor so its timer and telemetry stream do not outlive
+    // the screen. The runner's own cancel path already persists progress.
+    _hardware?.stop();
+    _hardware?.dispose();
     _tabs.dispose();
     super.dispose();
   }
@@ -256,18 +276,31 @@ class _EngineLabScreenState extends State<EngineLabScreen>
             ),
           );
           if (_liveGames.length > 6) _liveGames.removeLast();
+          // dev7: a new game starts the board fresh and forces a render so the
+          // opening position is shown regardless of the throttle's timer.
+          _boardThrottle.reset();
+          _boardThrottle.poke();
         });
       case BenchmarkMoveEvent():
-        setState(() {
-          _liveBoard.loadFen(event.fen);
-          _lastMove = event.san;
-          _progress = _gamesTotal == 0
-              ? 0
-              : ((_gamesDone + (event.ply / 200).clamp(0.0, 0.9)) /
-                      _gamesTotal)
-                  .clamp(0.0, 1.0)
-                  .toDouble();
-        });
+        // dev7: the move is always recorded and the position is always the
+        // latest, but the board only rebuilds when the throttle allows it.
+        // Throttling rendering never discards a benchmark event.
+        final shouldRender = _boardThrottle.onMove(
+          fen: event.fen,
+          san: event.san,
+        );
+        if (shouldRender) {
+          setState(() {
+            _liveBoard.loadFen(event.fen);
+            _lastMove = event.san;
+            _progress = _gamesTotal == 0
+                ? 0
+                : ((_gamesDone + (event.ply / 200).clamp(0.0, 0.9)) /
+                        _gamesTotal)
+                    .clamp(0.0, 1.0)
+                    .toDouble();
+          });
+        }
       case BenchmarkGameFinishedEvent():
         setState(() {
           _gamesDone = event.gamesCompleted;
@@ -296,6 +329,17 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       case BenchmarkNoticeEvent():
         setState(() {
           _liveNotices = [..._liveNotices, event.message];
+        });
+      case BenchmarkPressureEvent():
+        setState(() {
+          _boardThrottle.pressureLevel = event.level;
+          final budgetMb = event.budgetLimitBytes == null
+              ? ''
+              : ' (budget ${(event.budgetLimitBytes! / (1024 * 1024)).toStringAsFixed(0)} MB)';
+          _liveNotices = [
+            ..._liveNotices,
+            'Resource pressure: ${event.level.id}$budgetMb',
+          ];
         });
       case BenchmarkFinishedEvent():
         final achieved = event.run.precisionEvaluation?.achieved;
@@ -419,6 +463,14 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     );
     if (confirmed != true || !mounted) return;
 
+    // dev7: build the Hardware Protection monitor from the persisted settings
+    // and pace the live board from the same settings. Done before the state
+    // update so the runtime exists when the runner is created below.
+    await _hardware?.dispose();
+    final hardware = HardwareProtectionRuntime(
+      settings: _prefs.hardwareProtectionSettings(),
+    );
+
     setState(() {
       _running = true;
       _paused = false;
@@ -433,6 +485,11 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _schedulerReason = '';
       _lastMove = '';
       _status = l?.engineLabStarting ?? 'Starting engines…';
+      _hardware = hardware;
+      _boardThrottle = LiveBoardThrottle(
+        mode: hardware.settings.liveBoardMode,
+        refreshPerSecond: hardware.settings.liveBoardRefreshPerSecond,
+      );
     });
 
     try {
@@ -450,6 +507,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         anchor: null,
         anchors: _anchors,
         trigger: 'manual',
+        hardwareProtection: _hardware,
       );
       _attachRunner(runner);
       final run = await _service.runWithRunner(runner);
@@ -457,6 +515,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       setState(() {
         _running = false;
         _runner = null;
+        _hardware = null;
         _latestRun = run;
       });
       await _refreshHistory();
@@ -467,10 +526,14 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         ));
       }
     } catch (error) {
+      // dev7: release the monitor even when the run failed early, so its
+      // telemetry stream does not stay open.
+      await _hardware?.dispose();
       if (!mounted) return;
       setState(() {
         _running = false;
         _runner = null;
+        _hardware = null;
       });
       _snack('${l?.engineLabFailed ?? 'The benchmark failed'}: $error',
           error: true);
@@ -647,6 +710,11 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       return;
     }
     if (!mounted) return;
+    // dev7: build the Hardware Protection monitor from the persisted settings.
+    await _hardware?.dispose();
+    final hardware = HardwareProtectionRuntime(
+      settings: _prefs.hardwareProtectionSettings(),
+    );
     setState(() {
       _running = true;
       _paused = false;
@@ -660,6 +728,11 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       _livePrecision = null;
       _schedulerReason = '';
       _status = l?.engineLabStarting ?? 'Starting engines…';
+      _hardware = hardware;
+      _boardThrottle = LiveBoardThrottle(
+        mode: hardware.settings.liveBoardMode,
+        refreshPerSecond: hardware.settings.liveBoardRefreshPerSecond,
+      );
     });
     try {
       await _service.setLastConfig(_intelligentConfig);
@@ -668,6 +741,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       final runner = await _service.createIntelligentRunner(
         preparation: preparation,
         requirePreflight: true,
+        hardwareProtection: _hardware,
       );
       _attachRunner(runner);
       final run = await _service.runWithRunner(runner);
@@ -675,6 +749,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
       setState(() {
         _running = false;
         _runner = null;
+        _hardware = null;
         _latestRun = run;
       });
       await _refreshHistory();
@@ -687,10 +762,12 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         ));
       }
     } catch (error) {
+      await _hardware?.dispose();
       if (!mounted) return;
       setState(() {
         _running = false;
         _runner = null;
+        _hardware = null;
       });
       _snack('${l?.engineLabFailed ?? 'The benchmark failed'}: $error', error: true);
     }

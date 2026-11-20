@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart'
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../diagnostics/app_logger.dart';
+import '../diagnostics/hardware_protection_service.dart' show HardwareProtectionRuntime;
 import '../diagnostics/resource_sampler.dart';
 import '../engines/chess_engine.dart' show ChessEngine;
 import '../engines/engine_initialization.dart' show RuntimeDigestSource;
@@ -311,6 +312,7 @@ class BenchmarkService {
     List<RatingAnchor> anchors = const [],
     String? trigger,
     bool requirePreflight = false,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     if (_active != null || _creatingRunner) {
       throw StateError('A benchmark is already running or being prepared.');
@@ -388,6 +390,7 @@ class BenchmarkService {
       // already played, marked as a partial run rather than as a finished one.
       onProgressSave: store.saveRun,
       validationWarnings: [...validation.warnings, ...unavailable],
+      hardwareProtection: hardwareProtection,
     );
     return runner;
     } finally { _creatingRunner = false; }
@@ -709,6 +712,7 @@ class BenchmarkService {
     RatingAnchor? anchor,
     String? trigger = 'intelligent',
     bool requirePreflight = false,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     if (_active != null || _creatingRunner) {
       throw StateError('A benchmark is already running or being prepared.');
@@ -745,6 +749,7 @@ class BenchmarkService {
         validationWarnings: [...validation.warnings, ...preparation.scheduler.warnings],
         scheduler: preparation.scheduler,
         bootstrapSettings: preparation.bootstrapSettings,
+        hardwareProtection: hardwareProtection,
       );
     } finally {
       _creatingRunner = false;

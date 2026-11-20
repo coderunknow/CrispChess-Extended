@@ -23,6 +23,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../diagnostics/engine_process_registry.dart'
+    show managedProcessRegistry;
 import 'chess_engine.dart';
 
 /// Watches a spawned engine process and reports its death.
@@ -81,6 +83,10 @@ mixin UciProcessLifecycle {
       debugPrint('[$processLabel stderr] $line');
     });
 
+    // Register the process by its stable id so Hardware Protection can sum
+    // exactly the engine processes this app started, without matching names.
+    managedProcessRegistry.register(process.pid, label: processLabel);
+
     // A write to stdin after the process has exited (an executable that
     // dies at once: wrong architecture, a missing DLL, not an engine) fails
     // asynchronously with "Broken pipe" on the sink's `done` future. Nobody
@@ -109,6 +115,10 @@ mixin UciProcessLifecycle {
   /// arrive together and a request should end on whichever comes first.
   void releaseOnLoss() {
     _exited = true;
+    // The process is gone; stop accounting for it so its memory is not
+    // summed after it has exited.
+    final latest = _latest;
+    if (latest != null) managedProcessRegistry.unregister(latest.pid);
     onProcessLost();
   }
 
@@ -120,6 +130,13 @@ mixin UciProcessLifecycle {
   void stopWatchingProcess() {
     _stderrSub?.cancel();
     _stderrSub = null;
+    // A replaced or disposed process is no longer a managed engine process.
+    final watched = _watched;
+    if (watched != null) managedProcessRegistry.unregister(watched.pid);
+    final latest = _latest;
+    if (latest != null && latest != watched) {
+      managedProcessRegistry.unregister(latest.pid);
+    }
     _watched = null;
   }
 
