@@ -772,7 +772,11 @@ void main() {
           threads: 1,
           hashMb: 1,
         );
-        // start() samples once immediately, at the base rate.
+        // start() samples once immediately, at the base rate. The samples
+        // stream is an async broadcast controller, so the immediate event is
+        // queued on the microtask queue and must be flushed before it is
+        // observed by the listener.
+        fakeAsync.flushMicrotasks();
         expect(samples.length, 1);
         expect(runtime.interval, const Duration(seconds: 1));
 
@@ -780,10 +784,11 @@ void main() {
         fakeAsync.elapse(const Duration(seconds: 1));
         expect(samples.length, 2);
 
-        // The probe now reports critical pressure. The tick already scheduled
-        // (at the base rate) fires and evaluates it; from then on the rate
-        // doubles.
-        probe.appRssBytes = 960 * 1024 * 1024;
+        // The probe now reports critical pressure (9600 MB of a 10000 MB
+        // budget is 96%, past the 95% critical threshold). The tick already
+        // scheduled (at the base rate) fires and evaluates it; from then on
+        // the rate doubles.
+        probe.appRssBytes = 9600 * 1024 * 1024;
         fakeAsync.elapse(const Duration(seconds: 1));
         expect(samples.length, 3);
         expect(runtime.level, ResourcePressureLevel.critical);

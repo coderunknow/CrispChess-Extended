@@ -54,7 +54,7 @@ class LiveBoardThrottle {
     // Auto: under warning or worse, double the interval (at most 4 s) so the
     // board still updates but far less often.
     if ((pressureLevel?.severity ?? 0) >= ResourcePressureLevel.warning.severity) {
-      return (base * 2).clamp(500, 4000);
+      return (base * 2).clamp(1, 4000);
     }
     return base.clamp(1, 1 << 30);
   }

@@ -168,10 +168,18 @@ class ResourceTelemetryLog {
     if (raw is List) {
       for (final entry in raw) {
         if (entry is Map) {
-          log.add(
-            ResourceTelemetryRecord.fromJson(
-                Map<String, dynamic>.from(entry)),
-          );
+          // A record that cannot be parsed (a missing or malformed timestamp,
+          // a corrupt field) is skipped rather than failing the whole read:
+          // telemetry is best-effort and must never block the app or crash a
+          // diagnostic report built from an older or partial document.
+          try {
+            log.add(
+              ResourceTelemetryRecord.fromJson(
+                  Map<String, dynamic>.from(entry)),
+            );
+          } catch (_) {
+            // Skip this record and keep reading the rest of the document.
+          }
         }
       }
     }
