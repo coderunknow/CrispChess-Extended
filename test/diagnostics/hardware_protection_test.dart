@@ -12,6 +12,7 @@
 //  * the monitor never touches engine Threads/Hash/engine count/precision.
 import 'dart:async';
 
+import 'package:crispchess/bench/live_board.dart' show LiveBoardThrottle;
 import 'package:crispchess/diagnostics/engine_process_registry.dart';
 import 'package:crispchess/diagnostics/hardware_protection.dart';
 import 'package:crispchess/diagnostics/hardware_protection_service.dart';
@@ -23,32 +24,32 @@ import 'package:flutter_test/flutter_test.dart';
 /// without a device or a real process tree.
 class _FakeProbe implements ResourceProbe {
   _FakeProbe({
-    this.platform = HardwarePlatform.linux,
+    this._platform = HardwarePlatform.linux,
     this.totalBytes,
     this.availableBytes,
     this.appRssBytes,
     this.engineRssByPid = const <int, int>{},
     this.childPidsByPid = const <int, List<int>>{},
     this.cpu = Duration.zero,
-    this.powerState,
-    this.thermalState,
+    this._powerState,
+    this._thermalState,
   });
 
-  HardwarePlatform platform;
+  HardwarePlatform _platform;
   int? totalBytes;
   int? availableBytes;
   int? appRssBytes;
   Map<int, int> engineRssByPid;
   Map<int, List<int>> childPidsByPid;
   Duration cpu;
-  String? powerState;
-  String? thermalState;
+  String? _powerState;
+  String? _thermalState;
 
   /// Test instrumentation: how many times [childrenByParent] was invoked.
   int childrenByParentCalls = 0;
 
   @override
-  HardwarePlatform platform() => platform;
+  HardwarePlatform platform() => _platform;
 
   @override
   SystemMemorySample systemMemory() =>
@@ -78,10 +79,10 @@ class _FakeProbe implements ResourceProbe {
   }
 
   @override
-  String? powerState() => powerState;
+  String? powerState() => _powerState;
 
   @override
-  String? thermalState() => thermalState;
+  String? thermalState() => _thermalState;
 }
 
 void main() {
@@ -832,8 +833,8 @@ void main() {
             ramBudgetMode: RamBudgetMode.absolute, absoluteLimitMb: 1000),
         probe: _FakeProbe(
             appRssBytes: 960 * 1024 * 1024,
-            thermalState: 'nominal',
-            powerState: 'on-battery'),
+            _thermalState: 'nominal',
+            _powerState: 'on-battery'),
       );
       runtime.start(
         selectedEngineCount: 3,
