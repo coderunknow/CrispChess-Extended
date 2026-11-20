@@ -32,7 +32,7 @@ enum RamBudgetMode {
   absolute,
 
   /// A percentage of the currently available system memory.
-  percentage,
+  percentage;
 
   String get id => name;
 
@@ -47,7 +47,7 @@ enum ResourcePressureLevel {
   normal,
   warning,
   high,
-  critical,
+  critical;
 
   String get id => name;
 
@@ -73,7 +73,7 @@ enum CapabilityLevel {
   monitoringOnly,
 
   /// The platform cannot expose the capability at all.
-  unavailable,
+  unavailable;
 
   String get id => name;
 
@@ -150,7 +150,7 @@ enum HardwarePlatform {
   android,
   ios,
   web,
-  unknown,
+  unknown;
 
   String get id => name;
 }
@@ -239,7 +239,7 @@ enum LiveBoardMode {
 
   /// Live board rendering off. Benchmark events, game data and final
   /// positions are still collected and processed normally.
-  off,
+  off;
 
   String get id => name;
 
@@ -833,7 +833,7 @@ enum PressureAction {
   pauseAfterGame,
 
   /// Stop at a safe boundary and preserve completed results.
-  stop,
+  stop;
 
   String get id => name;
 }
@@ -977,7 +977,7 @@ enum PressureUserDecision {
   none,
   continueAnyway,
   pauseAfterGame,
-  stop,
+  stop;
 
   String get id => name;
 
