@@ -24,16 +24,19 @@ import 'package:flutter_test/flutter_test.dart';
 /// without a device or a real process tree.
 class _FakeProbe implements ResourceProbe {
   _FakeProbe({
-    this._platform = HardwarePlatform.linux,
     this.totalBytes,
     this.availableBytes,
     this.appRssBytes,
     this.engineRssByPid = const <int, int>{},
     this.childPidsByPid = const <int, List<int>>{},
     this.cpu = Duration.zero,
-    this._powerState,
-    this._thermalState,
-  });
+    HardwarePlatform platform = HardwarePlatform.linux,
+    String? powerState,
+    String? thermalState,
+  })
+      : _platform = platform,
+        _powerState = powerState,
+        _thermalState = thermalState;
 
   HardwarePlatform _platform;
   int? totalBytes;
@@ -749,16 +752,17 @@ void main() {
       // level (and therefore the intended rate) later had no effect. The
       // timer must re-read the effective interval on every cycle so the
       // adaptive slowdown actually takes effect.
+      final probe = _FakeProbe(appRssBytes: 100 * 1024 * 1024);
       final runtime = HardwareProtectionRuntime(
         settings: const HardwareProtectionSettings(
           ramBudgetMode: RamBudgetMode.absolute,
           absoluteLimitMb: 10000,
           samplingIntervalSeconds: 1,
         ),
-        probe: _FakeProbe(appRssBytes: 100 * 1024 * 1024),
+        probe: probe,
       );
-      final samples = <ResourcePressureSample>[];
-      StreamSubscription<ResourcePressureSample>? subscription;
+      final samples = <HardwarePressureSample>[];
+      StreamSubscription<HardwarePressureSample>? subscription;
       FakeAsync().run((fakeAsync) {
         subscription = runtime.samples.listen((s) => samples.add(s));
 
@@ -833,8 +837,8 @@ void main() {
             ramBudgetMode: RamBudgetMode.absolute, absoluteLimitMb: 1000),
         probe: _FakeProbe(
             appRssBytes: 960 * 1024 * 1024,
-            _thermalState: 'nominal',
-            _powerState: 'on-battery'),
+            thermalState: 'nominal',
+            powerState: 'on-battery'),
       );
       runtime.start(
         selectedEngineCount: 3,
