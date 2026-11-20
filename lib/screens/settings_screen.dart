@@ -1314,13 +1314,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l.hardwareProtection ?? 'Hardware Protection',
+        Text(l.hardwareProtection,
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        Text(l.hardwareProtectionSummary ??
-            'Monitors app and engine-process memory, applies safe pressure '
-            'responses, and throttles the live board without reducing benchmark '
-            'strength.',
+        Text(l.hardwareProtectionSummary,
             style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 8),
@@ -1329,13 +1326,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               SwitchListTile(
                 secondary: const Icon(Icons.memory),
-                title: Text(l.hardwareProtectionEnabled ?? 'Enable protection'),
+                title: Text(l.hardwareProtectionEnabled),
                 value: s.enabled,
                 onChanged: (v) => _updateHardware(s.copyWith(enabled: v)),
               ),
               ListTile(
                 leading: const Icon(Icons.tune),
-                title: Text(l.ramBudgetMode ?? 'RAM budget mode'),
+                title: Text(l.ramBudgetMode),
                 trailing: DropdownButton<RamBudgetMode>(
                   value: s.ramBudgetMode,
                   items: RamBudgetMode.values
@@ -1350,7 +1347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.storage),
-                title: Text(l.memoryReserve ?? 'OS memory reserve (MB)'),
+                title: Text(l.memoryReserve),
                 trailing: SizedBox(
                   width: 120,
                   child: Slider(
@@ -1368,7 +1365,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (s.ramBudgetMode == RamBudgetMode.absolute)
                 ListTile(
                   leading: const Icon(Icons.data_usage),
-                  title: Text(l.absoluteLimit ?? 'Absolute limit (MB)'),
+                  title: Text(l.absoluteLimit),
                   trailing: SizedBox(
                     width: 120,
                     child: Slider(
@@ -1387,7 +1384,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (s.ramBudgetMode == RamBudgetMode.percentage)
                 ListTile(
                   leading: const Icon(Icons.percent),
-                  title: Text(l.percentageLimit ?? 'Percentage limit (%)'),
+                  title: Text(l.percentageLimit),
                   trailing: SizedBox(
                     width: 120,
                     child: Slider(
@@ -1404,15 +1401,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               SwitchListTile(
                 secondary: const Icon(Icons.thermostat),
-                title: Text(l.thermalPowerMonitoring ??
-                    'Monitor thermal / power state'),
+                title: Text(l.thermalPowerMonitoring),
                 value: s.thermalPowerMonitoring,
                 onChanged: (v) =>
                     _updateHardware(s.copyWith(thermalPowerMonitoring: v)),
               ),
               ListTile(
                 leading: const Icon(Icons.live_tv),
-                title: Text(l.liveBoardMode ?? 'Live board mode'),
+                title: Text(l.liveBoardMode),
                 trailing: DropdownButton<LiveBoardMode>(
                   value: s.liveBoardMode,
                   items: LiveBoardMode.values
@@ -1428,7 +1424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (s.liveBoardMode != LiveBoardMode.off)
                 ListTile(
                   leading: const Icon(Icons.refresh),
-                  title: Text(l.liveBoardRefresh ?? 'Live board refresh rate'),
+                  title: Text(l.liveBoardRefresh),
                   trailing: DropdownButton<int>(
                     value: s.liveBoardRefreshPerSecond,
                     items: const [2, 4, 6, 8, 12]
@@ -1444,7 +1440,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               SwitchListTile(
                 secondary: const Icon(Icons.analytics),
-                title: Text(l.telemetryEnabled ?? 'Record resource telemetry'),
+                title: Text(l.telemetryEnabled),
                 value: s.telemetryEnabled,
                 onChanged: (v) => _updateHardware(s.copyWith(telemetryEnabled: v)),
               ),
@@ -1458,22 +1454,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _ramBudgetLabel(AppLocalizations l, RamBudgetMode m) {
     switch (m) {
       case RamBudgetMode.automatic:
-        return l.ramBudgetAutomatic ?? 'Automatic';
+        return l.ramBudgetAutomatic;
       case RamBudgetMode.absolute:
-        return l.ramBudgetAbsolute ?? 'Absolute MB';
+        return l.ramBudgetAbsolute;
       case RamBudgetMode.percentage:
-        return l.ramBudgetPercentage ?? 'Percentage';
+        return l.ramBudgetPercentage;
     }
   }
 
   String _liveBoardLabel(AppLocalizations l, LiveBoardMode m) {
     switch (m) {
       case LiveBoardMode.auto:
-        return l.liveBoardAuto ?? 'Auto';
+        return l.liveBoardAuto;
       case LiveBoardMode.on:
-        return l.liveBoardOn ?? 'On';
+        return l.liveBoardOn;
       case LiveBoardMode.off:
-        return l.liveBoardOff ?? 'Off';
+        return l.liveBoardOff;
     }
   }
 }
