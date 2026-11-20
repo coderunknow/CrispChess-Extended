@@ -59,8 +59,8 @@ class _FixedProbe implements ResourceProbe {
 const _mb = 1024 * 1024;
 
 BenchmarkRunner _runner(
-  BenchmarkConfig config,
-  HardwareProtectionRuntime? hardware, {
+  BenchmarkConfig config, {
+  HardwareProtectionRuntime? hardware,
   required ScriptedEngine white,
   required ScriptedEngine black,
   Future<void> Function(BenchmarkRun run)? onProgressSave,
