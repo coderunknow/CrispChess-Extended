@@ -607,8 +607,8 @@ MemoryBudget resolveMemoryBudget(
   int? availableBytes,
 }) {
   final available = availableBytes ?? totalBytes;
-  return switch (settings.ramBudgetMode) {
-    RamBudgetMode.automatic => {
+  switch (settings.ramBudgetMode) {
+    case RamBudgetMode.automatic: {
       if (available == null || available <= 0) {
         return const MemoryBudget(
           source: 'automatic: system memory unavailable',
@@ -624,7 +624,7 @@ MemoryBudget resolveMemoryBudget(
             '${settings.memoryReserveMb} MB reserve',
       );
     }
-    RamBudgetMode.absolute => {
+    case RamBudgetMode.absolute: {
       final limit = settings.absoluteLimitMb;
       if (limit == null || limit <= 0) {
         return const MemoryBudget(
@@ -638,7 +638,7 @@ MemoryBudget resolveMemoryBudget(
         source: 'absolute: ${limit} MB',
       );
     }
-    RamBudgetMode.percentage => {
+    case RamBudgetMode.percentage: {
       final pct = settings.percentageLimit;
       if (pct == null || pct <= 0 || available == null || available <= 0) {
         return const MemoryBudget(
@@ -653,7 +653,7 @@ MemoryBudget resolveMemoryBudget(
             '${_mb(available)} MB',
       );
     }
-  };
+  }
 }
 
 /// One resource reading: what the monitor measured, with unavailable metrics
