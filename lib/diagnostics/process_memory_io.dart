@@ -55,10 +55,14 @@ Duration? readApplicationCpu() {
 
 /// Cumulative CPU time of this process from `/proc/self/stat`: the sum of the
 /// user and system time fields, converted from clock ticks to a duration.
-Duration _linuxApplicationCpu() {
+///
+/// Returns `null` (not `Duration.zero`) when the fields cannot be parsed: a
+/// zero is a measured value, and returning it on a parse failure would report a
+/// false 0% CPU while the application is actually busy.
+Duration? _linuxApplicationCpu() {
   final text = File('/proc/self/stat').readAsStringSync();
   final close = text.lastIndexOf(')');
-  if (close < 0) return Duration.zero;
+  if (close < 0) return null;
   // Trim before splitting: the substring right after ')' begins with a space,
   // and a split that keeps a leading empty token shifts every index by one,
   // reading the wrong fields. After trim the tokens are state(0) ppid(1)
@@ -67,7 +71,7 @@ Duration _linuxApplicationCpu() {
   // After ')' the fields are: state(0) ppid(1) ... utime(10) stime(11).
   final utime = int.tryParse(rest.length > 10 ? rest[10] : '');
   final stime = int.tryParse(rest.length > 11 ? rest[11] : '');
-  if (utime == null || stime == null) return Duration.zero;
+  if (utime == null || stime == null) return null;
   final ticksPerSecond = _linuxClockTicksPerSecond();
   final millis = ((utime + stime) * 1000 / ticksPerSecond).toInt();
   return Duration(milliseconds: millis);
