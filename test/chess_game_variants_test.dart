@@ -76,12 +76,14 @@ void main() {
       // three-check win. White plays Qb8+ (one check), then undoes it.
       final game = ChessGame();
       game.variant = ChessVariant.threeCheck;
-      // Black king h8, white queen b2 can reach b8 with check.
+      // Black king h8, white queen b1. From b1 the queen checks nothing
+      // (b1-h8 is not a line), so the position loads; Qb1-b8 then gives
+      // check along the eighth rank.
       expect(
-        game.loadFen('7k/8/8/8/8/8/1Q6/4K3 w - - 0 1'),
+        game.loadFen('7k/8/8/8/8/8/8/1Q2K3 w - - 0 1'),
         isTrue,
       );
-      expect(game.makeMove('b2b8'), isTrue);
+      expect(game.makeMove('b1b8'), isTrue);
       expect(game.whiteChecks, 1);
 
       game.undoMove();
@@ -92,8 +94,8 @@ void main() {
     test('three-check: redo re-applies the check counters', () {
       final game = ChessGame();
       game.variant = ChessVariant.threeCheck;
-      expect(game.loadFen('7k/8/8/8/8/8/1Q6/4K3 w - - 0 1'), isTrue);
-      expect(game.makeMove('b2b8'), isTrue);
+      expect(game.loadFen('7k/8/8/8/8/8/8/1Q2K3 w - - 0 1'), isTrue);
+      expect(game.makeMove('b1b8'), isTrue);
       expect(game.whiteChecks, 1);
 
       game.undoMove();

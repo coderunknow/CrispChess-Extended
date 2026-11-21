@@ -60,8 +60,6 @@ class _BenchmarkReportScreenState extends State<BenchmarkReportScreen> {
     }
   }
 
-  String _uncertainty(double? se) => se == null || !se.isFinite ? '—' : (kZ95 * se).toStringAsFixed(0);
-
   Future<void> _copy(String text, String what) async {
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
