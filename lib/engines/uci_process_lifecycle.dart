@@ -99,8 +99,15 @@ mixin UciProcessLifecycle {
 
     unawaited(process.exitCode.then((code) {
       // A process replaced by a retry (or already let go) must not report its
-      // exit against the one now being watched.
-      if (!identical(_latest, process)) return;
+      // exit against the one now being watched. But its PID was registered when
+      // it started, and nothing else will ever unregister it once it is no
+      // longer `_latest`/`_watched` — so unregister it here before returning,
+      // otherwise a stale PID stays in the registry and, after PID reuse, the
+      // memory monitor could charge an unrelated process as an engine.
+      if (!identical(_latest, process)) {
+        managedProcessRegistry.unregister(process.pid);
+        return;
+      }
       _exitCode = code;
       if (!_disposingProcess) {
         debugPrint('[$processLabel] exited with code $code');

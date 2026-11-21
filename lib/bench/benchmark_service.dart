@@ -391,6 +391,11 @@ class BenchmarkService {
       // already played, marked as a partial run rather than as a finished one.
       onProgressSave: store.saveRun,
       validationWarnings: [...validation.warnings, ...unavailable],
+      // Honour the user's checkpoint cadence: the Hardware Protection setting
+      // `checkpointEveryGame` decides how many completed games are buffered
+      // before a checkpoint write. Without this the runner hardcoded 1 and the
+      // setting had no effect.
+      partialSaveInterval: hardwareProtection?.settings.checkpointEveryGame ?? 1,
       hardwareProtection: hardwareProtection,
     );
     return runner;
@@ -752,6 +757,8 @@ class BenchmarkService {
         validationWarnings: [...validation.warnings, ...preparation.scheduler.warnings],
         scheduler: preparation.scheduler,
         bootstrapSettings: preparation.bootstrapSettings,
+        // Honour the user's checkpoint cadence (see createRunner).
+        partialSaveInterval: hardwareProtection?.settings.checkpointEveryGame ?? 1,
         hardwareProtection: hardwareProtection,
       );
     } finally {

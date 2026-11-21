@@ -225,6 +225,23 @@ void main() {
       expect(budget.limitBytes, 4 * 1024 * 1024 * 1024);
     });
 
+    test('automatic stays usable when available memory is a measured zero',
+        () {
+      // Regression: a measured-zero availableBytes (the OS reports no currently
+      // free physical memory) is a valid, critical reading, not an
+      // "unavailable" one. It used to hit the `available <= 0` guard and
+      // produce an unusable budget, which made evaluatePressure() return
+      // NORMAL — disabling the policy at the low-memory edge instead of
+      // escalating. With a valid total, the budget must still resolve.
+      final budget = resolveMemoryBudget(
+        const HardwareProtectionSettings(memoryReserveMb: 1024),
+        totalBytes: 8 * 1024 * 1024 * 1024,
+        availableBytes: 0,
+      );
+      expect(budget.isUsable, isTrue);
+      expect(budget.limitBytes, 7 * 1024 * 1024 * 1024);
+    });
+
     test('automatic is unusable when no system memory is reported', () {
       final budget = resolveMemoryBudget(const HardwareProtectionSettings());
       expect(budget.isUsable, isFalse);
@@ -246,7 +263,24 @@ void main() {
       expect(budget.isUsable, isFalse);
     });
 
-    test('percentage is a fraction of available memory', () {
+    test('percentage is a fraction of total memory, not available memory',
+        () {
+      // Regression: the percentage used to be taken of *available* memory,
+      // which already excludes the run's own RSS, so a 50% limit on free
+      // memory was immediately saturated by the run's footprint. It is now a
+      // fraction of total physical memory — the consistent quantity the run's
+      // RSS is a subset of.
+      final budget = resolveMemoryBudget(
+        const HardwareProtectionSettings(
+            ramBudgetMode: RamBudgetMode.percentage, percentageLimit: 50),
+        totalBytes: 16 * 1024 * 1024 * 1024,
+        availableBytes: 8 * 1024 * 1024 * 1024,
+      );
+      expect(budget.limitBytes, (16 * 1024 * 1024 * 1024 * 0.5).floor());
+    });
+
+    test('percentage falls back to available when total is unavailable',
+        () {
       final budget = resolveMemoryBudget(
         const HardwareProtectionSettings(
             ramBudgetMode: RamBudgetMode.percentage, percentageLimit: 50),
@@ -427,6 +461,11 @@ void main() {
         final caps = hardwareCapabilitiesFor(platform);
         expect(caps.applicationMemory, CapabilityLevel.fullySupported);
         expect(caps.engineProcessControl, CapabilityLevel.fullySupported);
+        // Regression: cpuManagement was reported as partiallySupported, but no
+        // nonessential-work worker pool enforces the concurrency recommendation,
+        // so the honest level is monitoringOnly (sample + advisory, no
+        // enforcement).
+        expect(caps.cpuManagement, CapabilityLevel.monitoringOnly);
       }
     });
 

@@ -170,6 +170,11 @@ enum HardwarePlatform {
 /// memory, no CPU time, power or thermal state without FFI, so those are
 /// reported as unavailable rather than guessed. Mobile and web cannot inspect
 /// arbitrary host processes.
+///
+/// `cpuManagement` is `monitoringOnly` on every platform: CPU usage is sampled
+/// and an advisory background-concurrency recommendation is published, but no
+/// nonessential-work worker pool enforces it, so the app does not claim to
+/// manage (as opposed to monitor) background CPU work.
 HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
     switch (platform) {
       HardwarePlatform.windows => const HardwareCapabilitySet(
@@ -177,7 +182,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.fullySupported,
-          cpuManagement: CapabilityLevel.partiallySupported,
+          cpuManagement: CapabilityLevel.monitoringOnly,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.fullySupported),
@@ -186,7 +191,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.fullySupported,
           processTreeMemory: CapabilityLevel.partiallySupported,
           availableSystemMemory: CapabilityLevel.fullySupported,
-          cpuManagement: CapabilityLevel.partiallySupported,
+          cpuManagement: CapabilityLevel.monitoringOnly,
           thermalMonitoring: CapabilityLevel.monitoringOnly,
           batteryMonitoring: CapabilityLevel.partiallySupported,
           engineProcessControl: CapabilityLevel.fullySupported),
@@ -195,7 +200,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.fullySupported,
           processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.partiallySupported,
-          cpuManagement: CapabilityLevel.partiallySupported,
+          cpuManagement: CapabilityLevel.monitoringOnly,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.fullySupported),
@@ -204,7 +209,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.unavailable,
-          cpuManagement: CapabilityLevel.partiallySupported,
+          cpuManagement: CapabilityLevel.monitoringOnly,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.unavailable),
@@ -213,7 +218,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.unavailable,
-          cpuManagement: CapabilityLevel.partiallySupported,
+          cpuManagement: CapabilityLevel.monitoringOnly,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.unavailable),
@@ -618,7 +623,13 @@ MemoryBudget resolveMemoryBudget(
   final available = availableBytes ?? totalBytes;
   switch (settings.ramBudgetMode) {
     case RamBudgetMode.automatic: {
-      if (available == null || available <= 0) {
+      // A measured-zero `availableBytes` (the OS reports no currently free
+      // physical memory) is a valid, critical reading — not an "unavailable"
+      // one. It must not disable the policy. Derive the cap from total memory
+      // (stable, and a consistent quantity to compare against the run's RSS)
+      // and reject only when there is no usable base at all.
+      final base = totalBytes ?? available;
+      if (base == null || base <= 0) {
         return const MemoryBudget(
           source: 'automatic: system memory unavailable',
         );
@@ -631,7 +642,6 @@ MemoryBudget resolveMemoryBudget(
       // available-derived cap, causing premature pauses and a budget that
       // clamps to zero. Total memory is stable, so the cap stays fixed while
       // usage rises toward it — a consistent, non-overlapping quantity.
-      final base = totalBytes ?? available;
       final limit = (base - reserve).clamp(0, base);
       return MemoryBudget(
         limitBytes: limit,
@@ -657,17 +667,24 @@ MemoryBudget resolveMemoryBudget(
     }
     case RamBudgetMode.percentage: {
       final pct = settings.percentageLimit;
-      if (pct == null || pct <= 0 || available == null || available <= 0) {
+      // The percentage is taken of *total* physical memory, not of available
+      // memory. Available memory already excludes what this app and its engines
+      // hold, so a percentage of it compared against the run's RSS is a
+      // quantity mismatch (a 50% limit on 8 GiB free is 4 GiB, which the run's
+      // 4 GiB RSS would immediately saturate). Total memory is the consistent
+      // quantity: the run's RSS is a subset of it.
+      final base = totalBytes ?? available;
+      if (pct == null || pct <= 0 || base == null || base <= 0) {
         return const MemoryBudget(
           source: 'percentage: no usable limit',
         );
       }
       return MemoryBudget(
-        limitBytes: (available * pct / 100).floor(),
+        limitBytes: (base * pct / 100).floor(),
         totalBytes: totalBytes,
         availableBytes: availableBytes,
-        source: 'percentage: ${pct.toStringAsFixed(0)}% of available '
-            '${_mb(available)} MB',
+        source: 'percentage: ${pct.toStringAsFixed(0)}% of total '
+            '${_mb(base)} MB',
       );
     }
   }

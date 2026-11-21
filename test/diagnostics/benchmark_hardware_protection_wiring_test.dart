@@ -58,12 +58,50 @@ class _FixedProbe implements ResourceProbe {
 
 const _mb = 1024 * 1024;
 
+/// A [ResourceProbe] whose application footprint can be changed between
+/// samples, so a test can drive a pressure escalation (HIGH → CRITICAL) while
+/// the runner is paused.
+class _MutableProbe implements ResourceProbe {
+  _MutableProbe(this.appRssBytes);
+
+  int? appRssBytes;
+
+  @override
+  HardwarePlatform platform() => HardwarePlatform.linux;
+
+  @override
+  SystemMemorySample systemMemory() =>
+      const SystemMemorySample(totalBytes: 8 * 1024 * 1024 * 1024);
+
+  @override
+  ProcessMemorySample process(int pid) => ProcessMemorySample(pid: pid);
+
+  @override
+  int? applicationRss() => appRssBytes;
+
+  @override
+  Duration? applicationCpu() => Duration.zero;
+
+  @override
+  List<int> children(int pid) => const [];
+
+  @override
+  Map<int, List<int>> childrenByParent() => const {};
+
+  @override
+  String? powerState() => null;
+
+  @override
+  String? thermalState() => null;
+}
+
 BenchmarkRunner _runner(
   BenchmarkConfig config, {
   HardwareProtectionRuntime? hardware,
   required ScriptedEngine white,
   required ScriptedEngine black,
   Future<void> Function(BenchmarkRun run)? onProgressSave,
+  int partialSaveInterval = 1,
 }) {
   final identities = [testIdentity('Alpha'), testIdentity('Beta')];
   final plan = buildPlan(config: config, engines: identities);
@@ -78,6 +116,7 @@ BenchmarkRunner _runner(
     environment: BenchmarkEnvironment.unknown,
     onProgressSave: onProgressSave,
     hardwareProtection: hardware,
+    partialSaveInterval: partialSaveInterval,
   );
 }
 
@@ -105,6 +144,57 @@ void main() {
       expect(run.stopReason, 'resource pressure');
       // No game was started: the boundary was honoured before a search began.
       expect(run.games.where((g) => !g.warmUp), isEmpty);
+      await runner.dispose();
+    });
+
+    test('a critical escalation interrupts a pressure-pause and stops the run',
+        () async {
+      // Regression: while the runner is pressure-paused, the game loop is
+      // blocked in `_awaitResume()`. A HIGH→CRITICAL escalation used to only
+      // emit a pressure event and never wake the pause, so the run stayed
+      // paused indefinitely and never executed the STOP. A CRITICAL sample must
+      // break the pause so the loop's boundary check stops the run.
+      //
+      // 850 MB of a 1000 MB absolute budget is exactly the high threshold
+      // (pauseAfterGame); 950 MB is the critical threshold (stop).
+      final probe = _MutableProbe(850 * _mb);
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+          ramBudgetMode: RamBudgetMode.absolute,
+          absoluteLimitMb: 1000,
+          // Keep the monitor's own timer out of the way; the test drives
+          // samples explicitly.
+          samplingIntervalSeconds: 60,
+        ),
+        probe: probe,
+      );
+      final runner = _runner(
+        benchConfig(gamesPerPairing: 4, repetitions: 1, plyCap: 200),
+        hardware: runtime,
+        white: ScriptedEngine('Alpha'),
+        black: ScriptedEngine('Beta'),
+      );
+
+      final runFuture = runner.run();
+
+      // Wait until the runner has paused itself at a game boundary.
+      final pauseCompleter = Completer<void>();
+      final sub = runner.events.listen((event) {
+        if (event is BenchmarkPausedEvent && event.pressure) {
+          pauseCompleter.complete();
+        }
+      });
+      await pauseCompleter.future;
+      expect(runner.isPressurePaused, isTrue);
+
+      // Pressure rises to CRITICAL while the run is paused.
+      probe.appRssBytes = 950 * _mb;
+      runtime.tick();
+
+      final run = await runFuture;
+      expect(run.stopReason, 'resource pressure');
+
+      sub.cancel();
       await runner.dispose();
     });
 
@@ -158,6 +248,41 @@ void main() {
       expect(saved.length, greaterThanOrEqualTo(run.gamesCompleted));
       // The final saved document is the finished run.
       expect(saved.last.stopReason, 'completed');
+      await runner.dispose();
+    });
+
+    test('the checkpoint cadence is honoured, not hardcoded to one', () async {
+      // Regression: the runner used to hardcode partialSaveInterval = 1 and
+      // BenchmarkService never passed the user's checkpointEveryGame setting,
+      // so changing the cadence had no effect. The runner must honour a
+      // configured cadence.
+      final saved = <BenchmarkRun>[];
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+          ramBudgetMode: RamBudgetMode.absolute,
+          absoluteLimitMb: 10000,
+          checkpointEveryGame: 2,
+        ),
+        probe: _FixedProbe(100 * _mb),
+      );
+      final runner = _runner(
+        benchConfig(gamesPerPairing: 4, repetitions: 1, plyCap: 200),
+        hardware: runtime,
+        white: ScriptedEngine('Alpha'),
+        black: ScriptedEngine('Beta'),
+        onProgressSave: (run) async => saved.add(run),
+        partialSaveInterval: 2,
+      );
+
+      final run = await runner.run();
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      // 4 completed games with a cadence of 2: two mid-run checkpoints (at
+      // games 2 and 4) plus the two end-of-run saves (the flush and the
+      // finished save) = 4 saves. The hardcoded every-game cadence would
+      // produce 4 mid-run checkpoints + 2 end = 6.
+      expect(run.gamesCompleted, 4);
+      expect(saved.length, 4);
       await runner.dispose();
     });
 

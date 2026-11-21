@@ -34,7 +34,8 @@ import '../bench/game_record.dart';
 import '../bench/opening_suite.dart';
 import '../bench/stability_probe.dart';
 import '../bench/live_board.dart' show LiveBoardThrottle;
-import '../diagnostics/hardware_protection.dart' show LiveBoardMode;
+import '../diagnostics/hardware_protection.dart'
+    show LiveBoardMode, PressureUserDecision;
 import '../diagnostics/hardware_protection_service.dart'
     show HardwareProtectionRuntime;
 import '../services/preferences_service.dart';
@@ -194,6 +195,12 @@ class _EngineLabScreenState extends State<EngineLabScreen>
     });
     try {
       await _service.init();
+      // This screen owns its own PreferencesService instance. It must be
+      // initialized here before any benchmark start reads Hardware Protection
+      // settings through it; otherwise the backing SharedPreferences is null,
+      // the getters return defaults, and a user's saved budget/thresholds/live
+      // board settings are silently ignored.
+      await _prefs.init();
       final candidates = await _service.candidates();
       final profiles = await _service.profiles();
       final history = await _service.history();
@@ -317,6 +324,15 @@ class _EngineLabScreenState extends State<EngineLabScreen>
           _status = 'Game ${event.game.index} finished: '
               '${event.game.outcome.id}'
               '${event.game.detail == null ? '' : ' (${event.game.detail})'}';
+          // Flush the throttle's latest position into the board: the final
+          // plies may have been throttled out of a render, and the next
+          // game's `reset()` would clear them, so the displayed board would
+          // never reach this game's final position.
+          final fen = _boardThrottle.lastFen;
+          if (fen != null) {
+            _liveBoard.loadFen(fen);
+            _lastMove = _boardThrottle.lastSan ?? _lastMove;
+          }
         });
       case BenchmarkEngineFailedEvent():
         setState(() {
@@ -348,6 +364,17 @@ class _EngineLabScreenState extends State<EngineLabScreen>
             'Resource pressure: ${event.level.id}$budgetMb',
           ];
         });
+      case BenchmarkPausedEvent():
+        // The runner paused itself at a safe boundary because of resource
+        // pressure. Mirror its pause state so the controls switch from Pause
+        // to Resume (the runner's own pause is otherwise invisible to the UI).
+        if (event.pressure) {
+          setState(() {
+            _paused = true;
+            _status = AppLocalizations.of(context)?.engineLabPaused ??
+                'Paused for resource pressure.';
+          });
+        }
       case BenchmarkFinishedEvent():
         final achieved = event.run.precisionEvaluation?.achieved;
         setState(() {
@@ -786,6 +813,10 @@ class _EngineLabScreenState extends State<EngineLabScreen>
 
   void _pause() {
     _runner?.pause();
+    // Record the user's pause decision so run diagnostics reflect the actual
+    // action taken (the claim that continue/pause/stop decisions are recorded
+    // is only true if the production paths call this).
+    _hardware?.recordUserDecision(PressureUserDecision.pauseAfterGame);
     setState(() {
       _paused = true;
       _status = AppLocalizations.of(context)?.engineLabPaused ?? 'Paused.';
@@ -794,6 +825,8 @@ class _EngineLabScreenState extends State<EngineLabScreen>
 
   void _resume() {
     _runner?.resume();
+    // The resume/continue decision after a pause (user- or pressure-driven).
+    _hardware?.recordUserDecision(PressureUserDecision.continueAnyway);
     setState(() {
       _paused = false;
       _status = AppLocalizations.of(context)?.engineLabRunning ?? 'Running…';
@@ -802,6 +835,7 @@ class _EngineLabScreenState extends State<EngineLabScreen>
 
   void _cancel() {
     _runner?.cancel();
+    _hardware?.recordUserDecision(PressureUserDecision.stop);
     setState(() {
       _status = AppLocalizations.of(context)?.engineLabCancelling ??
           'Cancelling after the current game…';

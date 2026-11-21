@@ -146,6 +146,19 @@ class BenchmarkPressureEvent extends BenchmarkEvent {
   });
 }
 
+/// The runner paused itself at a safe boundary because Hardware Protection
+/// asked it to. The screen must reflect this in its own pause state, because
+/// the runner pauses without the user pressing the Pause control.
+///
+/// [pressure] is true for a Hardware Protection pause and false for a pause
+/// the user initiated through the runner (the screen already knows about those,
+/// so it only needs to mirror the pressure-driven one).
+class BenchmarkPausedEvent extends BenchmarkEvent {
+  final bool pressure;
+
+  const BenchmarkPausedEvent({required this.pressure});
+}
+
 /// Live statistical state for an intelligent run.
 class BenchmarkStatisticsEvent extends BenchmarkEvent {
   final EloFit fit;
@@ -366,6 +379,15 @@ class BenchmarkRunner {
   /// evaluate whether a safe pause/stop is now required.
   void _onPressure(HardwarePressureSample sample) {
     final level = sample.decision.level;
+    // A critical (STOP) decision must interrupt a pressure-pause: while the
+    // run is paused the game loop is blocked in `_awaitResume()`, so without
+    // waking it a HIGH→CRITICAL escalation would leave the run paused forever
+    // and never execute the configured STOP. The run is already at a safe
+    // game boundary, so breaking the pause lets the loop's next
+    // `_checkPressureBoundary()` honour the stop immediately.
+    if (sample.decision.action == PressureAction.stop) {
+      _breakPauseForStop();
+    }
     if (level != _lastPressureLevel) {
       _lastPressureLevel = level;
       // Pressure dropped below the level whose pause was acknowledged: a
@@ -382,6 +404,19 @@ class BenchmarkRunner {
         budgetLimitBytes: sample.decision.budget.limitBytes,
       ));
     }
+  }
+
+  /// Breaks out of a pressure-pause so the game loop can proceed to honour a
+  /// STOP decision. Clears the paused state and completes the pause gate the
+  /// loop is waiting on. This does not record a user decision: the pause was
+  /// broken by resource pressure, not by the user.
+  void _breakPauseForStop() {
+    if (!_paused) return;
+    _paused = false;
+    _pressurePauseRequested = false;
+    final gate = _pauseGate;
+    _pauseGate = null;
+    if (gate != null && !gate.isCompleted) gate.complete();
   }
 
   /// Called after a completed game (or before starting one). Returns true when
@@ -406,6 +441,9 @@ class BenchmarkRunner {
         _pressurePauseAcknowledgedLevel = decision.level;
         _pressurePauseRequested = true;
         pause();
+        // Notify the screen that the runner paused itself, so its pause state
+        // and controls (Resume instead of Pause) reflect the pressure pause.
+        _events.add(const BenchmarkPausedEvent(pressure: true));
       }
     }
     return false;

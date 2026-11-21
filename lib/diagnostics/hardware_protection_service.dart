@@ -327,8 +327,14 @@ class HardwareProtectionRuntime {
     }
   }
 
-  /// Recommended concurrent nonessential background tasks for the current
-  /// pressure. Never touches engine work.
+  /// Advisory recommended concurrent nonessential background tasks for the
+  /// current pressure. Never touches engine work.
+  ///
+  /// This is a published recommendation, not an enforced limit: the app has no
+  /// nonessential-work worker pool that consumes it, so `cpuManagement` is
+  /// reported as monitoring-only rather than partially supported. It is kept
+  /// as the honest, pressure-aware figure for any future or external consumer
+  /// of nonessential background work.
   int backgroundConcurrency() {
     if (!settings.cpuManagementEnabled) return settings.backgroundWorkConcurrency;
     return level.severity >= ResourcePressureLevel.warning.severity
