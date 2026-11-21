@@ -418,6 +418,36 @@ jobs:
           flutter-version: '3.44.2'
           channel: stable
           cache: true
+      - name: Patch onnxruntime podspec against retired CDN
+        # The onnxruntime Flutter plugin (^1.4.1) pins onnxruntime-objc 1.15.1,
+        # whose pod archives are hosted on a retired Azure CDN
+        # (onnxruntimepackages.z14.web.core.windows.net) that returns HTTP 404,
+        # breaking `pod install` before the build starts. onnxruntime-objc 1.18.0
+        # is the first release on the current CDN (download.onnxruntime.ai) and
+        # is API-compatible with the plugin. Rewrite the plugin's podspec
+        # dependency before the build so pod install resolves the live version.
+        # Fails loudly if the podspec can't be located or patched.
+        run: |
+          set -euo pipefail
+          flutter pub get >/dev/null 2>&1 || true
+          PUB_CACHE="${PUB_CACHE:-$HOME/.pub-cache}"
+          podspec="$(find "$PUB_CACHE/hosted/pub.dev" -path '*/onnxruntime-*/ios/onnxruntime.podspec' 2>/dev/null | head -1 || true)"
+          if [ -z "$podspec" ]; then
+            echo "ERROR: onnxruntime podspec not found under $PUB_CACHE"
+            exit 1
+          fi
+          echo "Found onnxruntime podspec: $podspec"
+          if grep -q "onnxruntime-objc', '1.18.0'" "$podspec"; then
+            echo "Podspec already patched to onnxruntime-objc 1.18.0"
+          elif grep -q "onnxruntime-objc', '1.15.1'" "$podspec"; then
+            sed -i "" "s/onnxruntime-objc', '1.15.1'/onnxruntime-objc', '1.18.0'/" "$podspec"
+            echo "Patched onnxruntime-objc 1.15.1 -> 1.18.0:"
+            grep "onnxruntime-objc" "$podspec"
+          else
+            echo "ERROR: unexpected onnxruntime-objc dependency in podspec:"
+            grep "onnxruntime-objc" "$podspec" || true
+            exit 1
+          fi
       - name: Build iOS with numeric Darwin bundle version
         # The macOS arm64 runners this job needs are periodically over capacity;
         # when that happens the build fails with no compiler diagnostic (the job
