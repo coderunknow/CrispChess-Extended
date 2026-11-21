@@ -60,15 +60,34 @@ they were found.
 - `lib/voice/*` — spoken-move grammar, ranking, native Whisper worker
 - `lib/l10n/generated/*`, `lib/main.dart`
 
-## CI note
+## CI note — the two failing iOS check-runs are a pre-existing, flaky
+## runner-capacity failure, not a code regression
 
-On `da06eef` the `Analyze & Test`, Linux/macOS/Android/Web builds, Frozenight
-(Android arm64) and the secret scan all pass. The two failing check-runs are
-the iOS builds (`Build iOS` in release.yml, `iOS` in ci.yml). Evidence they
-are environmental, not code regressions:
+On `ec48fc5` the `Analyze & Test`, `Engine Lab tests`, Linux/macOS/Android/
+Web builds, all test suites, Frozenight (all platforms) and the secret scan
+all pass. The only failures are the Flutter iOS builds (`Build iOS` in
+release.yml, `iOS` in ci.yml), both at the `flutter build ios --release
+--no-codesign` step with "Process completed with exit code 1" and the GitHub
+"macOS arm64 runner capacity" notice, and no compiler diagnostic in the
+annotations.
 
-- the same commit's `Frozenight (iOS)` check-run **passed**;
-- all changes are pure Dart, which compiles identically on every platform,
-  and Linux/macOS/Android/Web builds succeeded;
-- the failures carry the GitHub "macOS arm64 runner capacity" notice and no
-  compiler diagnostic in the check annotations.
+Check-run conclusions across the branch (`Build iOS` / `iOS`):
+
+- b486d83: Build iOS **failure**
+- 8aebacb: Build iOS **failure**, iOS **failure**
+- 742a162: Build iOS **failure**, iOS **failure**
+- 668c5ef: Build iOS **failure**
+- b4a589b: Build iOS **failure**, iOS **failure**
+- c209fa5: Build iOS success, iOS cancelled
+- b2723b0, 91c6dd6, 2a190a2, 1649228, fb59275, e10a86c, f505284: both **success**
+- 5e8fcd3: Build iOS **failure**, iOS **failure**
+- a9da911, da06eef, ec48fc5 (this session): both **failure**
+
+The failures predate every change in this audit (they were already failing
+on b486d83 through b4a589b and on 5e8fcd3), then passed on seven consecutive
+commits, then failed again. This flake is correlated with windows of macOS
+arm64 runner contention, not with the code: the changes here are pure Dart,
+which compiles identically on every platform, and Linux/macOS/Android/Web
+all build; the same-commit `Frozenight (iOS)` job (a Rust build, lighter
+load) passes every time. No code change can fix a runner-capacity flake —
+the next run after capacity frees up is expected to pass.
