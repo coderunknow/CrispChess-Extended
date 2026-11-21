@@ -416,7 +416,7 @@ void main() {
       expect(caps.engineProcessControl, CapabilityLevel.unavailable);
     });
 
-    test('desktop platforms can read process memory and control engines', () {
+    test('desktop platforms can read their own memory and control engines', () {
       for (final platform in <HardwarePlatform>[
         HardwarePlatform.windows,
         HardwarePlatform.linux,
@@ -424,8 +424,49 @@ void main() {
       ]) {
         final caps = hardwareCapabilitiesFor(platform);
         expect(caps.applicationMemory, CapabilityLevel.fullySupported);
-        expect(caps.engineProcessMemory, CapabilityLevel.fullySupported);
         expect(caps.engineProcessControl, CapabilityLevel.fullySupported);
+      }
+    });
+
+    test('the capability matrix matches what the seam actually reads', () {
+      // Regression: the matrix must not claim a capability the resource seam
+      // returns no data for, or the UI presents a control as working when it
+      // cannot read anything. Linux is the only host that reads system memory,
+      // the process tree, CPU time, power and thermal state; macOS reads
+      // process and system memory but enumerates no tree; Windows reads only
+      // the application's own memory (other processes need FFI).
+      final linux = hardwareCapabilitiesFor(HardwarePlatform.linux);
+      expect(linux.engineProcessMemory, CapabilityLevel.fullySupported);
+      expect(linux.processTreeMemory, CapabilityLevel.partiallySupported);
+      expect(linux.availableSystemMemory, CapabilityLevel.fullySupported);
+      expect(linux.thermalMonitoring, CapabilityLevel.monitoringOnly);
+      expect(linux.batteryMonitoring, CapabilityLevel.partiallySupported);
+
+      final macos = hardwareCapabilitiesFor(HardwarePlatform.macos);
+      expect(macos.engineProcessMemory, CapabilityLevel.fullySupported);
+      expect(macos.processTreeMemory, CapabilityLevel.unavailable);
+      expect(macos.availableSystemMemory, CapabilityLevel.partiallySupported);
+      expect(macos.thermalMonitoring, CapabilityLevel.unavailable);
+      expect(macos.batteryMonitoring, CapabilityLevel.unavailable);
+
+      final windows = hardwareCapabilitiesFor(HardwarePlatform.windows);
+      expect(windows.engineProcessMemory, CapabilityLevel.unavailable);
+      expect(windows.processTreeMemory, CapabilityLevel.unavailable);
+      expect(windows.availableSystemMemory, CapabilityLevel.unavailable);
+      expect(windows.thermalMonitoring, CapabilityLevel.unavailable);
+      expect(windows.batteryMonitoring, CapabilityLevel.unavailable);
+
+      // Mobile cannot inspect arbitrary host processes or system memory.
+      for (final platform in <HardwarePlatform>[
+        HardwarePlatform.android,
+        HardwarePlatform.ios,
+      ]) {
+        final caps = hardwareCapabilitiesFor(platform);
+        expect(caps.engineProcessMemory, CapabilityLevel.unavailable);
+        expect(caps.processTreeMemory, CapabilityLevel.unavailable);
+        expect(caps.availableSystemMemory, CapabilityLevel.unavailable);
+        expect(caps.thermalMonitoring, CapabilityLevel.unavailable);
+        expect(caps.batteryMonitoring, CapabilityLevel.unavailable);
       }
     });
 

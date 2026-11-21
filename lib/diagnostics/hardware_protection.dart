@@ -155,22 +155,31 @@ enum HardwarePlatform {
   String get id => name;
 }
 
-/// Capability set for a platform.
+/// Capability set for a platform, reflecting exactly what the resource seam
+/// (`process_memory_io.dart` / `process_memory_web.dart`) can actually read on
+/// that host. A level is `unavailable` wherever the implementation returns no
+/// data, so the UI never presents a control as working when it cannot.
 ///
-/// Desktop platforms can read their own process memory; Linux can also walk
-/// the process tree from `/proc`. Mobile and web cannot inspect arbitrary host
-/// processes, and CPU management is monitoring/adaptive only wherever an exact
-/// per-process quota is not reliably enforceable — stated rather than hidden.
+/// Only Linux reads system memory (`/proc/meminfo`), enumerates the process
+/// tree (`/proc`), reads CPU time (`/proc/self/stat`), power state
+/// (`/sys/class/power_supply`) and thermal zones (`/sys/class/thermal`).
+/// macOS reads the application's and other processes' resident memory (`ps`)
+/// and total system memory (`sysctl`) but enumerates no process tree.
+/// Windows reads the application's own resident memory (`ProcessInfo`) and
+/// controls engine processes, but reads no other process's memory, no system
+/// memory, no CPU time, power or thermal state without FFI, so those are
+/// reported as unavailable rather than guessed. Mobile and web cannot inspect
+/// arbitrary host processes.
 HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
     switch (platform) {
       HardwarePlatform.windows => const HardwareCapabilitySet(
           applicationMemory: CapabilityLevel.fullySupported,
-          engineProcessMemory: CapabilityLevel.fullySupported,
-          processTreeMemory: CapabilityLevel.monitoringOnly,
-          availableSystemMemory: CapabilityLevel.monitoringOnly,
+          engineProcessMemory: CapabilityLevel.unavailable,
+          processTreeMemory: CapabilityLevel.unavailable,
+          availableSystemMemory: CapabilityLevel.unavailable,
           cpuManagement: CapabilityLevel.partiallySupported,
-          thermalMonitoring: CapabilityLevel.monitoringOnly,
-          batteryMonitoring: CapabilityLevel.partiallySupported,
+          thermalMonitoring: CapabilityLevel.unavailable,
+          batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.fullySupported),
       HardwarePlatform.linux => const HardwareCapabilitySet(
           applicationMemory: CapabilityLevel.fullySupported,
@@ -184,29 +193,29 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
       HardwarePlatform.macos => const HardwareCapabilitySet(
           applicationMemory: CapabilityLevel.fullySupported,
           engineProcessMemory: CapabilityLevel.fullySupported,
-          processTreeMemory: CapabilityLevel.monitoringOnly,
+          processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.partiallySupported,
           cpuManagement: CapabilityLevel.partiallySupported,
-          thermalMonitoring: CapabilityLevel.monitoringOnly,
-          batteryMonitoring: CapabilityLevel.monitoringOnly,
+          thermalMonitoring: CapabilityLevel.unavailable,
+          batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.fullySupported),
       HardwarePlatform.android => const HardwareCapabilitySet(
           applicationMemory: CapabilityLevel.fullySupported,
-          engineProcessMemory: CapabilityLevel.monitoringOnly,
+          engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
-          availableSystemMemory: CapabilityLevel.monitoringOnly,
-          cpuManagement: CapabilityLevel.monitoringOnly,
-          thermalMonitoring: CapabilityLevel.monitoringOnly,
-          batteryMonitoring: CapabilityLevel.partiallySupported,
+          availableSystemMemory: CapabilityLevel.unavailable,
+          cpuManagement: CapabilityLevel.partiallySupported,
+          thermalMonitoring: CapabilityLevel.unavailable,
+          batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.unavailable),
       HardwarePlatform.ios => const HardwareCapabilitySet(
           applicationMemory: CapabilityLevel.fullySupported,
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
-          availableSystemMemory: CapabilityLevel.monitoringOnly,
-          cpuManagement: CapabilityLevel.monitoringOnly,
-          thermalMonitoring: CapabilityLevel.monitoringOnly,
-          batteryMonitoring: CapabilityLevel.partiallySupported,
+          availableSystemMemory: CapabilityLevel.unavailable,
+          cpuManagement: CapabilityLevel.partiallySupported,
+          thermalMonitoring: CapabilityLevel.unavailable,
+          batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.unavailable),
       HardwarePlatform.web => const HardwareCapabilitySet(
           applicationMemory: CapabilityLevel.unavailable,
@@ -221,7 +230,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           applicationMemory: CapabilityLevel.monitoringOnly,
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
-          availableSystemMemory: CapabilityLevel.monitoringOnly,
+          availableSystemMemory: CapabilityLevel.unavailable,
           cpuManagement: CapabilityLevel.unavailable,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,

@@ -78,6 +78,9 @@ int _linuxPageSize() {
   } catch (_) {
     size = 4096;
   }
+  // A pathological 0 from a misconfigured host would turn every page count
+  // into a zero resident size; fall back to the standard 4096.
+  if (size <= 0) size = 4096;
   _pageSizeCache = size;
   return size;
 }
@@ -94,6 +97,10 @@ int _linuxClockTicksPerSecond() {
   } catch (_) {
     ticks = 100;
   }
+  // A pathological 0 would make the tick→millisecond conversion divide by
+  // zero (yielding Infinity, which `.toInt()` rejects with a RangeError and
+  // would crash the CPU sampler). Fall back to the near-universal 100.
+  if (ticks <= 0) ticks = 100;
   _clkTckCache = ticks;
   return ticks;
 }
