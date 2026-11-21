@@ -88,11 +88,19 @@ void main() {
       expect(item.interval, 2);
       expect(item.timesCorrect, 2);
 
+      final beforeInc = DateTime.now();
       item.markIncorrect();
+      final afterInc = DateTime.now();
       expect(item.interval, 0);
       expect(item.timesCorrect, 0);
-      // An incorrect answer re-schedules for 1 day.
-      expect(item.nextReview.difference(DateTime.now()).inDays, 1);
+      // An incorrect answer re-schedules for 1 day (use the window helper —
+      // a raw `.inDays` difference truncates the sub-day remainder to 0).
+      expect(
+        _isScheduledWithin(
+            item.nextReview, beforeInc, afterInc, const Duration(days: 1)),
+        isTrue,
+        reason: 'an incorrect answer re-schedules for 1 day',
+      );
     });
 
     test('a learned item is not due and is filtered out of getDueItems', () {
