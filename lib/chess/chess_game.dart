@@ -565,6 +565,16 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
         .toList();
     _game.reset();
     _invalidatePositionCaches();
+    // Clear the game-end and three-check flags too: loading a new PGN must
+    // start from a fresh state. Without this, a previously resigned/drawn
+    // game left `isGameOver` permanently true, and a previously played
+    // three-check game left the check counters at their old values, so the
+    // replay below accumulated checks onto a non-zero base and could falsely
+    // trigger a three-check win.
+    _resigned = false;
+    _drawAgreed = false;
+    whiteChecks = 0;
+    blackChecks = 0;
     _tree = GameTree(startFen: _game.fen);
     _annotations.clear();
     for (final uci in replay) {
