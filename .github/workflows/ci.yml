@@ -455,7 +455,17 @@ jobs:
             exit 1
           fi
           echo "=== pod install (patched) ==="
-          (cd ios && pod install)
+          pod_out="$(cd ios && pod install 2>&1)"
+          pod_status=$?
+          if [ "$pod_status" -ne 0 ]; then
+            echo "pod install FAILED (exit $pod_status)"
+            echo "--- last 80 lines ---"
+            echo "$pod_out" | tail -80
+            echo "--- relevant lines ---"
+            echo "$pod_out" | grep -iE "onnxruntime|404|error|could not|fail|not found|resolved" | tail -40
+            exit "$pod_status"
+          fi
+          echo "pod install succeeded"
           echo "=== onnxruntime-objc resolution ==="
           if grep -q "onnxruntime-objc (1.18.0)" ios/Podfile.lock; then
             echo "OK: onnxruntime-objc 1.18.0 resolved"
