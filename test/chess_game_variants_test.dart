@@ -69,6 +69,40 @@ void main() {
       expect(game.isGameOver, isFalse);
     });
 
+    test('three-check: undo restores the check counters', () {
+      // Regression: undo reloads the board from the node FEN but must also
+      // restore the check counts that belong to that position. Otherwise a
+      // check counted before the undo survives and can falsely trigger a
+      // three-check win. White plays Qb8+ (one check), then undoes it.
+      final game = ChessGame();
+      game.variant = ChessVariant.threeCheck;
+      // Black king h8, white queen b2 can reach b8 with check.
+      expect(
+        game.loadFen('7k/8/8/8/8/8/1Q6/4K3 w - - 0 1'),
+        isTrue,
+      );
+      expect(game.makeMove('b2b8'), isTrue);
+      expect(game.whiteChecks, 1);
+
+      game.undoMove();
+      expect(game.whiteChecks, 0,
+          reason: 'undo must roll the check counter back with the position');
+    });
+
+    test('three-check: redo re-applies the check counters', () {
+      final game = ChessGame();
+      game.variant = ChessVariant.threeCheck;
+      expect(game.loadFen('7k/8/8/8/8/8/1Q6/4K3 w - - 0 1'), isTrue);
+      expect(game.makeMove('b2b8'), isTrue);
+      expect(game.whiteChecks, 1);
+
+      game.undoMove();
+      expect(game.whiteChecks, 0);
+      expect(game.redoMove(), isTrue);
+      expect(game.whiteChecks, 1,
+          reason: 'redo must restore the check count recorded for the move');
+    });
+
     test('standard variant ignores KOTH center squares', () {
       final game = ChessGame();
       game.variant = ChessVariant.standard;

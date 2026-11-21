@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:chess/chess.dart' as chess;
 import 'package:crispchess/chess/move_analyzer.dart';
 
 void main() {
@@ -266,6 +267,34 @@ void main() {
         annotation.tactics.any((t) => t.name == 'Castling'),
         isTrue,
       );
+    });
+  });
+
+  group('analyzeMove pre-move capture detection', () {
+    test('detects material gain from the pre-move board, not the post-move board', () {
+      // Before the move: white rook on d1, black queen on d8. White plays
+      // Rd1xd8, winning the queen (queen 9 > rook 5 => +4 material gain).
+      final preFen = '3qk3/8/8/8/8/8/8/3RK3 w - - 0 1';
+      // After Rd1xd8: white rook now on d8, black queen gone.
+      final postFen = '3Rk3/8/8/8/8/8/8/4K3 b - - 0 1';
+
+      // The analyzer is constructed on the POST-move board (as ChessGame does).
+      final analyzer = MoveAnalyzer(chess.Chess.fromFEN(postFen));
+      final annotation = analyzer.analyzeMove(
+        uciMove: 'd1d8',
+        evaluation: MoveEvaluation(
+          scoreBefore: 0.0,
+          scoreAfter: 3.0,
+          bestMove: 'd1d8',
+          bestMoveScore: 3.0,
+          depth: 15,
+          whiteToMove: true,
+        ),
+        preMoveFen: preFen,
+      );
+
+      // Capture + material gain must be read from the pre-move board.
+      expect(annotation.tactics.any((t) => t.name == 'Material Gain'), isTrue);
     });
   });
 }

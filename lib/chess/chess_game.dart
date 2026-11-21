@@ -211,6 +211,9 @@ class ChessGame with ChangeNotifier {
   // Store evaluation BEFORE making the move AND whose turn it is
   final evalBefore = _lastEvaluation ?? 0.0;
   final whiteToMove = _game.turn == chess.Color.WHITE;  // ADD THIS
+  // Position before the move: capture/material-gain detection must read this
+  // board, not the post-move board.
+  final preMoveFen = _game.fen;
   
   // Chess960 castling, which package:chess cannot play: apply it by loading the
   // resulting position. Handled before the normal path because the library
@@ -228,6 +231,8 @@ class ChessGame with ChangeNotifier {
         fen: _game.fen,
       );
       node.eval = _lastEvaluation;
+      node.whiteChecks = whiteChecks;
+      node.blackChecks = blackChecks;
       _annotations.add(_analyzer.analyzeMove(
         uciMove: uciMove,
         evaluation: MoveEvaluation(
@@ -238,6 +243,7 @@ class ChessGame with ChangeNotifier {
           depth: _lastDepth ?? 10,
           whiteToMove: wasWhite,
         ),
+        preMoveFen: preMoveFen,
       ));
       if (_annotations.length > 500) _annotations.removeAt(0);
       notifyListeners();
@@ -270,6 +276,8 @@ class ChessGame with ChangeNotifier {
     // Update game tree — adds as child or navigates into existing
     final node = _tree.addMove(uci: uciMove, san: san, fen: _game.fen);
     node.eval = _lastEvaluation;
+    node.whiteChecks = whiteChecks;
+    node.blackChecks = blackChecks;
 
     // Create INCOMPLETE annotation with temporary evaluation
     final tempEval = MoveEvaluation(
@@ -284,6 +292,7 @@ class ChessGame with ChangeNotifier {
     final annotation = _analyzer.analyzeMove(
       uciMove: uciMove,
       evaluation: tempEval,
+      preMoveFen: preMoveFen,
     );
 
     node.annotation = annotation;
@@ -313,13 +322,11 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
     whiteToMove: whiteToMove,  // ADD THIS
   );
   
-  // Re-analyze with complete evaluation
-  final completeAnnotation = _analyzer.analyzeMove(
-    uciMove: incomplete.move,
-    evaluation: completeEval,
-  );
-  
-  _annotations[_annotations.length - 1] = completeAnnotation;
+  // Complete the evaluation on the existing annotation. Tactic detection was
+  // already computed against the pre-move board when the move was made, so we
+  // keep those results and only replace the evaluation (re-running analyzeMove
+  // here would re-detect tactics against the post-move board and be wrong).
+  _annotations[_annotations.length - 1] = incomplete.copyWith(evaluation: completeEval);
 }
   
   bool _resigned = false;
@@ -436,11 +443,22 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
     return null;
   }
 
+  /// Restores the three-check counters to the values that belong to the
+  /// position reached after a tree navigation. Undo/redo/variation reload the
+  /// board from a node FEN but must not leave the counters at whatever the
+  /// last played move left them at — a check counted before an undo would
+  /// otherwise survive and could falsely trigger a three-check win.
+  void _syncCheckCounters() {
+    whiteChecks = _tree.current.whiteChecks;
+    blackChecks = _tree.current.blackChecks;
+  }
+
   void undoMove() {
     if (_tree.atStart) return;
     _tree.goBack();
     _game.load(_tree.current.fen);
     _invalidatePositionCaches();
+    _syncCheckCounters();
     if (_annotations.isNotEmpty) {
       _annotations.removeLast();
     }
@@ -453,6 +471,7 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
     _tree.goForward();
     _game.load(_tree.current.fen);
     _invalidatePositionCaches();
+    _syncCheckCounters();
     notifyListeners();
     return true;
   }
@@ -469,6 +488,7 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
     _game.load(node.fen);
     _tree.goTo(node);
     _invalidatePositionCaches();
+    _syncCheckCounters();
     notifyListeners();
   }
 
@@ -478,6 +498,7 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
     _tree.goForward();
     _game.load(_tree.current.fen);
     _invalidatePositionCaches();
+    _syncCheckCounters();
     notifyListeners();
     return true;
   }
@@ -487,6 +508,7 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
     if (!_tree.enterVariation(index)) return false;
     _game.load(_tree.current.fen);
     _invalidatePositionCaches();
+    _syncCheckCounters();
     notifyListeners();
     return true;
   }
