@@ -12,19 +12,31 @@ ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 # the first release published to the current CDN (download.onnxruntime.ai) and
 # is API-compatible with the plugin. Rewrite the plugin's podspec dependency to
 # the working version before CocoaPods resolves, so the run pulls from the live
-# CDN instead of the dead one. Wrapped so a patch failure never breaks the
-# Podfile load itself.
+# CDN instead of the dead one. This runs at Podfile evaluation (before
+# resolution) and patches BOTH the .symlinks path CocoaPods resolves through
+# and the pub-cache source, so it survives a `flutter pub get` re-link.
+# Wrapped so a patch failure never breaks the Podfile load itself.
 begin
-  pub_cache = ENV['PUB_CACHE'] || File.join(Dir.home, '.pub-cache')
-  podspec = Dir.glob(File.join(pub_cache, 'hosted', 'pub.dev', 'onnxruntime-*',
-                              'ios', 'onnxruntime.podspec')).first
-  if podspec && File.exist?(podspec)
+  ios_dir = File.dirname(File.realpath(__FILE__))
+  candidates = [
+    # What `pod install` actually resolves through (Flutter plugin symlink).
+    File.join(ios_dir, '.symlinks', 'plugins', 'onnxruntime', 'ios',
+              'onnxruntime.podspec'),
+    # The pub-cache source the symlink points at (in case it is a copy).
+    Dir.glob(File.join(ENV['PUB_CACHE'] || File.join(Dir.home, '.pub-cache'),
+                       'hosted', 'pub.dev', 'onnxruntime-*', 'ios',
+                       'onnxruntime.podspec')),
+  ].flatten
+  candidates.each do |podspec|
+    next unless podspec && File.exist?(podspec)
     content = File.read(podspec)
-    unless content.include?('1.18.0')
-      patched = content.sub(/(s\.dependency\s+'onnxruntime-objc',\s+)'1\.15\.1'/) do
-        "#{$1}'1.18.0'"
-      end
-      File.write(podspec, patched) if patched != content
+    next if content.include?('1.18.0')
+    patched = content.sub(/(s\.dependency\s+'onnxruntime-objc',\s+)'1\.15\.1'/) do
+      "#{$1}'1.18.0'"
+    end
+    if patched != content
+      File.write(podspec, patched)
+      warn "[crispchess] patched onnxruntime podspec: onnxruntime-objc 1.15.1 -> 1.18.0 (#{podspec})"
     end
   end
 rescue => e

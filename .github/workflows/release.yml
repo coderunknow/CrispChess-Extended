@@ -248,26 +248,34 @@ jobs:
         # is the first release on the current CDN (download.onnxruntime.ai) and
         # is API-compatible with the plugin. Rewrite the plugin's podspec
         # dependency before the build so pod install resolves the live version.
-        # Fails loudly if the podspec can't be located or patched.
+        # Patches both the .symlinks path `pod install` resolves through and the
+        # pub-cache source. Fails loudly if no podspec can be located/patched.
         run: |
           set -euo pipefail
           flutter pub get >/dev/null 2>&1 || true
           PUB_CACHE="${PUB_CACHE:-$HOME/.pub-cache}"
-          podspec="$(find "$PUB_CACHE/hosted/pub.dev" -path '*/onnxruntime-*/ios/onnxruntime.podspec' 2>/dev/null | head -1 || true)"
-          if [ -z "$podspec" ]; then
-            echo "ERROR: onnxruntime podspec not found under $PUB_CACHE"
-            exit 1
-          fi
-          echo "Found onnxruntime podspec: $podspec"
-          if grep -q "onnxruntime-objc', '1.18.0'" "$podspec"; then
-            echo "Podspec already patched to onnxruntime-objc 1.18.0"
-          elif grep -q "onnxruntime-objc', '1.15.1'" "$podspec"; then
-            sed -i "" "s/onnxruntime-objc', '1.15.1'/onnxruntime-objc', '1.18.0'/" "$podspec"
-            echo "Patched onnxruntime-objc 1.15.1 -> 1.18.0:"
-            grep "onnxruntime-objc" "$podspec"
-          else
-            echo "ERROR: unexpected onnxruntime-objc dependency in podspec:"
-            grep "onnxruntime-objc" "$podspec" || true
+          # Collect every onnxruntime podspec CocoaPods could read.
+          candidates="ios/.symlinks/plugins/onnxruntime/ios/onnxruntime.podspec"
+          candidates="$candidates $(find "$PUB_CACHE/hosted/pub.dev" -path '*/onnxruntime-*/ios/onnxruntime.podspec' 2>/dev/null || true)"
+          patched=0
+          found=0
+          for podspec in $candidates; do
+            [ -f "$podspec" ] || continue
+            found=1
+            if grep -q "onnxruntime-objc', '1.18.0'" "$podspec"; then
+              echo "Already patched: $podspec"
+            elif grep -q "onnxruntime-objc', '1.15.1'" "$podspec"; then
+              sed -i "" "s/onnxruntime-objc', '1.15.1'/onnxruntime-objc', '1.18.0'/" "$podspec"
+              echo "Patched onnxruntime-objc 1.15.1 -> 1.18.0: $podspec"
+              grep "onnxruntime-objc" "$podspec"
+              patched=1
+            else
+              echo "Unexpected onnxruntime-objc line in $podspec:"
+              grep "onnxruntime-objc" "$podspec" || true
+            fi
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "ERROR: no onnxruntime podspec found in .symlinks or $PUB_CACHE"
             exit 1
           fi
       - name: Build iOS with numeric Darwin bundle version
