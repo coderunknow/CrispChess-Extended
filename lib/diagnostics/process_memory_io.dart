@@ -237,7 +237,7 @@ SystemMemorySample _windowsSystemMemory() {
       availableBytes: buffer.ref.ullAvailPhys,
     );
   } finally {
-    callocFree(buffer);
+    calloc.free(buffer);
   }
 }
 
