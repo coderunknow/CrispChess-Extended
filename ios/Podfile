@@ -4,6 +4,33 @@ platform :ios, '15.0'
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# --- onnxruntime-objc CDN repair -----------------------------------------
+# The onnxruntime Flutter plugin (^1.4.1) pins `onnxruntime-objc 1.15.1`, whose
+# pod archives are hosted on a retired Azure CDN
+# (onnxruntimepackages.z14.web.core.windows.net) that now returns HTTP 404,
+# making `pod install` fail before any build starts. onnxruntime-objc 1.18.0 is
+# the first release published to the current CDN (download.onnxruntime.ai) and
+# is API-compatible with the plugin. Rewrite the plugin's podspec dependency to
+# the working version before CocoaPods resolves, so the run pulls from the live
+# CDN instead of the dead one. Wrapped so a patch failure never breaks the
+# Podfile load itself.
+begin
+  pub_cache = ENV['PUB_CACHE'] || File.join(Dir.home, '.pub-cache')
+  podspec = Dir.glob(File.join(pub_cache, 'hosted', 'pub.dev', 'onnxruntime-*',
+                              'ios', 'onnxruntime.podspec')).first
+  if podspec && File.exist?(podspec)
+    content = File.read(podspec)
+    unless content.include?('1.18.0')
+      patched = content.sub(/(s\.dependency\s+'onnxruntime-objc',\s+)'1\.15\.1'/) do
+        "#{$1}'1.18.0'"
+      end
+      File.write(podspec, patched) if patched != content
+    end
+  end
+rescue => e
+  warn "[crispchess] onnxruntime podspec CDN patch skipped: #{e.message}"
+end
+
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,
