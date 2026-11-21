@@ -352,15 +352,18 @@ class HardwareProtectionRuntime {
   DateTime _runStartedAt = DateTime.now();
 
   /// Account every descendant of [pid] — children, grandchildren, and so on —
-  /// into [engineRss]. A managed engine can spawn a helper that spawns
-  /// workers, and all of them contribute to the engine's memory footprint;
-  /// only walking immediate children would let nested workers escape the
-  /// budget. [seen] marks each pid so a process reachable through more than
-  /// one path (or already counted as a managed process) is counted exactly
-  /// once. [pid] itself is not re-counted here; the caller has already
-  /// accounted for it.
-  void _accountDescendants(int pid, Map<int, List<int>> childrenByParent) {
+  /// and return their combined resident memory. A managed engine can spawn a
+  /// helper that spawns workers, and all of them contribute to the engine's
+  /// memory footprint; only walking immediate children would let nested
+  /// workers escape the budget. [seen] is mutated in place so a process
+  /// reachable through more than one path (or already counted as a managed
+  /// process) is counted exactly once. [pid] itself is not re-counted here;
+  /// the caller has already accounted for it.
+  ({int rss, bool measured}) _accountDescendants(
+      int pid, Map<int, List<int>> childrenByParent, Set<int> seen) {
     final stack = <int>[pid];
+    int rss = 0;
+    bool measured = false;
     while (stack.isNotEmpty) {
       final current = stack.removeLast();
       for (final child in childrenByParent[current] ?? const []) {
@@ -368,12 +371,13 @@ class HardwareProtectionRuntime {
         final mem = probe.process(child);
         final value = mem.accountedBytes;
         if (value != null) {
-          engineRss += value;
-          enginesMeasured = true;
+          rss += value;
+          measured = true;
         }
         stack.add(child);
       }
     }
+    return (rss: rss, measured: measured);
   }
 
   /// One resource sample: application memory, managed engine memory (and
@@ -409,7 +413,9 @@ class HardwareProtectionRuntime {
       // immediate children would let memory-heavy nested workers escape the
       // budget. `seen` keeps each process counted once across overlapping
       // subtrees (and skips a managed pid already counted as a descendant).
-      _accountDescendants(managed.pid, childrenByParent);
+      final descendants = _accountDescendants(managed.pid, childrenByParent, seen);
+      engineRss += descendants.rss;
+      if (descendants.measured) enginesMeasured = true;
     }
 
     // The application process is the parent of the engine processes, so it is
