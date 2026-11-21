@@ -5,6 +5,7 @@
 // a PGN with headers and no moves at all. The tree also knows the real starting
 // position, which a game that began from a FEN needs in order to be readable.
 import 'package:crispchess/chess/chess_game.dart';
+import 'package:crispchess/chess/game_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _moveText(String pgn) {
