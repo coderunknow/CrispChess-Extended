@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart'
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../diagnostics/app_logger.dart';
+import '../diagnostics/hardware_protection_service.dart' show HardwareProtectionRuntime;
 import '../diagnostics/resource_sampler.dart';
 import '../engines/chess_engine.dart' show ChessEngine;
 import '../engines/engine_initialization.dart' show RuntimeDigestSource;
@@ -20,6 +21,7 @@ import '../engines/engine_registry.dart';
 import '../engines/frozenight_engine.dart' if (dart.library.js_interop) '../engines/frozenight_web_engine.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
+import '../services/preferences_service.dart' show PreferencesService;
 import 'benchmark_config.dart';
 import 'benchmark_environment.dart';
 import 'benchmark_plan.dart';
@@ -311,6 +313,7 @@ class BenchmarkService {
     List<RatingAnchor> anchors = const [],
     String? trigger,
     bool requirePreflight = false,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     if (_active != null || _creatingRunner) {
       throw StateError('A benchmark is already running or being prepared.');
@@ -388,6 +391,12 @@ class BenchmarkService {
       // already played, marked as a partial run rather than as a finished one.
       onProgressSave: store.saveRun,
       validationWarnings: [...validation.warnings, ...unavailable],
+      // Honour the user's checkpoint cadence: the Hardware Protection setting
+      // `checkpointEveryGame` decides how many completed games are buffered
+      // before a checkpoint write. Without this the runner hardcoded 1 and the
+      // setting had no effect.
+      partialSaveInterval: hardwareProtection?.settings.checkpointEveryGame ?? 1,
+      hardwareProtection: hardwareProtection,
     );
     return runner;
     } finally { _creatingRunner = false; }
@@ -435,6 +444,7 @@ class BenchmarkService {
     RatingAnchor? anchor,
     List<RatingAnchor> anchors = const [],
     String? trigger,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     final runner = await createRunner(
       engineIds: engineIds,
@@ -445,6 +455,7 @@ class BenchmarkService {
       anchor: anchor,
       anchors: anchors,
       trigger: trigger,
+      hardwareProtection: hardwareProtection,
     );
     return runWithRunner(runner);
   }
@@ -709,6 +720,7 @@ class BenchmarkService {
     RatingAnchor? anchor,
     String? trigger = 'intelligent',
     bool requirePreflight = false,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     if (_active != null || _creatingRunner) {
       throw StateError('A benchmark is already running or being prepared.');
@@ -745,6 +757,9 @@ class BenchmarkService {
         validationWarnings: [...validation.warnings, ...preparation.scheduler.warnings],
         scheduler: preparation.scheduler,
         bootstrapSettings: preparation.bootstrapSettings,
+        // Honour the user's checkpoint cadence (see createRunner).
+        partialSaveInterval: hardwareProtection?.settings.checkpointEveryGame ?? 1,
+        hardwareProtection: hardwareProtection,
       );
     } finally {
       _creatingRunner = false;
@@ -967,10 +982,19 @@ class BenchmarkService {
     }
     final engineIds = [identity.engineId, ...decision.opponents];
     if (engineIds.length < 2) return null;
+    // Automatic runs (engine added / version changed) must monitor Hardware
+    // Protection like a hand-started run: build the runtime here so those runs
+    // record diagnostics and honor pressure, instead of running unmonitored.
+    final prefs = PreferencesService();
+    await prefs.init();
+    final hardware = HardwareProtectionRuntime(
+      settings: prefs.hardwareProtectionSettings(),
+    );
     return run(
       engineIds: engineIds,
       config: config,
       trigger: 'automatic',
+      hardwareProtection: hardware,
     );
   }
 

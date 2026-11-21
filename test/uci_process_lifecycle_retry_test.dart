@@ -7,6 +7,7 @@ library;
 
 import 'dart:io';
 
+import 'package:crispchess/diagnostics/engine_process_registry.dart';
 import 'package:crispchess/engines/uci_process_lifecycle.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -58,5 +59,41 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     final report = await host.processDeathReport();
     expect(report.exitCode, 7);
+  });
+
+  test('stdout loss does not unregister a still-running process', () async {
+    // Regression: `releaseOnLoss()` is routed from stdout closing, but it
+    // unregistered the PID as if the process had died. A GenericUciEngine can
+    // close stdout while the process still runs, which dropped a live,
+    // still-consuming process from the memory monitor's accounting. stdout loss
+    // must only release pending work; the PID is unregistered only when the
+    // process actually exits (or on explicit teardown).
+    final host = _Host();
+    final process = await Process.start('sleep', ['30']);
+    final pid = process.pid;
+    host.watchProcess(process);
+    expect(managedProcessRegistry.contains(pid), isTrue);
+
+    // Simulate stdout closing while the process is still alive.
+    host.releaseOnLoss();
+
+    // onProcessLost is called (waiters released) but the PID stays registered
+    // because the process is still running and still consuming memory.
+    expect(host.lost, 1);
+    expect(managedProcessRegistry.contains(pid), isTrue,
+        reason: 'a live process must stay registered for memory accounting');
+
+    // releaseOnLoss is idempotent: a second stdout-loss signal does not
+    // double-report.
+    host.releaseOnLoss();
+    expect(host.lost, 1);
+
+    // Now the process truly exits: the exit handler unregisters it.
+    process.kill(ProcessSignal.sigkill);
+    await process.exitCode;
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(managedProcessRegistry.contains(pid), isFalse,
+        reason: 'the exit path must unregister the process');
+    host.stopWatchingProcess();
   });
 }

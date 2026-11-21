@@ -28,6 +28,13 @@ class GameTreeNode {
   /// Evaluation at this position (centipawns, white's perspective).
   double? eval;
 
+  /// Three-check counts at this position, cumulative from the root. Kept on
+  /// the node so navigating the tree (undo, redo, variation) restores the
+  /// counts that belong to the position reached, instead of leaving the
+  /// counters stale at the point the user last played from.
+  int whiteChecks = 0;
+  int blackChecks = 0;
+
   /// Parent node (null for root).
   final GameTreeNode? parent;
 
@@ -214,13 +221,6 @@ class GameTree {
   /// Get the UCI move history for the current path (for engine position command).
   List<String> get moveHistory =>
       currentPath.map((n) => n.move!).toList();
-
-  /// Reset the tree to a new starting position.
-  void reset(String startFen) {
-    root.children.clear();
-    current = root;
-    // Can't change root FEN since it's final, so create a new tree
-  }
 
   /// Whether we're at the root (no moves played).
   bool get atStart => current == root;

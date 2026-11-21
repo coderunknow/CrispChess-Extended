@@ -30,10 +30,16 @@ class SrItem {
   bool get isDue => DateTime.now().isAfter(nextReview);
 
   /// Mark as answered correctly — advance interval.
+  ///
+  /// Schedule the *current* interval's duration, then advance the index. The
+  /// order matters: incrementing first made every correct answer schedule the
+  /// *next* interval's delay, so the 1-day rung was skipped entirely (a
+  /// first correct answer jumped straight to 3 days) and the whole schedule
+  /// ran one step ahead of the documented 1/3/7/14/30 days.
   void markCorrect() {
     timesCorrect++;
-    if (interval < _intervals.length - 1) interval++;
     nextReview = DateTime.now().add(Duration(days: _intervals[interval]));
+    if (interval < _intervals.length - 1) interval++;
   }
 
   /// Mark as answered incorrectly — reset to beginning.
@@ -44,7 +50,15 @@ class SrItem {
   }
 
   /// Is this item "learned" (completed all intervals)?
-  bool get isLearned => interval >= _intervals.length - 1 && timesCorrect > 0;
+  ///
+  /// Requires completing every rung, not merely reaching the last index. After
+  /// the 4th correct answer `interval` is already at the last index while a
+  /// 14-day review is still pending; treating that as learned would filter the
+  /// item out of `getDueItems` and skip the review that advances it to the
+  /// final 30-day rung. The item is learned only once it has been answered
+  /// correctly through all `_intervals.length` rungs.
+  bool get isLearned =>
+      interval >= _intervals.length - 1 && timesCorrect >= _intervals.length;
 
   Map<String, dynamic> toJson() => {
     'fen': fen,

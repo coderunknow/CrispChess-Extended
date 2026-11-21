@@ -19,6 +19,10 @@ library;
 import 'dart:async';
 import 'dart:math' as math;
 
+import '../diagnostics/hardware_protection.dart'
+    show PressureAction, ResourcePressureLevel;
+import '../diagnostics/hardware_protection_service.dart'
+    show HardwarePressureSample, HardwareProtectionRuntime;
 import '../engines/chess_engine.dart';
 import '../engines/engine_initialization.dart';
 import '../engines/search_telemetry.dart';
@@ -120,6 +124,41 @@ class BenchmarkNoticeEvent extends BenchmarkEvent {
   const BenchmarkNoticeEvent(this.message);
 }
 
+/// Hardware Protection reported a pressure level change, or took a safe
+/// action at a game boundary.
+///
+/// The runner forwards the monitor's level changes so the UI can warn the user
+/// and offer a choice, and so a pause or stop caused by resource pressure is
+/// distinguishable from a user cancellation.
+class BenchmarkPressureEvent extends BenchmarkEvent {
+  final ResourcePressureLevel level;
+  final PressureAction action;
+  final String reason;
+  final int? usageBytes;
+  final int? budgetLimitBytes;
+
+  const BenchmarkPressureEvent({
+    required this.level,
+    required this.action,
+    required this.reason,
+    required this.usageBytes,
+    this.budgetLimitBytes,
+  });
+}
+
+/// The runner paused itself at a safe boundary because Hardware Protection
+/// asked it to. The screen must reflect this in its own pause state, because
+/// the runner pauses without the user pressing the Pause control.
+///
+/// [pressure] is true for a Hardware Protection pause and false for a pause
+/// the user initiated through the runner (the screen already knows about those,
+/// so it only needs to mirror the pressure-driven one).
+class BenchmarkPausedEvent extends BenchmarkEvent {
+  final bool pressure;
+
+  const BenchmarkPausedEvent({required this.pressure});
+}
+
 /// Live statistical state for an intelligent run.
 class BenchmarkStatisticsEvent extends BenchmarkEvent {
   final EloFit fit;
@@ -194,8 +233,16 @@ class BenchmarkRunner {
   final IntelligentScheduler? scheduler;
   final BootstrapSettings bootstrapSettings;
 
+  /// Hardware Protection monitor for this run. When present the runner starts
+  /// it, forwards pressure changes, and honours a safe pause/stop at a game
+  /// boundary. It never changes engine settings or benchmark work.
+  final HardwareProtectionRuntime? hardwareProtection;
+
   final StreamController<BenchmarkEvent> _events =
       StreamController<BenchmarkEvent>.broadcast();
+  StreamSubscription<HardwarePressureSample>? _hardwareSub;
+  HardwareProtectionRuntime? _hardware;
+  ResourcePressureLevel _lastPressureLevel = ResourcePressureLevel.normal;
   final List<BenchGame> _games = [];
   final Map<String, _LiveEngine> _live = {};
   final Set<ChessEngine> _disposedEngines = Set<ChessEngine>.identity();
@@ -229,6 +276,15 @@ class BenchmarkRunner {
   /// allowed to run to its own budget after the cap has passed.
   Timer? _deadlineTimer;
   bool _paused = false;
+  /// Set when Hardware Protection asked the run to pause after a game, so the
+  /// UI can show a pressure-specific resume control.
+  bool _pressurePauseRequested = false;
+  /// The pressure level whose pause the user has already acknowledged. Used to
+  /// make pressure pauses resumable: once resumed, a decision at this same (or
+  /// a lower) level must not pause again immediately, which would strand the
+  /// run until pressure happened to clear. A strictly higher level pauses again.
+  ResourcePressureLevel _pressurePauseAcknowledgedLevel =
+      ResourcePressureLevel.normal;
   Completer<void>? _pauseGate;
   int _finished = 0;
 
@@ -244,10 +300,14 @@ class BenchmarkRunner {
     this.anchors = const [],
     this.trigger,
     this.onProgressSave,
-    this.partialSaveInterval = 10,
+    // dev7: checkpoint after every completed game, not every ten. The store
+    // serialises writes and writes atomically, so a save per game bounds the
+    // data lost to a crash to the game in progress.
+    this.partialSaveInterval = 1,
     this.validationWarnings = const [],
     this.scheduler,
     this.bootstrapSettings = const BootstrapSettings(),
+    this.hardwareProtection,
   });
 
   Stream<BenchmarkEvent> get events => _events.stream;
@@ -255,6 +315,10 @@ class BenchmarkRunner {
   bool get isPaused => _paused;
 
   bool get isCancelled => _cancelled;
+
+  /// True when the run is paused because Hardware Protection asked it to,
+  /// rather than because the user pressed pause.
+  bool get isPressurePaused => _paused && _pressurePauseRequested;
 
   int get _totalRecorded => _schedule.where((g) => !g.isWarmUp).length;
 
@@ -268,11 +332,15 @@ class BenchmarkRunner {
     if (_paused || _cancelled) return;
     _paused = true;
     _pauseGate ??= Completer<void>();
+    // dev7: a pause is a safe boundary — persist the games completed so far
+    // before the run stops making progress.
+    unawaited(_saveProgress());
   }
 
   void resume() {
     if (!_paused) return;
     _paused = false;
+    _pressurePauseRequested = false;
     final gate = _pauseGate;
     _pauseGate = null;
     if (gate != null && !gate.isCompleted) gate.complete();
@@ -285,6 +353,8 @@ class BenchmarkRunner {
     _deadlineTimer?.cancel();
     _deadlineTimer = null;
     resume();
+    // dev7: cancellation is a safe boundary — persist what completed first.
+    unawaited(_saveProgress());
     for (final live in _live.values) {
       try {
         live.engine.stop();
@@ -292,6 +362,100 @@ class BenchmarkRunner {
         // Stopping a dead engine is not an error worth reporting.
       }
     }
+  }
+
+  /// Awaits a checkpoint write. Used at safe boundaries (pause, cancel, error,
+  /// end) where losing the in-flight write would matter.
+  Future<void> _flushCheckpoint() async {
+    if (onProgressSave == null) return;
+    try {
+      await onProgressSave!(_buildRun(inProgress: true));
+    } catch (error) {
+      _warnings.add('A checkpoint save failed: $error');
+    }
+  }
+
+  /// Handles a Hardware Protection sample: forward level changes as events and
+  /// evaluate whether a safe pause/stop is now required.
+  void _onPressure(HardwarePressureSample sample) {
+    final level = sample.decision.level;
+    // A critical (STOP) decision must interrupt a pressure-pause: while the
+    // run is paused the game loop is blocked in `_awaitResume()`, so without
+    // waking it a HIGH→CRITICAL escalation would leave the run paused forever
+    // and never execute the configured STOP. The run is already at a safe
+    // game boundary, so breaking the pause lets the loop's next
+    // `_checkPressureBoundary()` honour the stop immediately.
+    if (sample.decision.action == PressureAction.stop) {
+      _breakPauseForStop();
+    }
+    if (level != _lastPressureLevel) {
+      _lastPressureLevel = level;
+      // Pressure dropped below the level whose pause was acknowledged: a
+      // later rise back to that level is a new event and should pause again,
+      // so forget the acknowledged level.
+      if (level.severity < _pressurePauseAcknowledgedLevel.severity) {
+        _pressurePauseAcknowledgedLevel = ResourcePressureLevel.normal;
+      }
+      _events.add(BenchmarkPressureEvent(
+        level: level,
+        action: sample.decision.action,
+        reason: sample.decision.reason,
+        usageBytes: sample.reading.usageBytes,
+        budgetLimitBytes: sample.decision.budget.limitBytes,
+      ));
+    }
+  }
+
+  /// Breaks out of a pressure-pause so the game loop can proceed to honour a
+  /// STOP decision. Clears the paused state and completes the pause gate the
+  /// loop is waiting on. This does not record a user decision: the pause was
+  /// broken by resource pressure, not by the user.
+  void _breakPauseForStop() {
+    if (!_paused) return;
+    _paused = false;
+    _pressurePauseRequested = false;
+    final gate = _pauseGate;
+    _pauseGate = null;
+    if (gate != null && !gate.isCompleted) gate.complete();
+  }
+
+  /// Called after a completed game (or before starting one). Returns true when
+  /// the run must stop. Re-evaluates the latest decision so a pressure change
+  /// that arrived between the sample stream and here is still honoured.
+  bool _checkPressureBoundary() {
+    final decision = _hardware?.decision;
+    if (decision == null) return false;
+    if (decision.action == PressureAction.stop) {
+      _stopReason = 'resource pressure';
+      _events.add(const BenchmarkNoticeEvent(
+          'Resource pressure reached the critical level; the run is stopping '
+          'at a game boundary to preserve the results collected so far.'));
+      return true;
+    }
+    if (decision.action == PressureAction.pauseAfterGame && !_paused) {
+      // Pause only on a strictly higher pressure level than the one already
+      // acknowledged. A decision that persists at the same level after a
+      // resume must not re-pause immediately — that would strand the run
+      // until pressure happened to clear. A new, worse level pauses again.
+      if (decision.level.severity > _pressurePauseAcknowledgedLevel.severity) {
+        _pressurePauseAcknowledgedLevel = decision.level;
+        _pressurePauseRequested = true;
+        pause();
+        // Notify the screen that the runner paused itself, so its pause state
+        // and controls (Resume instead of Pause) reflect the pressure pause.
+        _events.add(const BenchmarkPausedEvent(pressure: true));
+      }
+    }
+    return false;
+  }
+
+  /// Whether the latest pressure decision is a critical stop. Checked before
+  /// each engine starts so a run that is already over budget, or crosses
+  /// critical while an engine is initializing, does not launch more processes
+  /// and exhaust memory before the stop is honored.
+  bool _pressureStopped() {
+    final decision = _hardware?.decision;
+    return decision != null && decision.action == PressureAction.stop;
   }
 
   /// Runs the benchmark to completion or until it is stopped.
@@ -310,11 +474,35 @@ class BenchmarkRunner {
     final clock = Stopwatch()..start();
     _armDeadline(config.maxDuration);
 
+    // Hardware Protection: start the monitor and forward level changes. It
+    // only observes and, at a game boundary, requests a safe pause or stop.
+    _hardware = hardwareProtection;
+    final hardware = _hardware;
+    if (hardware != null) {
+      hardware.start(
+        selectedEngineCount: plan.engines.length,
+        benchmarkMode: plan.format.id,
+        threads: config.threads,
+        hashMb: config.hashMb,
+      );
+      _hardwareSub = hardware.samples.listen((sample) => _onPressure(sample));
+    }
+
     for (final identity in plan.engines) {
       // Cancellation while the previous engine was starting must not start the
       // next one: a slow handshake (a model load, a WASM instantiation) would
       // otherwise keep the run alive after the user asked it to stop.
       if (_cancelled || _timeCapReached) break;
+      // A critical resource-pressure decision must stop launching further
+      // engines: starting more processes after the stop is decided can exhaust
+      // memory before the stop is honored.
+      if (_pressureStopped()) {
+        _stopReason = 'resource pressure';
+        _events.add(const BenchmarkNoticeEvent(
+            'Resource pressure reached the critical level; no further engines '
+            'will be started.'));
+        break;
+      }
       final slot = slots[identity.engineId];
       if (slot == null) {
         _warnings.add('No way to build ${identity.label} '
@@ -375,135 +563,160 @@ class BenchmarkRunner {
     }
 
     var scheduleIndex = 0;
-    while (scheduleIndex < _schedule.length) {
-      final planned = _schedule[scheduleIndex++];
-      if (_cancelled) {
-        _stopReason = 'cancelled';
-        break;
-      }
-      await _awaitResume();
-      if (_cancelled) {
-        _stopReason = 'cancelled';
-        break;
-      }
-      if (_deadlinePassed(clock, config.maxDuration)) {
-        _stopReason = 'time cap';
-        break;
-      }
-      final white = _live[planned.whiteId];
-      final black = _live[planned.blackId];
-      if (white == null || black == null) {
-        _stopReason = 'engine failure';
-        final missing = white == null ? plan.engines.firstWhere((e) => e.engineId == planned.whiteId) : plan.engines.firstWhere((e) => e.engineId == planned.blackId);
-        _warnings.add('${missing.label} has no runtime; this pairing was aborted, not omitted.');
-        _recordAbortedIds(planned, '${missing.label} has no runtime on this platform.');
-        // The adaptive block below only runs at the end of a completed game.
-        // `continue` skipped it, so when the LAST scheduled game was aborted
-        // the loop exited on its own condition and the intelligent run ended
-        // early with a plan that still had budget to spend.
-        await _maybeExtendIntelligent(plan, clock, scheduleIndex);
-        continue;
-      }
-      if (white.failed || black.failed) {
-        // Recorded rather than skipped, so the report says "this pairing could
-        // not produce a game" instead of quietly leaving it out — and the run
-        // says why it produced nothing. Leaving the stop reason at "completed"
-        // made a failed handshake or a third consecutive forfeit look like a
-        // finished benchmark with no results.
-        _stopReason = 'engine failure';
-        _recordAborted(planned, white, black);
-        await _maybeExtendIntelligent(plan, clock, scheduleIndex);
-        continue;
-      }
-
-      final opening = openingForGame(plan, planned);
-      _events.add(BenchmarkGameStartedEvent(
-        gameNumber: planned.isWarmUp ? 0 : planned.index,
-        totalGames: _totalRecorded,
-        whiteLabel: white.label,
-        blackLabel: black.label,
-        openingName: opening.name,
-      ));
-
-      _ply = 0;
-      final playedGame = await playBenchGame(
-        index: planned.isWarmUp ? 0 : planned.index,
-        whiteId: white.engineId,
-        blackId: black.engineId,
-        whiteLabel: white.label,
-        blackLabel: black.label,
-        whiteMove: _requesterFor(white),
-        blackMove: _requesterFor(black),
-        opening: opening,
-        plyCap: config.plyCap,
-        depth: config.searchDepth,
-        moveTime: config.isTimeBased ? config.timePerMove : null,
-        warmUp: planned.isWarmUp,
-        clusterId: openingClusterIdForGame(plan, planned),
-        pairId: pairIdForGame(plan, planned),
-        cancelled: () => _cancelled,
-        stopReason: _gameStop,
-        onMove: (fen, san, whiteToMove) {
-          if (_cancelled) return;
-          _ply++;
-          _events.add(BenchmarkMoveEvent(
-            fen: fen,
-            san: san,
-            whiteToMove: whiteToMove,
-            ply: _ply,
-          ));
-        },
-      );
-      _games.add(playedGame);
-      _engineMillis += playedGame.white.moveMillis.fold(0, (a, b) => a + b) +
-          playedGame.black.moveMillis.fold(0, (a, b) => a + b);
-      if (!planned.isWarmUp && !_cancelled && !_timeCapReached &&
-          playedGame.outcome != GameOutcome.cancelled && playedGame.outcome != GameOutcome.aborted) {
-        white.scheduledCompleted++;
-        black.scheduledCompleted++;
-      }
-      white.gamesCompleted++;
-      black.gamesCompleted++;
-      _noteOutcome(white, playedGame, white.engineId);
-      _noteOutcome(black, playedGame, black.engineId);
-      if (playedGame.outcome == GameOutcome.forfeit) {
-        // The engine that forfeited may still owe a `bestmove`. Drain both
-        // connections before the next game asks either for a move.
-        await drainEngine(white.engine);
-        await drainEngine(black.engine);
-      }
-
-      if (!planned.isWarmUp) _finished++;
-      _events.add(BenchmarkGameFinishedEvent(
-        game: playedGame,
-        gamesCompleted: _finished,
-        totalGames: _totalRecorded,
-      ));
-
-      if (playedGame.outcome == GameOutcome.cancelled) {
-        _stopReason = 'cancelled';
-        break;
-      }
-      if (_timeCapReached) {
-        // The game that was cut short is recorded (unrated) and the run ends:
-        // the cap is a hard limit, not a target.
-        _stopReason = 'time cap';
-        break;
-      }
-      if (!planned.isWarmUp) {
-        if (plan.format != TournamentFormat.intelligent && _uncertaintyReached()) {
-          _stopReason = 'uncertainty target';
+    try {
+      while (scheduleIndex < _schedule.length) {
+        final planned = _schedule[scheduleIndex++];
+        if (_cancelled) {
+          _stopReason = 'cancelled';
           break;
         }
-        if (partialSaveInterval > 0 &&
-            _finished % partialSaveInterval == 0 &&
-            onProgressSave != null) {
-          await _saveProgress();
+        await _awaitResume();
+        if (_cancelled) {
+          _stopReason = 'cancelled';
+          break;
         }
+        if (_deadlinePassed(clock, config.maxDuration)) {
+          _stopReason = 'time cap';
+          break;
+        }
+        // Hardware Protection: before starting a game, honour a critical stop or
+        // a high-pressure pause. This is a safe boundary — no search is cut in
+        // half, and completed results are already checkpointed.
+        if (_checkPressureBoundary()) break;
+        if (_pressurePauseRequested) await _awaitResume();
+        // Re-check after the pause wait. A CRITICAL escalation can break the
+        // pause (via `_breakPauseForStop`) while we were blocked in
+        // `_awaitResume()`, and the loop must stop at this boundary instead of
+        // starting another game — `_checkPressureBoundary()` is the only place
+        // that turns a stop decision into a break.
+        if (_checkPressureBoundary()) break;
+        final white = _live[planned.whiteId];
+        final black = _live[planned.blackId];
+        if (white == null || black == null) {
+          _stopReason = 'engine failure';
+          final missing = white == null ? plan.engines.firstWhere((e) => e.engineId == planned.whiteId) : plan.engines.firstWhere((e) => e.engineId == planned.blackId);
+          _warnings.add('${missing.label} has no runtime; this pairing was aborted, not omitted.');
+          _recordAbortedIds(planned, '${missing.label} has no runtime on this platform.');
+          // The adaptive block below only runs at the end of a completed game.
+          // `continue` skipped it, so when the LAST scheduled game was aborted
+          // the loop exited on its own condition and the intelligent run ended
+          // early with a plan that still had budget to spend.
+          await _maybeExtendIntelligent(plan, clock, scheduleIndex);
+          continue;
+        }
+        if (white.failed || black.failed) {
+          // Recorded rather than skipped, so the report says "this pairing could
+          // not produce a game" instead of quietly leaving it out — and the run
+          // says why it produced nothing. Leaving the stop reason at "completed"
+          // made a failed handshake or a third consecutive forfeit look like a
+          // finished benchmark with no results.
+          _stopReason = 'engine failure';
+          _recordAborted(planned, white, black);
+          await _maybeExtendIntelligent(plan, clock, scheduleIndex);
+          continue;
+        }
+
+        final opening = openingForGame(plan, planned);
+        _events.add(BenchmarkGameStartedEvent(
+          gameNumber: planned.isWarmUp ? 0 : planned.index,
+          totalGames: _totalRecorded,
+          whiteLabel: white.label,
+          blackLabel: black.label,
+          openingName: opening.name,
+        ));
+
+        _ply = 0;
+        final playedGame = await playBenchGame(
+          index: planned.isWarmUp ? 0 : planned.index,
+          whiteId: white.engineId,
+          blackId: black.engineId,
+          whiteLabel: white.label,
+          blackLabel: black.label,
+          whiteMove: _requesterFor(white),
+          blackMove: _requesterFor(black),
+          opening: opening,
+          plyCap: config.plyCap,
+          depth: config.searchDepth,
+          moveTime: config.isTimeBased ? config.timePerMove : null,
+          warmUp: planned.isWarmUp,
+          clusterId: openingClusterIdForGame(plan, planned),
+          pairId: pairIdForGame(plan, planned),
+          cancelled: () => _cancelled,
+          stopReason: _gameStop,
+          onMove: (fen, san, whiteToMove) {
+            if (_cancelled) return;
+            _ply++;
+            _events.add(BenchmarkMoveEvent(
+              fen: fen,
+              san: san,
+              whiteToMove: whiteToMove,
+              ply: _ply,
+            ));
+          },
+        );
+        _games.add(playedGame);
+        _engineMillis += playedGame.white.moveMillis.fold(0, (a, b) => a + b) +
+            playedGame.black.moveMillis.fold(0, (a, b) => a + b);
+        if (!planned.isWarmUp && !_cancelled && !_timeCapReached &&
+            playedGame.outcome != GameOutcome.cancelled && playedGame.outcome != GameOutcome.aborted) {
+          white.scheduledCompleted++;
+          black.scheduledCompleted++;
+        }
+        white.gamesCompleted++;
+        black.gamesCompleted++;
+        _noteOutcome(white, playedGame, white.engineId);
+        _noteOutcome(black, playedGame, black.engineId);
+        if (playedGame.outcome == GameOutcome.forfeit) {
+          // The engine that forfeited may still owe a `bestmove`. Drain both
+          // connections before the next game asks either for a move.
+          await drainEngine(white.engine);
+          await drainEngine(black.engine);
+        }
+
+        if (!planned.isWarmUp) _finished++;
+        _events.add(BenchmarkGameFinishedEvent(
+          game: playedGame,
+          gamesCompleted: _finished,
+          totalGames: _totalRecorded,
+        ));
+
+        if (playedGame.outcome == GameOutcome.cancelled) {
+          _stopReason = 'cancelled';
+          break;
+        }
+        if (_timeCapReached) {
+          // The game that was cut short is recorded (unrated) and the run ends:
+          // the cap is a hard limit, not a target.
+          _stopReason = 'time cap';
+          break;
+        }
+        if (!planned.isWarmUp) {
+          if (plan.format != TournamentFormat.intelligent && _uncertaintyReached()) {
+            _stopReason = 'uncertainty target';
+            break;
+          }
+          // dev7: checkpoint after every completed game. The write is
+          // fire-and-forget (the store serialises and writes atomically) so a
+          // save never blocks the run loop; pause, cancel, error and the final
+          // save await theirs.
+          if (partialSaveInterval > 0 &&
+              _finished % partialSaveInterval == 0 &&
+              onProgressSave != null) {
+            unawaited(_saveProgress());
+          }
+        }
+        if (_checkPressureBoundary()) break;
+        // The scheduler appends to `_schedule`; the index already points at the
+        // appended games, so the loop condition picks them up.
+        await _maybeExtendIntelligent(plan, clock, scheduleIndex);
       }
-      // The scheduler appends to `_schedule`; the index already points at the
-      // appended games, so the loop condition picks them up.
-      await _maybeExtendIntelligent(plan, clock, scheduleIndex);
+    } catch (_) {
+      // An unexpected failure escaped the game loop with the partial results
+      // still held only in memory. Persist them best-effort so a crash or a
+      // thrown error does not silently discard the whole run, then rethrow so
+      // the caller still sees the original failure.
+      await _persistOnAbnormalExit();
+      rethrow;
     }
 
     await _finalizeIntelligentStatistics(clock);
@@ -514,7 +727,11 @@ class BenchmarkRunner {
     // state (status, forfeits, refined identities) is kept: clearing it here
     // would label every engine "skipped" in the report it just produced.
     await _disposeEngines(keepState: true);
-    var run = _buildRun();
+    // dev7: the monitor's final snapshot and the last checkpoint are written
+    // before the run's finished event fires.
+    await _hardware?.dispose();
+    await _flushCheckpoint();
+    var run = _buildRun(includeHardwareTelemetry: true);
     if (onProgressSave != null) {
       try {
         await onProgressSave!(run);
@@ -530,6 +747,10 @@ class BenchmarkRunner {
   /// Releases resources. The stream stays usable for a caller that wants the
   /// final event; call this after `run()` has completed.
   Future<void> dispose() async {
+    _hardwareSub?.cancel();
+    _hardwareSub = null;
+    await _hardware?.dispose();
+    _hardware = null;
     _deadlineTimer?.cancel();
     _deadlineTimer = null;
     await _disposeEngines();
@@ -541,6 +762,27 @@ class BenchmarkRunner {
       await onProgressSave!(_buildRun(inProgress: true));
     } catch (error) {
       _warnings.add('A partial save failed: $error');
+    }
+  }
+
+  /// Persists whatever partial results exist when the run ends abnormally (an
+  /// unexpected error escaped the game loop). The run is saved as finished
+  /// (`inProgress: false`) so it is not left looking like an in-flight run.
+  /// Best-effort: a failure to store is recorded but never re-thrown, because
+  /// the original error is what the caller must see.
+  Future<void> _persistOnAbnormalExit() async {
+    try {
+      if (onProgressSave != null) {
+        // An unexpected error escaped the game loop without another branch
+        // setting the stop reason, so the saved run would otherwise claim
+        // it "completed". Mark it as an error exit before building the
+        // partial run so the report does not misreport completion.
+        _stopReason = 'error';
+        await onProgressSave!(
+            _buildRun(inProgress: false, includeHardwareTelemetry: true));
+      }
+    } catch (error) {
+      _warnings.add('A partial save after an abnormal exit failed: $error');
     }
   }
 
@@ -973,7 +1215,7 @@ class BenchmarkRunner {
     if (!keepState) _live.clear();
   }
 
-  BenchmarkRun _buildRun({bool inProgress = false}) {
+  BenchmarkRun _buildRun({bool inProgress = false, bool includeHardwareTelemetry = false}) {
     final config = plan.config;
     final identities = <EngineIdentity>[];
     final status = <String, EngineRunStatus>{};
@@ -1079,6 +1321,14 @@ class BenchmarkRunner {
         'precision': precisionEvaluation?.toJson(),
       },
       precisionEvaluation: precisionEvaluation,
+      // dev7: the Hardware Protection diagnostic snapshot (including the bounded
+      // resource telemetry summary) is persisted with the run, in its own
+      // versioned field, so the changelog's "telemetry saved locally" claim
+      // holds. The full per-sample telemetry is included only at the final save
+      // (includeHardwareTelemetry), keeping per-game checkpoints low-overhead.
+      // Absent for runs saved before Hardware Protection existed.
+      hardwareProtection:
+          _hardware?.snapshotJson(includeTelemetry: includeHardwareTelemetry),
     );
   }
 }

@@ -69,11 +69,49 @@ void main() {
       expect(game.isGameOver, isFalse);
     });
 
+    test('three-check: undo restores the check counters', () {
+      // Regression: undo reloads the board from the node FEN but must also
+      // restore the check counts that belong to that position. Otherwise a
+      // check counted before the undo survives and can falsely trigger a
+      // three-check win. White plays Qb8+ (one check), then undoes it.
+      final game = ChessGame();
+      game.variant = ChessVariant.threeCheck;
+      // Black king h8, white queen b1. From b1 the queen checks nothing
+      // (b1-h8 is not a line), so the position loads; Qb1-b8 then gives
+      // check along the eighth rank.
+      expect(
+        game.loadFen('7k/8/8/8/8/8/8/1Q2K3 w - - 0 1'),
+        isTrue,
+      );
+      expect(game.makeMove('b1b8'), isTrue);
+      expect(game.whiteChecks, 1);
+
+      game.undoMove();
+      expect(game.whiteChecks, 0,
+          reason: 'undo must roll the check counter back with the position');
+    });
+
+    test('three-check: redo re-applies the check counters', () {
+      final game = ChessGame();
+      game.variant = ChessVariant.threeCheck;
+      expect(game.loadFen('7k/8/8/8/8/8/8/1Q2K3 w - - 0 1'), isTrue);
+      expect(game.makeMove('b1b8'), isTrue);
+      expect(game.whiteChecks, 1);
+
+      game.undoMove();
+      expect(game.whiteChecks, 0);
+      expect(game.redoMove(), isTrue);
+      expect(game.whiteChecks, 1,
+          reason: 'redo must restore the check count recorded for the move');
+    });
+
     test('standard variant ignores KOTH center squares', () {
       final game = ChessGame();
       game.variant = ChessVariant.standard;
-      game.loadFen('8/8/8/8/4K3/8/8/4k3 w - - 0 1');
-      // King on e4 but variant is standard — should not trigger KOTH
+      // White king on the centre square e4, black king far away (a8): the
+      // position is legal and would count as King of the Hill, but the
+      // standard variant must not end the game for it.
+      expect(game.loadFen('7k/8/8/8/4K3/8/8/8 w - - 0 1'), isTrue);
       expect(game.gameOverReason, isNot('King of the Hill'));
     });
 

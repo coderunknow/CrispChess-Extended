@@ -644,6 +644,9 @@ class BenchmarkStore {
       warnings: run.warnings,
       validationWarnings: run.validationWarnings,
       trigger: run.trigger,
+      // Preserve the Hardware Protection snapshot: a renamed import is the
+      // same run, and dropping the field would silently lose its telemetry.
+      hardwareProtection: run.hardwareProtection,
     );
   }
 

@@ -419,9 +419,22 @@ jobs:
           channel: stable
           cache: true
       - name: Build iOS with numeric Darwin bundle version
+        # The macOS arm64 runners this job needs are periodically over capacity;
+        # when that happens the build fails with no compiler diagnostic (the job
+        # annotation carries only the runner-capacity notice). A bounded retry
+        # rides out those flakes: a genuine build error still fails every
+        # attempt and fails the job.
         run: |
           read -r version build < <(python3 -c 'from tools.release_version import read_version; print(*read_version())')
-          flutter build ios --no-codesign --release --build-name "$version" --build-number "$build"
+          for attempt in 1 2 3; do
+            echo "=== iOS build attempt $attempt ==="
+            if flutter build ios --no-codesign --release --build-name "$version" --build-number "$build"; then
+              exit 0
+            fi
+            echo "=== iOS build attempt $attempt failed; retrying ==="
+          done
+          echo "=== iOS build failed after 3 attempts ==="
+          exit 1
 
   build-macos:
     name: Build macOS

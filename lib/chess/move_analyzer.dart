@@ -111,11 +111,14 @@ class AnalysisRequest {
 /// Top-level function suitable for use with `compute()`.
 /// Creates a fresh MoveAnalyzer from a FEN string and analyzes the move.
 MoveAnnotation analyzeInIsolate(AnalysisRequest request) {
+  // The isolate board is the position *before* the move (request.fen); passing
+  // it as preMoveFen keeps capture/material detection reading that same board.
   final game = chess.Chess.fromFEN(request.fen);
   final analyzer = MoveAnalyzer(game);
   return analyzer.analyzeMove(
     uciMove: request.uciMove,
     evaluation: request.evaluation,
+    preMoveFen: request.fen,
   );
 }
 
@@ -137,15 +140,24 @@ class MoveAnalyzer {
     return _indexToSquare[index];
   }
 
-  /// Analyze a move with evaluation data from Stockfish
+  /// Analyze a move with evaluation data from Stockfish.
+  ///
+  /// [preMoveFen] is the position *before* [uciMove] was played. Capture and
+  /// material-gain detection read the pre-move board; without it they would
+  /// read the post-move board (where `from` is empty and `to` holds the moved
+  /// piece), making every move look like a capture and no capture ever
+  /// registering a material gain. Pin/fork detection still use the post-move
+  /// board ([game]), because the piece that moved is now on `to`.
   MoveAnnotation analyzeMove({
     required String uciMove,
     required MoveEvaluation evaluation,
+    String? preMoveFen,
   }) {
-    final tactics = _detectTactics(uciMove);
+    final preGame = preMoveFen != null ? chess.Chess.fromFEN(preMoveFen) : null;
+    final tactics = _detectTactics(uciMove, preGame);
     final positional = _analyzePositionalThemes(uciMove);
     final phase = _getGamePhase();
-    
+
     return MoveAnnotation(
       move: uciMove,
       evaluation: evaluation,
@@ -154,18 +166,18 @@ class MoveAnalyzer {
       gamePhase: phase,
     );
   }
-  
+
   /// Detect tactical patterns
-  List<TacticalPattern> _detectTactics(String uciMove) {
+  List<TacticalPattern> _detectTactics(String uciMove, chess.Chess? preGame) {
     final patterns = <TacticalPattern>[];
     final from = uciMove.substring(0, 2);
     final to = uciMove.substring(2, 4);
-    
-    // Check for captures
-    final isCapture = _isCapture(from, to);
+
+    // Check for captures against the position the move was played from.
+    final isCapture = _isCapture(preGame ?? game, from, to);
     if (isCapture) {
       // Check if it's a trade or winning material
-      final materialDiff = _getMaterialDifference(from, to);
+      final materialDiff = _getMaterialDifference(preGame ?? game, from, to);
       if (materialDiff > 0) {
         patterns.add(TacticalPattern(
           name: 'Material Gain',
@@ -233,13 +245,13 @@ class MoveAnalyzer {
     return themes;
   }
   
-  bool _isCapture(String from, String to) {
+  bool _isCapture(chess.Chess board, String from, String to) {
     final toSquare = chess.Chess.SQUARES[to];
     if (toSquare == null) return false;
-    return game.get(to) != null;
+    return board.get(to) != null;
   }
-  
-  double _getMaterialDifference(String from, String to) {
+
+  double _getMaterialDifference(chess.Chess board, String from, String to) {
     final pieceValues = {
       chess.PieceType.PAWN: 1.0,
       chess.PieceType.KNIGHT: 3.0,
@@ -248,12 +260,12 @@ class MoveAnalyzer {
       chess.PieceType.QUEEN: 9.0,
       chess.PieceType.KING: 0.0,
     };
-    
-    final attacker = game.get(from);
-    final defender = game.get(to);
-    
+
+    final attacker = board.get(from);
+    final defender = board.get(to);
+
     if (attacker == null || defender == null) return 0.0;
-    
+
     return (pieceValues[defender.type] ?? 0.0) - (pieceValues[attacker.type] ?? 0.0);
   }
   
@@ -418,6 +430,23 @@ class MoveAnnotation {
     required this.positionalThemes,
     required this.gamePhase,
   });
+
+  /// Copy with a new evaluation, preserving tactics/themes/phase.
+  ///
+  /// Tactic detection is a function of the move and the pre-move board only —
+  /// not of the engine score — so completing an annotation with a fresh
+  /// evaluation should update the score and leave the tactics untouched
+  /// (rather than re-detecting them against whatever board happens to be
+  /// current).
+  MoveAnnotation copyWith({MoveEvaluation? evaluation}) {
+    return MoveAnnotation(
+      move: move,
+      evaluation: evaluation ?? this.evaluation,
+      tactics: tactics,
+      positionalThemes: positionalThemes,
+      gamePhase: gamePhase,
+    );
+  }
   
   String getPhaseAdvice() {
     switch (gamePhase) {

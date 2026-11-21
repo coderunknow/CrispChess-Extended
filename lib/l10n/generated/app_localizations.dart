@@ -4124,6 +4124,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Diagnostics'**
   String get diagnosticsTitle;
+
+  /// No description provided for @hardwareProtection.
+  ///
+  /// In en, this message translates to:
+  /// **'Hardware Protection'**
+  String get hardwareProtection;
+
+  /// No description provided for @hardwareProtectionSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitors app and engine-process memory, applies safe pressure responses, and throttles the live board without reducing benchmark strength.'**
+  String get hardwareProtectionSummary;
+
+  /// No description provided for @hardwareProtectionEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable protection'**
+  String get hardwareProtectionEnabled;
+
+  /// No description provided for @ramBudgetMode.
+  ///
+  /// In en, this message translates to:
+  /// **'RAM budget mode'**
+  String get ramBudgetMode;
+
+  /// No description provided for @ramBudgetAutomatic.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic'**
+  String get ramBudgetAutomatic;
+
+  /// No description provided for @ramBudgetAbsolute.
+  ///
+  /// In en, this message translates to:
+  /// **'Absolute MB'**
+  String get ramBudgetAbsolute;
+
+  /// No description provided for @ramBudgetPercentage.
+  ///
+  /// In en, this message translates to:
+  /// **'Percentage'**
+  String get ramBudgetPercentage;
+
+  /// No description provided for @memoryReserve.
+  ///
+  /// In en, this message translates to:
+  /// **'OS memory reserve (MB)'**
+  String get memoryReserve;
+
+  /// No description provided for @absoluteLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Absolute limit (MB)'**
+  String get absoluteLimit;
+
+  /// No description provided for @percentageLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Percentage limit (%)'**
+  String get percentageLimit;
+
+  /// No description provided for @thermalPowerMonitoring.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor thermal / power state'**
+  String get thermalPowerMonitoring;
+
+  /// No description provided for @liveBoardMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Live board mode'**
+  String get liveBoardMode;
+
+  /// No description provided for @liveBoardAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get liveBoardAuto;
+
+  /// No description provided for @liveBoardOn.
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get liveBoardOn;
+
+  /// No description provided for @liveBoardOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get liveBoardOff;
+
+  /// No description provided for @liveBoardRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Live board refresh rate'**
+  String get liveBoardRefresh;
+
+  /// No description provided for @telemetryEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Record resource telemetry'**
+  String get telemetryEnabled;
 }
 
 class _AppLocalizationsDelegate

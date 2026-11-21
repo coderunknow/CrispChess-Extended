@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -9,7 +8,6 @@ import 'package:flutter/services.dart';
 import '../diagnostics/app_logger.dart';
 import '../diagnostics/diag_log_record.dart';
 import '../diagnostics/diagnostic_export.dart';
-import '../diagnostics/redaction.dart';
 import '../diagnostics/resource_sampler.dart';
 
 /// In-app Diagnostics & Logs (dev6).

@@ -21,11 +21,8 @@ const _dim = '\x1B[2m';
 const _red = '\x1B[31m';
 const _green = '\x1B[32m';
 const _yellow = '\x1B[33m';
-const _blue = '\x1B[34m';
 const _cyan = '\x1B[36m';
 const _white = '\x1B[37m';
-const _bgWhite = '\x1B[47m';
-const _bgGreen = '\x1B[42m';
 
 void main(List<String> args) async {
   if (args.isEmpty) {

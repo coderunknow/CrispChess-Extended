@@ -23,6 +23,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../diagnostics/engine_process_registry.dart'
+    show managedProcessRegistry;
 import 'chess_engine.dart';
 
 /// Watches a spawned engine process and reports its death.
@@ -81,6 +83,10 @@ mixin UciProcessLifecycle {
       debugPrint('[$processLabel stderr] $line');
     });
 
+    // Register the process by its stable id so Hardware Protection can sum
+    // exactly the engine processes this app started, without matching names.
+    managedProcessRegistry.register(process.pid, label: processLabel);
+
     // A write to stdin after the process has exited (an executable that
     // dies at once: wrong architecture, a missing DLL, not an engine) fails
     // asynchronously with "Broken pipe" on the sink's `done` future. Nobody
@@ -93,12 +99,24 @@ mixin UciProcessLifecycle {
 
     unawaited(process.exitCode.then((code) {
       // A process replaced by a retry (or already let go) must not report its
-      // exit against the one now being watched.
-      if (!identical(_latest, process)) return;
+      // exit against the one now being watched. But its PID was registered when
+      // it started, and nothing else will ever unregister it once it is no
+      // longer `_latest`/`_watched` — so unregister it here before returning,
+      // otherwise a stale PID stays in the registry and, after PID reuse, the
+      // memory monitor could charge an unrelated process as an engine.
+      if (!identical(_latest, process)) {
+        managedProcessRegistry.unregister(process.pid);
+        return;
+      }
       _exitCode = code;
       if (!_disposingProcess) {
         debugPrint('[$processLabel] exited with code $code');
       }
+      // The process has truly exited: stop accounting for it so its memory is
+      // not summed after it has died. Unregister here (the exit path) rather
+      // than inside [releaseOnLoss], because stdout can close while the
+      // process is still running.
+      managedProcessRegistry.unregister(process.pid);
       releaseOnLoss();
     }));
   }
@@ -107,7 +125,16 @@ mixin UciProcessLifecycle {
   ///
   /// Routed from both the exit code and stdout closing, because they do not
   /// arrive together and a request should end on whichever comes first.
+  ///
+  /// This only releases pending work — it deliberately does NOT unregister the
+  /// process from [managedProcessRegistry]. stdout can close while the process
+  /// is still running (a `GenericUciEngine` may close its stdout without
+  /// exiting), and unregistering here would drop a live, still-consuming
+  /// process from the memory monitor's accounting. The process is unregistered
+  /// only when its exit code actually lands (see [watchProcess]) or on explicit
+  /// teardown ([stopWatchingProcess]).
   void releaseOnLoss() {
+    if (_exited) return;
     _exited = true;
     onProcessLost();
   }
@@ -120,6 +147,13 @@ mixin UciProcessLifecycle {
   void stopWatchingProcess() {
     _stderrSub?.cancel();
     _stderrSub = null;
+    // A replaced or disposed process is no longer a managed engine process.
+    final watched = _watched;
+    if (watched != null) managedProcessRegistry.unregister(watched.pid);
+    final latest = _latest;
+    if (latest != null && latest != watched) {
+      managedProcessRegistry.unregister(latest.pid);
+    }
     _watched = null;
   }
 
