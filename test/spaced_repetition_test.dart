@@ -9,8 +9,8 @@ import 'package:crispchess/chess/spaced_repetition.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// True when [actual] lies within [expected] ± the tiny window between the
-/// [before] and [after] timestamps (the call to `DateTime.now()` inside
-/// `markCorrect` happens between them, so the result must fall in that span).
+/// [before] and [after] timestamps (the `DateTime.now()` inside `markCorrect`
+/// happens between them, so the result must fall in that span).
 bool _isScheduledWithin(
     DateTime actual, DateTime before, DateTime after, Duration expected) {
   final lo = before.add(expected);
@@ -35,11 +35,13 @@ void main() {
       expect(item.interval, 1);
       expect(item.timesCorrect, 1);
       expect(
-        _isScheduledWithin(item.nextReview, before, after, const Duration(days: 1)),
+        _isScheduledWithin(
+            item.nextReview, before, after, const Duration(days: 1)),
         isTrue,
-        reason: 'the first correct answer must schedule a 1-day review; the '
-            'bug scheduled 3 days here'),
-      // And it must NOT be the 3-day rung.
+        reason:
+            'the first correct answer must schedule a 1-day review, not 3 days',
+      );
+      // And it must be the 1-day rung, not the 3-day rung.
       expect(item.nextReview.difference(before).inDays, 1);
     });
 
@@ -56,14 +58,19 @@ void main() {
         item.markCorrect();
         final after = DateTime.now();
 
-        expect(item.interval, i + 1 <= expectedDays.length - 1 ? i + 1 : i,
-            reason: 'interval index after the $(i + 1)th correct answer');
+        // After the i-th correct answer the interval index is i+1, capped at
+        // the last rung (4).
+        final expectedInterval = i + 1 > expectedDays.length - 1 ? i : i + 1;
+        expect(item.interval, expectedInterval);
         expect(
           _isScheduledWithin(
               item.nextReview, before, after, Duration(days: expectedDays[i])),
           isTrue,
-          reason: 'the $(i + 1)th correct answer must schedule '
-              '${expectedDays[i]} days'),
+          reason: 'the ' + (i + 1).toString() +
+              'th correct answer must schedule ' +
+              expectedDays[i].toString() +
+              ' days',
+        );
       }
 
       // After completing the last rung the item is learned.
