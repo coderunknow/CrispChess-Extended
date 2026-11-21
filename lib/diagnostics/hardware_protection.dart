@@ -1093,7 +1093,7 @@ PressureDecision evaluatePressure(
 
   final limit = budget.limitBytes!;
   final (rssLevel, rssAction, rssReason) =
-      _evaluateLadder(usage, limit, settings, previous);
+      _evaluateLadder(usage, limit, settings, previous, headroom: false);
 
   // Measured system headroom: the memory the OS still has available, evaluated
   // against total system memory with the same ladder. This is independent of
