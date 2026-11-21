@@ -455,14 +455,13 @@ jobs:
             exit 1
           fi
           echo "=== pod install (patched) ==="
-          pod_out="$(cd ios && pod install 2>&1)"
+          pod_log=/tmp/pod_install.log
+          (cd ios && pod install --no-ansi > "$pod_log" 2>&1)
           pod_status=$?
           if [ "$pod_status" -ne 0 ]; then
-            echo "pod install FAILED (exit $pod_status)"
-            echo "--- last 80 lines ---"
-            echo "$pod_out" | tail -80
+            echo "pod install FAILED (exit $pod_status); log written to $pod_log"
             echo "--- relevant lines ---"
-            echo "$pod_out" | grep -iE "onnxruntime|404|error|could not|fail|not found|resolved" | tail -40
+            grep -iE "onnxruntime|404|error|could not|fail|not found|resolved|Analyzing|Installing" "$pod_log" | tail -60 || true
             exit "$pod_status"
           fi
           echo "pod install succeeded"
@@ -477,6 +476,13 @@ jobs:
             echo "ERROR: onnxruntime-objc not present in Podfile.lock"
             exit 1
           fi
+      - name: Upload pod install log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pod-install-log
+          path: /tmp/pod_install.log
+          if-no-files-found: ignore
       - name: Build iOS with numeric Darwin bundle version
         # The macOS arm64 runners this job needs are periodically over capacity;
         # when that happens the build fails with no compiler diagnostic (the job
