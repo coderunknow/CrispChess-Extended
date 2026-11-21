@@ -176,7 +176,7 @@ SystemMemorySample _macosSystemMemory() {
 /// the seven `SIZE_T` fields are 8 bytes each on 64-bit Windows. Dart's FFI
 /// aligns the `UInt64` fields to 8 bytes, matching the native layout, so
 /// `ullTotalPhys`/`ullAvailPhys` are read from the correct offsets.
-class _MemoryStatusEx extends Struct {
+sealed class _MemoryStatusEx extends Struct {
   @Uint32()
   external int dwLength;
   @Uint32()
@@ -210,8 +210,11 @@ _GlobalMemoryStatusExImp? _windowsGlobalMemoryStatusEx() {
   if (_globalMemoryStatusEx != null) return _globalMemoryStatusEx;
   try {
     final lib = _windowsKernel32Cache ??= DynamicLibrary.open('kernel32.dll');
+    // lookupFunction<AbiType, DartType> returns the Dart-facing type, so the
+    // ABI signature (Int32/Pointer) is first and the Dart signature (int) is
+    // second.
     _globalMemoryStatusEx =
-        lib.lookupFunction<_GlobalMemoryStatusExImp, _GlobalMemoryStatusEx>(
+        lib.lookupFunction<_GlobalMemoryStatusEx, _GlobalMemoryStatusExImp>(
             'GlobalMemoryStatusEx');
     return _globalMemoryStatusEx;
   } catch (_) {

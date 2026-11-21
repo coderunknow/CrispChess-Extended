@@ -13,7 +13,6 @@ import 'package:flutter/foundation.dart'
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../diagnostics/app_logger.dart';
-import '../diagnostics/hardware_protection.dart' show HardwareProtectionSettings;
 import '../diagnostics/hardware_protection_service.dart' show HardwareProtectionRuntime;
 import '../diagnostics/resource_sampler.dart';
 import '../engines/chess_engine.dart' show ChessEngine;
