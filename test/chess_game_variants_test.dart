@@ -108,8 +108,10 @@ void main() {
     test('standard variant ignores KOTH center squares', () {
       final game = ChessGame();
       game.variant = ChessVariant.standard;
-      game.loadFen('8/8/8/8/4K3/8/8/4k3 w - - 0 1');
-      // King on e4 but variant is standard — should not trigger KOTH
+      // White king on the centre square e4, black king far away (a8): the
+      // position is legal and would count as King of the Hill, but the
+      // standard variant must not end the game for it.
+      expect(game.loadFen('7k/8/8/8/4K3/8/8/8 w - - 0 1'), isTrue);
       expect(game.gameOverReason, isNot('King of the Hill'));
     });
 
