@@ -30,10 +30,16 @@ class SrItem {
   bool get isDue => DateTime.now().isAfter(nextReview);
 
   /// Mark as answered correctly — advance interval.
+  ///
+  /// Schedule the *current* interval's duration, then advance the index. The
+  /// order matters: incrementing first made every correct answer schedule the
+  /// *next* interval's delay, so the 1-day rung was skipped entirely (a
+  /// first correct answer jumped straight to 3 days) and the whole schedule
+  /// ran one step ahead of the documented 1/3/7/14/30 days.
   void markCorrect() {
     timesCorrect++;
-    if (interval < _intervals.length - 1) interval++;
     nextReview = DateTime.now().add(Duration(days: _intervals[interval]));
+    if (interval < _intervals.length - 1) interval++;
   }
 
   /// Mark as answered incorrectly — reset to beginning.
