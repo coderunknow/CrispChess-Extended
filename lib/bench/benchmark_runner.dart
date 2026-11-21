@@ -266,6 +266,12 @@ class BenchmarkRunner {
   /// Set when Hardware Protection asked the run to pause after a game, so the
   /// UI can show a pressure-specific resume control.
   bool _pressurePauseRequested = false;
+  /// The pressure level whose pause the user has already acknowledged. Used to
+  /// make pressure pauses resumable: once resumed, a decision at this same (or
+  /// a lower) level must not pause again immediately, which would strand the
+  /// run until pressure happened to clear. A strictly higher level pauses again.
+  ResourcePressureLevel _pressurePauseAcknowledgedLevel =
+      ResourcePressureLevel.normal;
   Completer<void>? _pauseGate;
   int _finished = 0;
 
@@ -362,6 +368,12 @@ class BenchmarkRunner {
     final level = sample.decision.level;
     if (level != _lastPressureLevel) {
       _lastPressureLevel = level;
+      // Pressure dropped below the level whose pause was acknowledged: a
+      // later rise back to that level is a new event and should pause again,
+      // so forget the acknowledged level.
+      if (level.severity < _pressurePauseAcknowledgedLevel.severity) {
+        _pressurePauseAcknowledgedLevel = ResourcePressureLevel.normal;
+      }
       _events.add(BenchmarkPressureEvent(
         level: level,
         action: sample.decision.action,
@@ -386,10 +398,26 @@ class BenchmarkRunner {
       return true;
     }
     if (decision.action == PressureAction.pauseAfterGame && !_paused) {
-      _pressurePauseRequested = true;
-      pause();
+      // Pause only on a strictly higher pressure level than the one already
+      // acknowledged. A decision that persists at the same level after a
+      // resume must not re-pause immediately — that would strand the run
+      // until pressure happened to clear. A new, worse level pauses again.
+      if (decision.level.severity > _pressurePauseAcknowledgedLevel.severity) {
+        _pressurePauseAcknowledgedLevel = decision.level;
+        _pressurePauseRequested = true;
+        pause();
+      }
     }
     return false;
+  }
+
+  /// Whether the latest pressure decision is a critical stop. Checked before
+  /// each engine starts so a run that is already over budget, or crosses
+  /// critical while an engine is initializing, does not launch more processes
+  /// and exhaust memory before the stop is honored.
+  bool _pressureStopped() {
+    final decision = _hardware?.decision;
+    return decision != null && decision.action == PressureAction.stop;
   }
 
   /// Runs the benchmark to completion or until it is stopped.
@@ -427,6 +455,16 @@ class BenchmarkRunner {
       // next one: a slow handshake (a model load, a WASM instantiation) would
       // otherwise keep the run alive after the user asked it to stop.
       if (_cancelled || _timeCapReached) break;
+      // A critical resource-pressure decision must stop launching further
+      // engines: starting more processes after the stop is decided can exhaust
+      // memory before the stop is honored.
+      if (_pressureStopped()) {
+        _stopReason = 'resource pressure';
+        _events.add(const BenchmarkNoticeEvent(
+            'Resource pressure reached the critical level; no further engines '
+            'will be started.'));
+        break;
+      }
       final slot = slots[identity.engineId];
       if (slot == null) {
         _warnings.add('No way to build ${identity.label} '
@@ -691,6 +729,11 @@ class BenchmarkRunner {
   Future<void> _persistOnAbnormalExit() async {
     try {
       if (onProgressSave != null) {
+        // An unexpected error escaped the game loop without another branch
+        // setting the stop reason, so the saved run would otherwise claim
+        // it "completed". Mark it as an error exit before building the
+        // partial run so the report does not misreport completion.
+        _stopReason = 'error';
         await onProgressSave!(
             _buildRun(inProgress: false, includeHardwareTelemetry: true));
       }

@@ -41,7 +41,7 @@ class _FixedProbe implements ResourceProbe {
   int? applicationRss() => appRssBytes;
 
   @override
-  Duration applicationCpu() => Duration.zero;
+  Duration? applicationCpu() => Duration.zero;
 
   @override
   List<int> children(int pid) => const [];

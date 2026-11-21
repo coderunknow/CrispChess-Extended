@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart'
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../diagnostics/app_logger.dart';
+import '../diagnostics/hardware_protection.dart' show HardwareProtectionSettings;
 import '../diagnostics/hardware_protection_service.dart' show HardwareProtectionRuntime;
 import '../diagnostics/resource_sampler.dart';
 import '../engines/chess_engine.dart' show ChessEngine;
@@ -21,6 +22,7 @@ import '../engines/engine_registry.dart';
 import '../engines/frozenight_engine.dart' if (dart.library.js_interop) '../engines/frozenight_web_engine.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
+import '../services/preferences_service.dart' show PreferencesService;
 import 'benchmark_config.dart';
 import 'benchmark_environment.dart';
 import 'benchmark_plan.dart';
@@ -438,6 +440,7 @@ class BenchmarkService {
     RatingAnchor? anchor,
     List<RatingAnchor> anchors = const [],
     String? trigger,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     final runner = await createRunner(
       engineIds: engineIds,
@@ -448,6 +451,7 @@ class BenchmarkService {
       anchor: anchor,
       anchors: anchors,
       trigger: trigger,
+      hardwareProtection: hardwareProtection,
     );
     return runWithRunner(runner);
   }
@@ -972,10 +976,19 @@ class BenchmarkService {
     }
     final engineIds = [identity.engineId, ...decision.opponents];
     if (engineIds.length < 2) return null;
+    // Automatic runs (engine added / version changed) must monitor Hardware
+    // Protection like a hand-started run: build the runtime here so those runs
+    // record diagnostics and honor pressure, instead of running unmonitored.
+    final prefs = PreferencesService();
+    await prefs.init();
+    final hardware = HardwareProtectionRuntime(
+      settings: prefs.hardwareProtectionSettings(),
+    );
     return run(
       engineIds: engineIds,
       config: config,
       trigger: 'automatic',
+      hardwareProtection: hardware,
     );
   }
 

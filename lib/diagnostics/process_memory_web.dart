@@ -14,7 +14,7 @@ import 'hardware_protection.dart'
 HardwarePlatform hardwarePlatform() => HardwarePlatform.web;
 
 /// No per-process CPU counter is exposed to a web build.
-Duration readApplicationCpu() => Duration.zero;
+Duration? readApplicationCpu() => null;
 
 /// No per-process memory is exposed to a web build.
 int? applicationRss() => null;

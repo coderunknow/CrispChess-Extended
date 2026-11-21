@@ -68,7 +68,7 @@ class _FakeProbe implements ResourceProbe {
   int? applicationRss() => appRssBytes;
 
   @override
-  Duration applicationCpu() => cpu;
+  Duration? applicationCpu() => cpu;
 
   @override
   List<int> children(int pid) => childPidsByPid[pid] ?? const [];
@@ -201,7 +201,7 @@ void main() {
   });
 
   group('resolveMemoryBudget', () {
-    test('automatic derives the limit from available memory minus the reserve',
+    test('automatic derives the limit from total memory minus the reserve',
         () {
       final budget = resolveMemoryBudget(
         const HardwareProtectionSettings(memoryReserveMb: 1024),
@@ -209,8 +209,10 @@ void main() {
         availableBytes: 6 * 1024 * 1024 * 1024,
       );
       expect(budget.isUsable, isTrue);
-      // 6 GiB available minus 1 GiB reserve = 5 GiB.
-      expect(budget.limitBytes, 5 * 1024 * 1024 * 1024);
+      // The cap is based on *total* memory (stable), not MemAvailable, so the
+      // run's own RSS does not shrink its own budget. 8 GiB total minus a 1 GiB
+      // reserve = 7 GiB.
+      expect(budget.limitBytes, 7 * 1024 * 1024 * 1024);
       expect(budget.source, contains('automatic'));
     });
 

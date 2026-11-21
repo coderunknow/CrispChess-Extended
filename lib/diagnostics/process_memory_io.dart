@@ -8,14 +8,19 @@
 ///    process's resident memory, and walks `/proc` for child processes.
 ///  * macOS reads `sysctl hw.memsize` for total memory and `ps` for a
 ///    process's resident set; child enumeration is not performed.
-///  * Windows has no in-process reader for another process's memory without
-///    FFI, so those figures are reported as unavailable rather than guessed.
+///  * Windows reads system memory via the Win32 `GlobalMemoryStatusEx` API
+///    (FFI). It has no in-process reader for another process's memory without
+///    FFI, so engine-process figures are reported as unavailable rather than
+///    guessed.
 ///
 /// Every read is best-effort and wrapped: a platform that cannot provide a
 /// figure returns `null` for it, which the model keeps distinct from zero.
 library;
 
+import 'dart:ffi';
 import 'dart:io';
+
+import 'package:ffi/ffi.dart';
 
 import 'hardware_protection.dart'
     show HardwarePlatform, ProcessMemorySample, SystemMemorySample;
@@ -35,15 +40,17 @@ HardwarePlatform hardwarePlatform() {
 /// window on a multi-threaded process; the metric is labelled accordingly.
 ///
 /// `dart:io`'s [ProcessInfo] exposes no CPU-time figure, so on Linux this
-/// reads `/proc/self/stat` (the process's own user + system time) and on
-/// every other platform reports zero rather than inventing a value.
-Duration readApplicationCpu() {
+/// reads `/proc/self/stat` (the process's own user + system time). On every
+/// other platform there is no reader, so it returns null rather than a
+/// constant zero — a zero would be treated as a measured counter and report
+/// a false 0% CPU while the application is actually busy.
+Duration? readApplicationCpu() {
   try {
     if (Platform.isLinux) return _linuxApplicationCpu();
   } catch (_) {
-    // Fall through.
+    // Fall through to unavailable.
   }
-  return Duration.zero;
+  return null;
 }
 
 /// Cumulative CPU time of this process from `/proc/self/stat`: the sum of the
@@ -52,10 +59,14 @@ Duration _linuxApplicationCpu() {
   final text = File('/proc/self/stat').readAsStringSync();
   final close = text.lastIndexOf(')');
   if (close < 0) return Duration.zero;
-  final rest = text.substring(close + 1).split(RegExp(r'\s+'));
-  // After ')' the fields are: state(0) ppid(1) ... utime(11) stime(12).
-  final utime = int.tryParse(rest.length > 11 ? rest[11] : '');
-  final stime = int.tryParse(rest.length > 12 ? rest[12] : '');
+  // Trim before splitting: the substring right after ')' begins with a space,
+  // and a split that keeps a leading empty token shifts every index by one,
+  // reading the wrong fields. After trim the tokens are state(0) ppid(1)
+  // ... utime(10) stime(11) — the authoritative /proc field numbering.
+  final rest = text.substring(close + 1).trim().split(RegExp(r'\s+'));
+  // After ')' the fields are: state(0) ppid(1) ... utime(10) stime(11).
+  final utime = int.tryParse(rest.length > 10 ? rest[10] : '');
+  final stime = int.tryParse(rest.length > 11 ? rest[11] : '');
   if (utime == null || stime == null) return Duration.zero;
   final ticksPerSecond = _linuxClockTicksPerSecond();
   final millis = ((utime + stime) * 1000 / ticksPerSecond).toInt();
@@ -126,6 +137,7 @@ int? applicationRss() {
 SystemMemorySample readSystemMemory() {
   try {
     if (Platform.isLinux) return _linuxSystemMemory();
+    if (Platform.isWindows) return _windowsSystemMemory();
     if (Platform.isMacOS) return _macosSystemMemory();
   } catch (_) {
     // Fall through to the "unavailable" sample.
@@ -158,6 +170,75 @@ SystemMemorySample _macosSystemMemory() {
   if (result.exitCode != 0) return const SystemMemorySample();
   final totalBytes = int.tryParse(String.fromCharCodes(result.stdout).trim());
   return SystemMemorySample(totalBytes: totalBytes);
+}
+
+/// Win32 `MEMORYSTATUSEX` layout. The two `DWORD` fields are 4 bytes each and
+/// the seven `SIZE_T` fields are 8 bytes each on 64-bit Windows. Dart's FFI
+/// aligns the `UInt64` fields to 8 bytes, matching the native layout, so
+/// `ullTotalPhys`/`ullAvailPhys` are read from the correct offsets.
+class _MemoryStatusEx extends Struct {
+  @Uint32()
+  external int dwLength;
+  @Uint32()
+  external int dwMemoryLoad;
+  @Uint64()
+  external int ullTotalPhys;
+  @Uint64()
+  external int ullAvailPhys;
+  @Uint64()
+  external int ullTotalPageFile;
+  @Uint64()
+  external int ullAvailPageFile;
+  @Uint64()
+  external int ullTotalVirtual;
+  @Uint64()
+  external int ullAvailVirtual;
+  @Uint64()
+  external int ullAvailExtendedVirtual;
+}
+
+typedef _GlobalMemoryStatusEx = Int32 Function(Pointer<_MemoryStatusEx>);
+typedef _GlobalMemoryStatusExImp = int Function(Pointer<_MemoryStatusEx>);
+
+DynamicLibrary? _windowsKernel32Cache;
+_GlobalMemoryStatusExImp? _globalMemoryStatusEx;
+
+/// The Win32 `GlobalMemoryStatusEx` entry point from kernel32, resolved once
+/// and cached. Returns null where the library or symbol cannot be loaded, so
+/// the reader degrades to an empty sample instead of throwing on the hot path.
+_GlobalMemoryStatusExImp? _windowsGlobalMemoryStatusEx() {
+  if (_globalMemoryStatusEx != null) return _globalMemoryStatusEx;
+  try {
+    final lib = _windowsKernel32Cache ??= DynamicLibrary.open('kernel32.dll');
+    _globalMemoryStatusEx =
+        lib.lookupFunction<_GlobalMemoryStatusExImp, _GlobalMemoryStatusEx>(
+            'GlobalMemoryStatusEx');
+    return _globalMemoryStatusEx;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// System memory on Windows via the Win32 `GlobalMemoryStatusEx` API. Provides
+/// a real total and available figure so the automatic memory budget resolves
+/// on Windows instead of always falling through to an empty sample (which left
+/// the default-configured budget unusable and Hardware Protection inert).
+/// Best-effort and wrapped: any failure returns the empty sample.
+SystemMemorySample _windowsSystemMemory() {
+  final fn = _windowsGlobalMemoryStatusEx();
+  if (fn == null) return const SystemMemorySample();
+  final buffer = calloc<_MemoryStatusEx>();
+  try {
+    // `dwLength` must be set to the size of the struct before the call.
+    buffer.ref.dwLength = sizeOf<_MemoryStatusEx>();
+    if (fn(buffer) == 0) return const SystemMemorySample();
+    return SystemMemorySample(
+      totalBytes: buffer.ref.ullTotalPhys,
+      availableBytes: buffer.ref.ullAvailPhys,
+    );
+  } finally {
+    callocFree(buffer);
+  }
 }
 
 /// Resident memory of one process, or an empty sample when the platform cannot
@@ -208,7 +289,10 @@ Map<int, List<int>> allChildrenByParent() {
           ? entry.path
           : entry.uri.pathSegments.last;
       if (!RegExp(r'^\d+$').hasMatch(name)) continue;
-      final stat = _readProcStat('$entry.path');
+      // `${entry.path}` (not `'$entry.path'`): the latter interpolates
+      // `entry` and leaves `.path` as literal text, handing _readProcStat a
+      // malformed path so every process is dropped by the catch below.
+      final stat = _readProcStat('${entry.path}');
       if (stat == null) continue;
       final child = int.tryParse(name);
       if (child == null) continue;
@@ -232,11 +316,13 @@ List<int> childPidsOf(int pid) => allChildrenByParent()[pid] ?? const [];
     final space = text.indexOf(' ');
     final close = text.lastIndexOf(')');
     if (space < 0 || close < 0) return null;
-    final pid = int.tryParse(text.substring(0, space));
-    final rest = text.substring(close + 1).split(RegExp(r'\s+'));
-    // After ')' the fields are: state(0) ppid(1) ...
-    final ppid = int.tryParse(rest.length > 1 ? rest[1] : '');
-    if (pid == null || ppid == null) return null;
+  final pid = int.tryParse(text.substring(0, space));
+  // Trim before splitting so a leading space cannot leave a stray empty token
+  // at index 0 and shift the ppid (index 1) onto the state token.
+  final rest = text.substring(close + 1).trim().split(RegExp(r'\s+'));
+  // After ')' the fields are: state(0) ppid(1) ...
+  final ppid = int.tryParse(rest.length > 1 ? rest[1] : '');
+  if (pid == null || ppid == null) return null;
     return (ppid: ppid, pid: pid);
   } catch (_) {
     return null;

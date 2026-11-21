@@ -170,6 +170,13 @@ class _EngineLabScreenState extends State<EngineLabScreen>
   @override
   void dispose() {
     _subscription?.cancel();
+    // If a benchmark is still running when the screen is removed, cancel it
+    // before tearing down the Hardware Protection runtime. runWithRunner keeps
+    // the runner alive on its own; stopping the monitor while it still runs
+    // would leave the run with a frozen pressure decision and no further
+    // samples. Cancelling first lets the runner's own path persist progress
+    // and stop its engines.
+    _runner?.cancel();
     // dev7: stop the monitor so its timer and telemetry stream do not outlive
     // the screen. The runner's own cancel path already persists progress.
     _hardware?.stop();

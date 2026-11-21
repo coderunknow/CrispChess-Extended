@@ -36,7 +36,11 @@ import 'hardware_protection.dart' show
     evaluatePressure,
     hardwareCapabilitiesFor,
     resolveMemoryBudget;
-import 'process_memory.dart';
+// Aliased so the platform top-level readers are reachable from the probe
+// methods below: `applicationRss` is both an imported reader and a method name
+// here, and an unqualified call inside that method would resolve to the
+// method itself (infinite recursion). The alias keeps every reader callable.
+import 'process_memory.dart' as _platform;
 import 'resource_telemetry.dart' show ResourceTelemetryLog, ResourceTelemetryRecord;
 
 /// The [ResourceProbe] backed by the platform resource seam.
@@ -44,31 +48,31 @@ class PlatformResourceProbe implements ResourceProbe {
   const PlatformResourceProbe();
 
   @override
-  HardwarePlatform platform() => hardwarePlatform();
+  HardwarePlatform platform() => _platform.hardwarePlatform();
 
   @override
-  SystemMemorySample systemMemory() => readSystemMemory();
+  SystemMemorySample systemMemory() => _platform.readSystemMemory();
 
   @override
-  ProcessMemorySample process(int pid) => readProcessMemory(pid);
+  ProcessMemorySample process(int pid) => _platform.readProcessMemory(pid);
 
   @override
-  int? applicationRss() => applicationRss();
+  int? applicationRss() => _platform.applicationRss();
 
   @override
-  Duration applicationCpu() => readApplicationCpu();
+  Duration? applicationCpu() => _platform.readApplicationCpu();
 
   @override
-  List<int> children(int pid) => childPidsOf(pid);
+  List<int> children(int pid) => _platform.childPidsOf(pid);
 
   @override
-  Map<int, List<int>> childrenByParent() => allChildrenByParent();
+  Map<int, List<int>> childrenByParent() => _platform.allChildrenByParent();
 
   @override
-  String? powerState() => readPowerState();
+  String? powerState() => _platform.readPowerState();
 
   @override
-  String? thermalState() => readThermalState();
+  String? thermalState() => _platform.readThermalState();
 }
 
 /// One sample plus the decision the policy made about it.
@@ -347,6 +351,31 @@ class HardwareProtectionRuntime {
 
   DateTime _runStartedAt = DateTime.now();
 
+  /// Account every descendant of [pid] — children, grandchildren, and so on —
+  /// into [engineRss]. A managed engine can spawn a helper that spawns
+  /// workers, and all of them contribute to the engine's memory footprint;
+  /// only walking immediate children would let nested workers escape the
+  /// budget. [seen] marks each pid so a process reachable through more than
+  /// one path (or already counted as a managed process) is counted exactly
+  /// once. [pid] itself is not re-counted here; the caller has already
+  /// accounted for it.
+  void _accountDescendants(int pid, Map<int, List<int>> childrenByParent) {
+    final stack = <int>[pid];
+    while (stack.isNotEmpty) {
+      final current = stack.removeLast();
+      for (final child in childrenByParent[current] ?? const []) {
+        if (!seen.add(child)) continue;
+        final mem = probe.process(child);
+        final value = mem.accountedBytes;
+        if (value != null) {
+          engineRss += value;
+          enginesMeasured = true;
+        }
+        stack.add(child);
+      }
+    }
+  }
+
   /// One resource sample: application memory, managed engine memory (and
   /// children where available), and the totals. Unavailable figures stay null.
   ResourceReading _sample() {
@@ -373,17 +402,14 @@ class HardwareProtectionRuntime {
         enginesMeasured = true;
       }
       engineCount++;
-      // Supplement, not replace: walk children only where the platform
-      // exposes them, and only for processes we manage.
-      for (final child in childrenByParent[managed.pid] ?? const []) {
-        if (!seen.add(child)) continue;
-        final childMem = probe.process(child);
-        final childValue = childMem.accountedBytes;
-        if (childValue != null) {
-          engineRss += childValue;
-          enginesMeasured = true;
-        }
-      }
+      // Supplement, not replace: walk descendants only where the platform
+      // exposes them, and only for processes we manage. A managed engine may
+      // start a helper that itself starts workers, so every level of the
+      // subtree counts toward the engine's memory footprint — walking only
+      // immediate children would let memory-heavy nested workers escape the
+      // budget. `seen` keeps each process counted once across overlapping
+      // subtrees (and skips a managed pid already counted as a descendant).
+      _accountDescendants(managed.pid, childrenByParent);
     }
 
     // The application process is the parent of the engine processes, so it is
@@ -409,6 +435,9 @@ class HardwareProtectionRuntime {
 
   double? _updateCpu(DateTime now) {
     final current = probe.applicationCpu();
+    // No CPU reader on this platform: report no percentage rather than a
+    // false 0% derived from a constant-zero fallback.
+    if (current == null) return null;
     final previous = _lastCpu;
     final previousAt = _lastCpuAt;
     _lastCpu = current;

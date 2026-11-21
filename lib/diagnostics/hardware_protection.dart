@@ -176,7 +176,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           applicationMemory: CapabilityLevel.fullySupported,
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
-          availableSystemMemory: CapabilityLevel.unavailable,
+          availableSystemMemory: CapabilityLevel.fullySupported,
           cpuManagement: CapabilityLevel.partiallySupported,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
@@ -624,12 +624,20 @@ MemoryBudget resolveMemoryBudget(
         );
       }
       final reserve = settings.memoryReserveMb * 1024 * 1024;
-      final limit = (available - reserve).clamp(0, available);
+      // Base the cap on *total* memory, not MemAvailable. MemAvailable already
+      // excludes the memory this app and its engines hold, so a cap of
+      // (available - reserve) compared against the run's RSS double-counts:
+      // every extra MB the run uses both raises the usage and lowers the
+      // available-derived cap, causing premature pauses and a budget that
+      // clamps to zero. Total memory is stable, so the cap stays fixed while
+      // usage rises toward it — a consistent, non-overlapping quantity.
+      final base = totalBytes ?? available;
+      final limit = (base - reserve).clamp(0, base);
       return MemoryBudget(
         limitBytes: limit,
         totalBytes: totalBytes,
         availableBytes: availableBytes,
-        source: 'automatic: available ${_mb(available)} MB minus a '
+        source: 'automatic: ${_mb(base)} MB total minus a '
             '${settings.memoryReserveMb} MB reserve',
       );
     }
@@ -812,7 +820,12 @@ abstract class ResourceProbe {
   SystemMemorySample systemMemory();
   ProcessMemorySample process(int pid);
   int? applicationRss();
-  Duration applicationCpu();
+
+  /// Cumulative CPU time of the application process, or null where the
+  /// platform exposes no reader. Null (not zero) keeps an unavailable
+  /// reader distinct from a measured zero, so telemetry reports no CPU
+  /// percentage rather than a false 0% from a constant-zero fallback.
+  Duration? applicationCpu();
 
   /// Children of one process, best-effort. Kept for callers that need a
   /// single lookup; the monitor uses [childrenByParent] so it enumerates the

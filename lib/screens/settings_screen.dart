@@ -136,7 +136,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _chessVariant = widget.chessVariant;
     _lc0Backend = widget.lc0Backend;
     _loadSavedPrefs();
-    _hardwareSettings = _prefs.hardwareProtectionSettings();
     _loadProfiles();
   }
 
@@ -185,6 +184,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSavedPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    // Initialize the PreferencesService before reading or saving anything
+    // through it: its SharedPreferences backing is null until init() runs,
+    // so an uninitialized instance reads defaults and writes silently do
+    // nothing. Done here (async) rather than in initState, which is sync.
+    await _prefs.init();
     final lang = prefs.getString('locale') ?? 'system';
     final solid = prefs.getBool('solidBlackPieces') ?? false;
     final customBase = prefs.getInt('customBaseMinutes') ?? 10;
@@ -193,6 +197,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final threads = prefs.getInt('engineThreads') ?? 1;
     if (mounted) setState(() {
       _language = lang;
+      _hardwareSettings = _prefs.hardwareProtectionSettings();
       _solidBlackPieces = solid;
       _customBaseMinutes = customBase;
       _customIncrementSeconds = customInc;
@@ -1354,7 +1359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     value: s.memoryReserveMb.toDouble().clamp(128.0, 16384.0),
                     min: 128,
                     max: 16384,
-                    divisions: 0,
+                    divisions: null,
                     label: s.memoryReserveMb.toString(),
                     onChanged: (v) =>
                         _updateHardware(s.copyWith(memoryReserveMb: v.round())),
@@ -1373,7 +1378,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           .clamp(256.0, 65536.0),
                       min: 256,
                       max: 65536,
-                      divisions: 0,
+                      divisions: null,
                       label: (s.absoluteLimitMb ?? 2048).toString(),
                       onChanged: (v) => _updateHardware(
                           s.copyWith(absoluteLimitMb: v.round())),
@@ -1391,7 +1396,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: (s.percentageLimit ?? 80).toDouble().clamp(10.0, 99.0),
                       min: 10,
                       max: 99,
-                      divisions: 0,
+                      divisions: null,
                       label: (s.percentageLimit ?? 80).toString(),
                       onChanged: (v) =>
                           _updateHardware(s.copyWith(percentageLimit: v)),
