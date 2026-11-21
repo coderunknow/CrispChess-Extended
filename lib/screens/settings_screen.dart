@@ -1346,8 +1346,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Text(_ramBudgetLabel(l, m)),
                           ))
                       .toList(),
-                  onChanged: (v) =>
-                      v != null ? _updateHardware(s.copyWith(ramBudgetMode: v)) : null,
+                  onChanged: (v) => v != null
+                      ? _updateHardware(s.withBudgetMode(v))
+                      : null,
                 ),
               ),
               ListTile(

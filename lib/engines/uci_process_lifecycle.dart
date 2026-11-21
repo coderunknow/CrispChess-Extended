@@ -112,6 +112,11 @@ mixin UciProcessLifecycle {
       if (!_disposingProcess) {
         debugPrint('[$processLabel] exited with code $code');
       }
+      // The process has truly exited: stop accounting for it so its memory is
+      // not summed after it has died. Unregister here (the exit path) rather
+      // than inside [releaseOnLoss], because stdout can close while the
+      // process is still running.
+      managedProcessRegistry.unregister(process.pid);
       releaseOnLoss();
     }));
   }
@@ -120,12 +125,17 @@ mixin UciProcessLifecycle {
   ///
   /// Routed from both the exit code and stdout closing, because they do not
   /// arrive together and a request should end on whichever comes first.
+  ///
+  /// This only releases pending work — it deliberately does NOT unregister the
+  /// process from [managedProcessRegistry]. stdout can close while the process
+  /// is still running (a `GenericUciEngine` may close its stdout without
+  /// exiting), and unregistering here would drop a live, still-consuming
+  /// process from the memory monitor's accounting. The process is unregistered
+  /// only when its exit code actually lands (see [watchProcess]) or on explicit
+  /// teardown ([stopWatchingProcess]).
   void releaseOnLoss() {
+    if (_exited) return;
     _exited = true;
-    // The process is gone; stop accounting for it so its memory is not
-    // summed after it has exited.
-    final latest = _latest;
-    if (latest != null) managedProcessRegistry.unregister(latest.pid);
     onProcessLost();
   }
 

@@ -198,6 +198,70 @@ void main() {
       await runner.dispose();
     });
 
+    test('a critical escalation during a pause stops without starting another game',
+        () async {
+      // Regression: `_checkPressureBoundary()` is the only place that turns a
+      // CRITICAL (stop) decision into a loop break. When a CRITICAL escalation
+      // breaks a pressure-pause (via `_breakPauseForStop`) while the loop is
+      // blocked in `_awaitResume()`, the loop used to fall straight through to
+      // `playBenchGame` and start another game under pressure; only the *next*
+      // iteration's top-of-loop check would stop it. The loop must re-check the
+      // boundary after the pause wait so no extra game starts.
+      //
+      // 850 MB of a 1000 MB budget is the high threshold (pauseAfterGame);
+      // 950 MB is the critical threshold (stop).
+      final probe = _MutableProbe(850 * _mb);
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+          ramBudgetMode: RamBudgetMode.absolute,
+          absoluteLimitMb: 1000,
+          samplingIntervalSeconds: 60,
+        ),
+        probe: probe,
+      );
+      final runner = _runner(
+        benchConfig(gamesPerPairing: 4, repetitions: 1, plyCap: 200),
+        hardware: runtime,
+        white: ScriptedEngine('Alpha'),
+        black: ScriptedEngine('Beta'),
+      );
+
+      final runFuture = runner.run();
+
+      final pauseCompleter = Completer<void>();
+      final startedGames = <int>[];
+      final sub = runner.events.listen((event) {
+        if (event is BenchmarkPausedEvent && event.pressure) {
+          pauseCompleter.complete();
+        }
+        if (event is BenchmarkGameStartedEvent) {
+          startedGames.add(event.gameNumber);
+        }
+      });
+
+      await pauseCompleter.future;
+      expect(runner.isPressurePaused, isTrue);
+      final gamesAtPause = List.of(startedGames);
+
+      // Pressure rises to CRITICAL while the run is paused; this breaks the
+      // pause. The loop must re-check the boundary and stop, starting no new
+      // game.
+      probe.appRssBytes = 950 * _mb;
+      runtime.tick();
+
+      final run = await runFuture;
+      expect(run.stopReason, 'resource pressure');
+
+      // No new game may have started after the pause broke: the re-check after
+      // `_awaitResume()` must break the loop before `playBenchGame`.
+      expect(startedGames, gamesAtPause,
+          reason: 'a CRITICAL escalation that breaks a pause must stop the run '
+              'without starting another game under pressure');
+
+      sub.cancel();
+      await runner.dispose();
+    });
+
     test('a calm decision lets the run complete normally', () async {
       final runtime = HardwareProtectionRuntime(
         settings: const HardwareProtectionSettings(

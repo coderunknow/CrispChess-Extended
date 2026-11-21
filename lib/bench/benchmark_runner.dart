@@ -584,6 +584,12 @@ class BenchmarkRunner {
         // half, and completed results are already checkpointed.
         if (_checkPressureBoundary()) break;
         if (_pressurePauseRequested) await _awaitResume();
+        // Re-check after the pause wait. A CRITICAL escalation can break the
+        // pause (via `_breakPauseForStop`) while we were blocked in
+        // `_awaitResume()`, and the loop must stop at this boundary instead of
+        // starting another game — `_checkPressureBoundary()` is the only place
+        // that turns a stop decision into a break.
+        if (_checkPressureBoundary()) break;
         final white = _live[planned.whiteId];
         final black = _live[planned.blackId];
         if (white == null || black == null) {

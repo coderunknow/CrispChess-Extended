@@ -50,7 +50,15 @@ class SrItem {
   }
 
   /// Is this item "learned" (completed all intervals)?
-  bool get isLearned => interval >= _intervals.length - 1 && timesCorrect > 0;
+  ///
+  /// Requires completing every rung, not merely reaching the last index. After
+  /// the 4th correct answer `interval` is already at the last index while a
+  /// 14-day review is still pending; treating that as learned would filter the
+  /// item out of `getDueItems` and skip the review that advances it to the
+  /// final 30-day rung. The item is learned only once it has been answered
+  /// correctly through all `_intervals.length` rungs.
+  bool get isLearned =>
+      interval >= _intervals.length - 1 && timesCorrect >= _intervals.length;
 
   Map<String, dynamic> toJson() => {
     'fen': fen,

@@ -115,5 +115,37 @@ void main() {
       expect(item.isLearned, isTrue);
       expect(getDueItems([item]), isEmpty);
     });
+
+    test('isLearned is false after 4 correct answers: the 14-day review is still pending',
+        () {
+      // Regression: `interval` reaches the last index (4) on the 4th correct
+      // answer, while a 14-day review is still pending. The old
+      // `interval >= _intervals.length - 1 && timesCorrect > 0` check treated
+      // that as "learned" and filtered the item out of `getDueItems`, skipping
+      // the review that advances it to the final 30-day rung. An item is
+      // learned only after completing all rungs.
+      final item = SrItem(
+        fen: '8/8/8/8/8/8/8/4K3k w - - 0 1',
+        solution: 'e1e2',
+        description: 'test',
+      );
+      for (var i = 0; i < 4; i++) {
+        item.markCorrect();
+      }
+      expect(item.interval, 4);
+      expect(item.timesCorrect, 4);
+      expect(item.isLearned, isFalse,
+          reason: '4 correct answers complete the 1/3/7/14 rungs but a '
+              '14-day review is still pending; the item is not learned yet');
+
+      // Simulate the 14-day review becoming due (markCorrect scheduled it 14
+      // days out; bring it into the past so isDue is true). With the bug,
+      // isLearned would be true and getDueItems would drop the item, skipping
+      // the review that advances it to the 30-day rung.
+      item.nextReview = DateTime.now().subtract(const Duration(days: 1));
+      expect(item.isDue, isTrue);
+      expect(getDueItems([item]), isNotEmpty,
+          reason: 'the pending 14-day review must remain due and reviewable');
+    });
   });
 }

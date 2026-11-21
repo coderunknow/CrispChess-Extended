@@ -131,6 +131,51 @@ void main() {
       expect(updated.samplingIntervalSeconds, base.samplingIntervalSeconds);
     });
 
+    test('withBudgetMode materialises the default limit for the selected mode',
+        () {
+      // Regression: selecting Absolute or Percentage stored only
+      // `ramBudgetMode`; the limit stayed null while the controls showed their
+      // fallback (2048 MB / 80%), and `resolveMemoryBudget` returned "no limit
+      // set" — the selected mode silently did nothing. Selecting a mode must
+      // persist the limit that mode uses.
+      final base = const HardwareProtectionSettings();
+
+      final absolute = base.withBudgetMode(RamBudgetMode.absolute);
+      expect(absolute.ramBudgetMode, RamBudgetMode.absolute);
+      expect(absolute.absoluteLimitMb, 2048);
+      expect(absolute.percentageLimit, isNull);
+
+      final percentage = base.withBudgetMode(RamBudgetMode.percentage);
+      expect(percentage.ramBudgetMode, RamBudgetMode.percentage);
+      expect(percentage.percentageLimit, 80);
+      expect(percentage.absoluteLimitMb, isNull);
+    });
+
+    test('withBudgetMode preserves an already-configured limit', () {
+      // Switching modes must not discard a limit the user already set.
+      final withAbsolute = const HardwareProtectionSettings(
+        ramBudgetMode: RamBudgetMode.absolute,
+        absoluteLimitMb: 4096,
+      );
+      final switched = withAbsolute.withBudgetMode(RamBudgetMode.percentage);
+      expect(switched.ramBudgetMode, RamBudgetMode.percentage);
+      // The configured absolute limit is preserved (not reset to the default).
+      expect(switched.absoluteLimitMb, 4096);
+      // The percentage limit is materialised from the default.
+      expect(switched.percentageLimit, 80);
+    });
+
+    test('withBudgetMode selects Absolute with a usable budget', () {
+      // End-to-end: a mode selected from the default settings yields a budget
+      // that `resolveMemoryBudget` can actually use (not "no limit set").
+      final settings = const HardwareProtectionSettings().withBudgetMode(
+        RamBudgetMode.absolute,
+      );
+      final budget = resolveMemoryBudget(settings);
+      expect(budget.isUsable, isTrue);
+      expect(budget.limitBytes, 2048 * 1024 * 1024);
+    });
+
     test('JSON round-trip preserves every field', () {
       const original = HardwareProtectionSettings(
         ramBudgetMode: RamBudgetMode.percentage,
@@ -437,6 +482,121 @@ void main() {
         _reading(990), const MemoryBudget(source: 'none'), _settings());
       expect(decision.level, ResourcePressureLevel.normal);
       expect(decision.action, PressureAction.none);
+    });
+
+    test('thin system headroom escalates even when RSS is below the budget', () {
+      // Regression: the RSS ladder alone reported "normal" while the OS
+      // reported almost no free memory — the benchmark could be the last
+      // allocation before an OOM kill. A thin headroom is an independent
+      // signal that must be able to escalate on its own.
+      //
+      // RSS = 500 MB of a 1000 MB budget (well below the 750 MB warning
+      // threshold), but total = 1000 MB and available = 50 MB, i.e. 950 MB
+      // (95%) in use system-wide → critical.
+      final decision = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: 500 * mb,
+          availableBytes: 50 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        _budget(1000),
+        _settings(),
+      );
+      expect(decision.level, ResourcePressureLevel.critical);
+      expect(decision.action, PressureAction.stop);
+    });
+
+    test('adequate system headroom does not escalate a calm RSS reading', () {
+      // RSS below budget and a healthy amount of free system memory: normal.
+      final decision = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: 500 * mb,
+          availableBytes: 800 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        _budget(1000),
+        _settings(),
+      );
+      expect(decision.level, ResourcePressureLevel.normal);
+      expect(decision.action, PressureAction.none);
+    });
+
+    test('the worse of RSS and headroom wins', () {
+      // RSS is at the high band (900 of 1000) but headroom is critical
+      // (50 MB available of 1000): headroom is worse, so critical wins.
+      final critical = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: 900 * mb,
+          availableBytes: 50 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        _budget(1000),
+        _settings(),
+      );
+      expect(critical.level, ResourcePressureLevel.critical);
+      expect(critical.action, PressureAction.stop);
+
+      // RSS is critical (960 of 1000) but headroom is healthy (800 of 1000
+      // available): RSS is worse, so critical is still returned — the headroom
+      // signal never lowers an RSS escalation.
+      final rssWins = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: 960 * mb,
+          availableBytes: 800 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        _budget(1000),
+        _settings(),
+      );
+      expect(rssWins.level, ResourcePressureLevel.critical);
+      expect(rssWins.action, PressureAction.stop);
+    });
+
+    test('headroom uses hysteresis like the RSS ladder', () {
+      // Critical headroom entry: 95% in use. Exit band bottom = 95% * (1 - 0.05)
+      // = 90.25% in use, i.e. 97.5 MB available. 920 MB in use (80 MB free) is
+      // above the exit band, so critical is held rather than cleared.
+      final held = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: 100 * mb,
+          availableBytes: 80 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        _budget(1000),
+        _settings(),
+        previous: ResourcePressureLevel.critical,
+      );
+      expect(held.level, ResourcePressureLevel.critical);
+      expect(held.action, PressureAction.stop);
+
+      // 900 MB in use (100 MB free) is below the exit band, so critical clears
+      // to high.
+      final cleared = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: 100 * mb,
+          availableBytes: 100 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        _budget(1000),
+        _settings(),
+        previous: ResourcePressureLevel.critical,
+      );
+      expect(cleared.level, ResourcePressureLevel.high);
+      expect(cleared.action, PressureAction.pauseAfterGame);
+    });
+
+    test('no headroom data leaves the RSS signal unchanged', () {
+      // availableBytes/totalBytes absent: the RSS ladder decides as before.
+      final decision = evaluatePressure(
+        _reading(800), _budget(1000), _settings());
+      expect(decision.level, ResourcePressureLevel.warning);
+      expect(decision.action, PressureAction.reduceBackground);
     });
   });
 
@@ -890,6 +1050,46 @@ void main() {
         expect(samples.length, 4);
       });
       subscription?.cancel();
+      runtime.stop();
+    });
+
+    test('a zero sampling interval is floored to a positive duration', () {
+      // Regression: a stored (or corrupted) samplingIntervalSeconds of 0 was
+      // passed through unchanged, so `Timer.periodic(Duration.zero)` scheduled
+      // a zero-delay timer that re-ran the synchronous sample on every event
+      // loop tick — a tight spin that starves the run. The effective interval
+      // must be at least 1 second.
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+          ramBudgetMode: RamBudgetMode.absolute,
+          absoluteLimitMb: 10000,
+          samplingIntervalSeconds: 0,
+        ),
+        probe: _FakeProbe(appRssBytes: 10 * 1024 * 1024),
+      );
+      expect(runtime.interval, const Duration(seconds: 1));
+      runtime.stop();
+    });
+
+    test('pressure never shortens the sampling interval below the base', () {
+      // Regression: under pressure the slowdown step was `min(base * 2, 30)`
+      // applied unconditionally, so a 60-second base became 30 seconds — twice
+      // as frequent — exactly when the monitor should reduce its work. The
+      // adaptive interval must never be shorter than the configured base.
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+          ramBudgetMode: RamBudgetMode.absolute,
+          absoluteLimitMb: 10000,
+          samplingIntervalSeconds: 60,
+        ),
+        probe: _FakeProbe(appRssBytes: 9600 * 1024 * 1024),
+      );
+      // Force one tick so the pressure level is evaluated as critical.
+      runtime.tick();
+      expect(runtime.level, ResourcePressureLevel.critical);
+      // 60 * 2 = 120, capped at 30, but never below the 60-second base, so the
+      // effective interval stays 60.
+      expect(runtime.interval, const Duration(seconds: 60));
       runtime.stop();
     });
 

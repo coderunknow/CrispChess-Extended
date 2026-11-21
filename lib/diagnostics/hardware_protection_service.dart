@@ -165,10 +165,18 @@ class HardwareProtectionRuntime {
   /// monitor slows its own nonessential sampling; this is adaptive scheduling
   /// of background work, not a change to the benchmark.
   Duration get interval {
-    final base = Duration(seconds: settings.samplingIntervalSeconds);
+    // A stored (or corrupted) `samplingIntervalSeconds` of 0 would schedule a
+    // zero-delay timer that re-runs the synchronous sample on every event loop
+    // tick — a tight spin that starves the run. Enforce a positive minimum.
+    final baseSeconds = math.max(settings.samplingIntervalSeconds, 1);
+    final base = Duration(seconds: baseSeconds);
     if (!settings.enabled || level == ResourcePressureLevel.normal) return base;
     // One slowdown step under pressure, capped so the monitor stays useful.
-    return Duration(seconds: math.min(base.inSeconds * 2, 30));
+    // Never shorten below the configured interval: a 60-second setting must
+    // not become 30 seconds (twice as frequent) exactly when the monitor is
+    // supposed to reduce its work.
+    final slowed = math.min(baseSeconds * 2, 30);
+    return Duration(seconds: math.max(slowed, baseSeconds));
   }
 
   /// Starts monitoring for a run.

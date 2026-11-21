@@ -292,9 +292,11 @@ Map<int, List<int>> allChildrenByParent() {
   try {
     final map = <int, List<int>>{};
     for (final entry in Directory('/proc').listSync()) {
-      final name = entry.uri.pathSegments.isEmpty
-          ? entry.path
-          : entry.uri.pathSegments.last;
+      // Use `entry.name`, not the last URI segment: a directory's URI carries
+      // a trailing slash, so `pathSegments.last` is the empty string and the
+      // numeric filter below would reject every `/proc/<pid>` directory —
+      // silently enumerating no processes at all.
+      final name = entry.name;
       if (!RegExp(r'^\d+$').hasMatch(name)) continue;
       // `${entry.path}` (not `'$entry.path'`): the latter interpolates
       // `entry` and leaves `.path` as literal text, handing _readProcStat a

@@ -269,6 +269,16 @@ enum LiveBoardMode {
 /// (or one with missing keys) falls back to these values, so enabling the
 /// feature never depends on a migration.
 class HardwareProtectionSettings {
+  /// Default absolute limit (MB) materialised when the user selects Absolute
+  /// mode before a limit has been set. Matches the value the Absolute control
+  /// falls back to when displaying, so the displayed value is what is stored.
+  static const int _defaultAbsoluteLimitMb = 2048;
+
+  /// Default percentage materialised when the user selects Percentage mode
+  /// before a limit has been set. Matches the value the Percentage control
+  /// falls back to when displaying.
+  static const double _defaultPercentageLimit = 80;
+
   /// Master switch. When false the system does not sample, warn or mitigate.
   final bool enabled;
 
@@ -430,6 +440,29 @@ class HardwareProtectionSettings {
         telemetryMaxRecords: telemetryMaxRecords ?? this.telemetryMaxRecords,
         checkpointEveryGame: checkpointEveryGame ?? this.checkpointEveryGame,
       );
+
+  /// A copy with [mode] selected, materialising the default limit that mode
+  /// uses when none is set yet.
+  ///
+  /// Selecting a budget mode must also persist the limit that mode uses.
+  /// Otherwise `absoluteLimitMb` / `percentageLimit` stay null while the
+  /// controls show their fallback (2048 MB / 80%), and
+  /// [resolveMemoryBudget] returns "no limit set" — the selected mode silently
+  /// does nothing until the user touches the slider. When a limit is already
+  /// set it is preserved (switching modes does not discard a configured value).
+  HardwareProtectionSettings withBudgetMode(RamBudgetMode mode) {
+    final absolute = mode == RamBudgetMode.absolute
+        ? (absoluteLimitMb ?? _defaultAbsoluteLimitMb)
+        : absoluteLimitMb;
+    final percentage = mode == RamBudgetMode.percentage
+        ? (percentageLimit ?? _defaultPercentageLimit)
+        : percentageLimit;
+    return copyWith(
+      ramBudgetMode: mode,
+      absoluteLimitMb: absolute,
+      percentageLimit: percentage,
+    );
+  }
 
   List<String> validationErrors() {
     final errors = <String>[];
@@ -901,12 +934,139 @@ class PressureDecision {
       };
 }
 
+/// The warning/high/critical ladder with hysteresis, shared by the RSS signal
+/// and the measured system headroom. Maps a `usage` against a `limit` using the
+/// configured ratios and only leaves a level once usage falls below the entry
+/// threshold by the hysteresis fraction, so a hovering reading does not
+/// oscillate. Returns the next level, the action and a human-readable reason.
+///
+/// When [headroom] is true the numbers describe *system* memory (usage = memory
+/// in use, limit = total memory) rather than the benchmark's budget, and the
+/// reasons are phrased accordingly.
+(ResourcePressureLevel, PressureAction, String) _evaluateLadder(
+  int usage,
+  int limit,
+  HardwareProtectionSettings settings,
+  ResourcePressureLevel previous, {
+  required bool headroom,
+}) {
+  final warningAt = limit * settings.warningRatio;
+  final highAt = limit * settings.highRatio;
+  final criticalAt = limit * settings.criticalRatio;
+
+  double ratioOf(double threshold, double hysteresis) =>
+      threshold * (1 - hysteresis);
+
+  ResourcePressureLevel next;
+  String reason;
+  PressureAction action;
+
+  // The decision is evaluated top-down: a level is entered when usage reaches
+  // its threshold, and left only when usage falls below the entry threshold by
+  // the hysteresis fraction. A reading that sits in the hysteresis band (above
+  // the exit threshold but below the entry threshold) with the previous level
+  // still active *stays* at that level — the `else` branches below are the
+  // explicit "stay" cases that keep a hovering reading from oscillating.
+  if (usage >= criticalAt) {
+    next = ResourcePressureLevel.critical;
+    reason = headroom
+        ? 'System memory headroom is critically thin '
+            '(${_mb(usage)} MB of ${_mb(limit)} MB in use); recovery is prioritised.'
+        : 'Memory use reached ${_pct(usage, limit)} of the budget '
+            '(${_mb(usage)} MB of ${_mb(limit)} MB); recovery is prioritised.';
+    action = PressureAction.stop;
+  } else if (previous == ResourcePressureLevel.critical) {
+    if (usage < ratioOf(criticalAt, settings.criticalHysteresis)) {
+      // Hysteresis: only leave critical once usage has fallen clearly below
+      // the entry threshold, so a hovering reading does not oscillate.
+      next = ResourcePressureLevel.high;
+      reason = headroom
+          ? 'System memory headroom rose above the critical band; pressure remains high.'
+          : 'Memory use fell below the critical band; pressure remains high.';
+      action = PressureAction.pauseAfterGame;
+    } else {
+      // Still in the critical hysteresis band: stay critical.
+      next = ResourcePressureLevel.critical;
+      reason = headroom
+          ? 'System memory headroom remains in the critical band '
+              '(${_mb(usage)} MB of ${_mb(limit)} MB in use).'
+          : 'Memory use remains in the critical band '
+              '(${_pct(usage, limit)} of the budget).';
+      action = PressureAction.stop;
+    }
+  } else if (usage >= highAt) {
+    next = ResourcePressureLevel.high;
+    reason = headroom
+        ? 'System memory headroom is low (${_mb(usage)} MB of ${_mb(limit)} MB in use).'
+        : 'Memory use reached ${_pct(usage, limit)} of the budget '
+            '(${_mb(usage)} MB of ${_mb(limit)} MB).';
+    action = PressureAction.pauseAfterGame;
+  } else if (previous == ResourcePressureLevel.high) {
+    if (usage < ratioOf(highAt, settings.highHysteresis)) {
+      next = ResourcePressureLevel.warning;
+      reason = headroom
+          ? 'System memory headroom rose above the high band; pressure remains elevated.'
+          : 'Memory use fell below the high band; pressure remains elevated.';
+      action = PressureAction.reduceBackground;
+    } else {
+      // Still in the high hysteresis band: stay high.
+      next = ResourcePressureLevel.high;
+      reason = headroom
+          ? 'System memory headroom remains in the high band '
+              '(${_mb(usage)} MB of ${_mb(limit)} MB in use).'
+          : 'Memory use remains in the high band '
+              '(${_pct(usage, limit)} of the budget).';
+      action = PressureAction.pauseAfterGame;
+    }
+  } else if (usage >= warningAt) {
+    next = ResourcePressureLevel.warning;
+    reason = headroom
+        ? 'System memory headroom is reduced (${_mb(usage)} MB of ${_mb(limit)} MB in use).'
+        : 'Memory use reached ${_pct(usage, limit)} of the budget '
+            '(${_mb(usage)} MB of ${_mb(limit)} MB).';
+    action = PressureAction.reduceBackground;
+  } else if (previous == ResourcePressureLevel.warning) {
+    if (usage < ratioOf(warningAt, settings.warningHysteresis)) {
+      next = ResourcePressureLevel.normal;
+      reason = headroom
+          ? 'System memory headroom rose above the warning band; pressure is normal.'
+          : 'Memory use fell below the warning band; pressure is normal.';
+      action = PressureAction.none;
+    } else {
+      // Still in the warning hysteresis band: stay warning.
+      next = ResourcePressureLevel.warning;
+      reason = headroom
+          ? 'System memory headroom remains in the warning band '
+              '(${_mb(usage)} MB of ${_mb(limit)} MB in use).'
+          : 'Memory use remains in the warning band '
+              '(${_pct(usage, limit)} of the budget).';
+      action = PressureAction.reduceBackground;
+    }
+  } else {
+    next = ResourcePressureLevel.normal;
+    reason = headroom
+        ? 'System memory headroom is adequate.'
+        : 'Memory use is within the budget.';
+    action = PressureAction.none;
+  }
+
+  return (next, action, reason);
+}
+
 /// Pure pressure evaluation with hysteresis.
 ///
 /// Given a reading, a budget and the previous level, it returns the next level
 /// and the action to take. The previous level is part of the input so the
 /// hysteresis bands are stable across samples: leaving a level requires the
 /// usage to fall below the entry threshold by the hysteresis fraction.
+///
+/// Two independent signals are combined by taking the *worse* of the two:
+/// the benchmark's RSS against its budget, and the measured system headroom
+/// (memory still available to the OS). The RSS ladder alone can report "normal"
+/// while the OS reports almost no free memory — other processes, page cache or
+/// the kernel can consume the rest — leaving the benchmark as the last
+/// allocation before an OOM kill. A thin headroom is therefore an independent
+/// signal that must be able to escalate on its own.
 PressureDecision evaluatePressure(
   ResourceReading reading,
   MemoryBudget budget,
@@ -932,80 +1092,37 @@ PressureDecision evaluatePressure(
   }
 
   final limit = budget.limitBytes!;
-  final warningAt = limit * settings.warningRatio;
-  final highAt = limit * settings.highRatio;
-  final criticalAt = limit * settings.criticalRatio;
+  final (rssLevel, rssAction, rssReason) =
+      _evaluateLadder(usage, limit, settings, previous);
 
-  double ratioOf(double threshold, double hysteresis) =>
-      threshold * (1 - hysteresis);
+  // Measured system headroom: the memory the OS still has available, evaluated
+  // against total system memory with the same ladder. This is independent of
+  // the benchmark's RSS: a run can sit comfortably below its budget while the
+  // OS reports almost no free memory, so headroom must be able to escalate on
+  // its own. The two signals are combined by taking the worse.
+  final available = reading.availableBytes;
+  final total = reading.totalBytes;
+  ResourcePressureLevel next = rssLevel;
+  PressureAction action = rssAction;
+  String reason = rssReason;
 
-  ResourcePressureLevel next;
-  String reason;
-  PressureAction action;
-
-  // The decision is evaluated top-down: a level is entered when usage reaches
-  // its threshold, and left only when usage falls below the entry threshold by
-  // the hysteresis fraction. A reading that sits in the hysteresis band (above
-  // the exit threshold but below the entry threshold) with the previous level
-  // still active *stays* at that level — the `else` branches below are the
-  // explicit "stay" cases that keep a hovering reading from oscillating.
-  if (usage >= criticalAt) {
-    next = ResourcePressureLevel.critical;
-    reason = 'Memory use reached ${_pct(usage, limit)} of the budget '
-        '(${_mb(usage)} MB of ${_mb(limit)} MB); recovery is prioritised.';
-    action = PressureAction.stop;
-  } else if (previous == ResourcePressureLevel.critical) {
-    if (usage < ratioOf(criticalAt, settings.criticalHysteresis)) {
-      // Hysteresis: only leave critical once usage has fallen clearly below
-      // the entry threshold, so a hovering reading does not oscillate.
-      next = ResourcePressureLevel.high;
-      reason = 'Memory use fell below the critical band; pressure remains high.';
-      action = PressureAction.pauseAfterGame;
-    } else {
-      // Still in the critical hysteresis band: stay critical.
-      next = ResourcePressureLevel.critical;
-      reason = 'Memory use remains in the critical band '
-          '(${_pct(usage, limit)} of the budget).';
-      action = PressureAction.stop;
+  if (available != null && total != null && total > 0) {
+    final headroomUsed = total - available;
+    final (headroomLevel, headroomAction, headroomReason) = _evaluateLadder(
+      headroomUsed,
+      total,
+      settings,
+      previous,
+      headroom: true,
+    );
+    // Take the worse of the two signals. When headroom is at least as severe
+    // as the RSS reading, its level, action and reason win; otherwise the RSS
+    // signal stands.
+    if (headroomLevel.index >= next.index) {
+      next = headroomLevel;
+      action = headroomAction;
+      reason = headroomReason;
     }
-  } else if (usage >= highAt) {
-    next = ResourcePressureLevel.high;
-    reason = 'Memory use reached ${_pct(usage, limit)} of the budget '
-        '(${_mb(usage)} MB of ${_mb(limit)} MB).';
-    action = PressureAction.pauseAfterGame;
-  } else if (previous == ResourcePressureLevel.high) {
-    if (usage < ratioOf(highAt, settings.highHysteresis)) {
-      next = ResourcePressureLevel.warning;
-      reason = 'Memory use fell below the high band; pressure remains elevated.';
-      action = PressureAction.reduceBackground;
-    } else {
-      // Still in the high hysteresis band: stay high.
-      next = ResourcePressureLevel.high;
-      reason = 'Memory use remains in the high band '
-          '(${_pct(usage, limit)} of the budget).';
-      action = PressureAction.pauseAfterGame;
-    }
-  } else if (usage >= warningAt) {
-    next = ResourcePressureLevel.warning;
-    reason = 'Memory use reached ${_pct(usage, limit)} of the budget '
-        '(${_mb(usage)} MB of ${_mb(limit)} MB).';
-    action = PressureAction.reduceBackground;
-  } else if (previous == ResourcePressureLevel.warning) {
-    if (usage < ratioOf(warningAt, settings.warningHysteresis)) {
-      next = ResourcePressureLevel.normal;
-      reason = 'Memory use fell below the warning band; pressure is normal.';
-      action = PressureAction.none;
-    } else {
-      // Still in the warning hysteresis band: stay warning.
-      next = ResourcePressureLevel.warning;
-      reason = 'Memory use remains in the warning band '
-          '(${_pct(usage, limit)} of the budget).';
-      action = PressureAction.reduceBackground;
-    }
-  } else {
-    next = ResourcePressureLevel.normal;
-    reason = 'Memory use is within the budget.';
-    action = PressureAction.none;
   }
 
   return PressureDecision(level: next, action: action, reason: reason, budget: budget);
