@@ -435,8 +435,9 @@ void main() {
       // returns no data for, or the UI presents a control as working when it
       // cannot read anything. Linux is the only host that reads system memory,
       // the process tree, CPU time, power and thermal state; macOS reads
-      // process and system memory but enumerates no tree; Windows reads only
-      // the application's own memory (other processes need FFI).
+      // process and system memory but enumerates no tree; Windows reads its
+      // own application memory and system memory (via Win32 GlobalMemoryStatusEx)
+      // but no other process's memory (that needs FFI).
       final linux = hardwareCapabilitiesFor(HardwarePlatform.linux);
       expect(linux.engineProcessMemory, CapabilityLevel.fullySupported);
       expect(linux.processTreeMemory, CapabilityLevel.partiallySupported);
@@ -454,7 +455,7 @@ void main() {
       final windows = hardwareCapabilitiesFor(HardwarePlatform.windows);
       expect(windows.engineProcessMemory, CapabilityLevel.unavailable);
       expect(windows.processTreeMemory, CapabilityLevel.unavailable);
-      expect(windows.availableSystemMemory, CapabilityLevel.unavailable);
+      expect(windows.availableSystemMemory, CapabilityLevel.fullySupported);
       expect(windows.thermalMonitoring, CapabilityLevel.unavailable);
       expect(windows.batteryMonitoring, CapabilityLevel.unavailable);
 
