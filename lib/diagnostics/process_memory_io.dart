@@ -62,7 +62,7 @@ Duration? readApplicationCpu() {
 /// false 0% CPU while the application is actually busy.
 Duration? _linuxApplicationCpu() {
   final ticks =
-      _parseProcStatCpuTicks(File('/proc/self/stat').readAsStringSync());
+      parseProcStatCpuTicks(File('/proc/self/stat').readAsStringSync());
   if (ticks == null) return null;
   final ticksPerSecond = _linuxClockTicksPerSecond();
   final millis = ((ticks[0] + ticks[1]) * 1000 / ticksPerSecond).toInt();
@@ -82,7 +82,7 @@ Duration? _linuxApplicationCpu() {
 /// every field by one, computing the CPU time from stime + cutime instead of
 /// utime + stime.
 @visibleForTesting
-List<int>? _parseProcStatCpuTicks(String text) {
+List<int>? parseProcStatCpuTicks(String text) {
   final close = text.lastIndexOf(')');
   if (close < 0) return null;
   // Trim before splitting: the substring right after ')' begins with a space,

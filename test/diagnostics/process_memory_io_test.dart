@@ -29,12 +29,12 @@ String _statLine({
 }
 
 void main() {
-  group('_parseProcStatCpuTicks', () {
+  group('parseProcStatCpuTicks', () {
     test('reads utime and stime at the correct field indices', () {
       // Distinct values for cmajflt(8), utime(9), stime(10), cutime(11),
       // cstime(12). The parser must return utime and stime, not stime/cutime
       // (the previous off-by-one) or cmajflt/utime.
-      final ticks = _parseProcStatCpuTicks(_statLine(utime: 100, stime: 200));
+      final ticks = parseProcStatCpuTicks(_statLine(utime: 100, stime: 200));
       expect(ticks, [100, 200]);
     });
 
@@ -42,26 +42,26 @@ void main() {
       // utime=11, stime=22, cutime=33, cstime=44. A one-field shift would
       // return [22, 33] (stime, cutime); a two-field shift [33, 44]. The
       // correct read is [11, 22].
-      final ticks = _parseProcStatCpuTicks(
+      final ticks = parseProcStatCpuTicks(
           _statLine(utime: 11, stime: 22, cutime: 33, cstime: 44));
       expect(ticks, [11, 22]);
     });
 
     test('returns null when there is no closing parenthesis', () {
-      expect(_parseProcStatCpuTicks('1234 no-comm-field S 1 2 3'), isNull);
+      expect(parseProcStatCpuTicks('1234 no-comm-field S 1 2 3'), isNull);
     });
 
     test('returns null when the CPU fields are missing', () {
       // Truncated right after cmajflt (index 8): there are no utime(9)/stime(10)
       // tokens, so the read is unavailable rather than a false zero.
-      expect(_parseProcStatCpuTicks('1234 (p) S 1 2 3 4 5 6 7 8'), isNull);
+      expect(parseProcStatCpuTicks('1234 (p) S 1 2 3 4 5 6 7 8'), isNull);
     });
 
     test('returns null when a CPU field is non-numeric', () {
       // A valid layout but a non-numeric utime token.
       final line =
           '1234 (p) S 1 2 3 4 5 6 7 8 abc 200 99 101 0 0 20 0 1';
-      expect(_parseProcStatCpuTicks(line), isNull);
+      expect(parseProcStatCpuTicks(line), isNull);
     });
   });
 }

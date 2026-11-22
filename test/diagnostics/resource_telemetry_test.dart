@@ -4,6 +4,7 @@
 // must be quoted (with embedded quotes doubled) so it cannot split a row
 // across columns and shift every following field. Before the fix, raw values
 // were written unquoted, so a state string with a comma corrupted the CSV.
+import 'package:crispchess/diagnostics/hardware_protection.dart';
 import 'package:crispchess/diagnostics/resource_telemetry.dart';
 import 'package:flutter_test/flutter_test.dart';
 
