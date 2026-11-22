@@ -17,6 +17,7 @@
 /// figure returns `null` for it, which the model keeps distinct from zero.
 library;
 
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -34,6 +35,58 @@ HardwarePlatform hardwarePlatform() {
   if (Platform.isIOS) return HardwarePlatform.ios;
   if (Platform.isLinux) return HardwarePlatform.linux;
   return HardwarePlatform.unknown;
+}
+
+/// The stdout of [result] as text.
+///
+/// `ProcessResult.stdout` is typed `dynamic` in `dart:io`: with the default
+/// `stdoutEncoding` used by [Process.runSync] it is a [String] already
+/// decoded with the system encoding, and with a `null` encoding it is the
+/// raw bytes as a byte list. There is no `stdoutAsString` getter — this
+/// helper normalizes both shapes to text without guessing, decoding bytes
+/// leniently so malformed output degrades to a parse failure (unavailable)
+/// rather than an exception.
+@visibleForTesting
+String stdoutText(ProcessResult result) {
+  final out = result.stdout;
+  if (out is String) return out;
+  if (out is List<int>) return utf8.decode(out, allowMalformed: true);
+  return out?.toString() ?? '';
+}
+
+/// The positive integer a completed command reported on stdout, or
+/// [fallback] when the command failed (non-zero exit), printed something
+/// that is not an integer, or printed a non-positive figure.
+///
+/// A non-positive figure is never returned: a zero page size would turn
+/// every resident size into zero, and a zero tick rate would make the
+/// tick→millisecond conversion divide by zero (yielding Infinity, which
+/// `.toInt()` rejects with a RangeError and would crash the CPU sampler) —
+/// both fall back to the documented defaults instead.
+@visibleForTesting
+int positiveIntFromResult(ProcessResult result, {required int fallback}) {
+  if (result.exitCode != 0) return fallback;
+  final value = int.tryParse(stdoutText(result).trim());
+  if (value == null || value <= 0) return fallback;
+  return value;
+}
+
+/// Runs [executable] and returns the positive integer it reports on stdout,
+/// or [fallback] when the command cannot be started (a missing binary — the
+/// `getconf` readers' "unavailable" path — surfaces as an exception rather
+/// than an exit code) or reports anything else.
+@visibleForTesting
+int runPositiveIntCommand(
+  String executable,
+  List<String> arguments, {
+  required int fallback,
+}) {
+  try {
+    final result = Process.runSync(executable, arguments);
+    return positiveIntFromResult(result, fallback: fallback);
+  } catch (_) {
+    return fallback;
+  }
 }
 
 /// The application process's cumulative CPU time, for the sampling window's
@@ -105,16 +158,7 @@ int? _clkTckCache;
 int _linuxPageSize() {
   final cached = _pageSizeCache;
   if (cached != null) return cached;
-  int size;
-  try {
-    final result = Process.runSync('getconf', ['PAGE_SIZE']);
-    size = int.tryParse(result.stdoutAsString.trim()) ?? 4096;
-  } catch (_) {
-    size = 4096;
-  }
-  // A pathological 0 from a misconfigured host would turn every page count
-  // into a zero resident size; fall back to the standard 4096.
-  if (size <= 0) size = 4096;
+  final size = runPositiveIntCommand('getconf', ['PAGE_SIZE'], fallback: 4096);
   _pageSizeCache = size;
   return size;
 }
@@ -124,17 +168,7 @@ int _linuxPageSize() {
 int _linuxClockTicksPerSecond() {
   final cached = _clkTckCache;
   if (cached != null) return cached;
-  int ticks;
-  try {
-    final result = Process.runSync('getconf', ['CLK_TCK']);
-    ticks = int.tryParse(result.stdoutAsString.trim()) ?? 100;
-  } catch (_) {
-    ticks = 100;
-  }
-  // A pathological 0 would make the tick→millisecond conversion divide by
-  // zero (yielding Infinity, which `.toInt()` rejects with a RangeError and
-  // would crash the CPU sampler). Fall back to the near-universal 100.
-  if (ticks <= 0) ticks = 100;
+  final ticks = runPositiveIntCommand('getconf', ['CLK_TCK'], fallback: 100);
   _clkTckCache = ticks;
   return ticks;
 }
@@ -188,11 +222,20 @@ SystemMemorySample _linuxSystemMemory() {
   );
 }
 
+/// The [SystemMemorySample] for a completed `sysctl -n hw.memsize` reading.
+/// A non-zero exit or unparseable output leaves
+/// [SystemMemorySample.totalBytes] null (unavailable) — never zero — so
+/// callers can tell "not measured" from a measured zero.
+@visibleForTesting
+SystemMemorySample parseSysctlMemorySample(ProcessResult result) {
+  if (result.exitCode != 0) return const SystemMemorySample();
+  final totalBytes = int.tryParse(stdoutText(result).trim());
+  return SystemMemorySample(totalBytes: totalBytes);
+}
+
 SystemMemorySample _macosSystemMemory() {
   final result = Process.runSync('sysctl', ['-n', 'hw.memsize']);
-  if (result.exitCode != 0) return const SystemMemorySample();
-  final totalBytes = int.tryParse(result.stdoutAsString.trim());
-  return SystemMemorySample(totalBytes: totalBytes);
+  return parseSysctlMemorySample(result);
 }
 
 /// Win32 `MEMORYSTATUSEX` layout. The two `DWORD` fields are 4 bytes each and
@@ -292,12 +335,20 @@ ProcessMemorySample _linuxProcessMemory(int pid) {
   );
 }
 
-ProcessMemorySample _macosProcessMemory(int pid) {
-  final result = Process.runSync('ps', ['-o', 'rss=', '-p', '$pid']);
+/// The [ProcessMemorySample] for a completed `ps -o rss= -p <pid>` reading.
+/// A non-zero exit or unparseable output leaves rss null (unavailable),
+/// never zero, so callers can tell "gone / unmeasured" from a measured zero.
+@visibleForTesting
+ProcessMemorySample parsePsMemorySample(int pid, ProcessResult result) {
   if (result.exitCode != 0) return ProcessMemorySample(pid: pid);
-  final kb = int.tryParse(result.stdoutAsString.trim());
+  final kb = int.tryParse(stdoutText(result).trim());
   if (kb == null) return ProcessMemorySample(pid: pid);
   return ProcessMemorySample(pid: pid, rssBytes: kb * 1024);
+}
+
+ProcessMemorySample _macosProcessMemory(int pid) {
+  final result = Process.runSync('ps', ['-o', 'rss=', '-p', '$pid']);
+  return parsePsMemorySample(pid, result);
 }
 
 /// Every parent→children mapping the host can enumerate, in a single pass over
