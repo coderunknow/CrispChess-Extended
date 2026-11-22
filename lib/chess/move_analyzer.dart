@@ -248,7 +248,14 @@ class MoveAnalyzer {
   bool _isCapture(chess.Chess board, String from, String to) {
     final toSquare = chess.Chess.SQUARES[to];
     if (toSquare == null) return false;
-    return board.get(to) != null;
+    final attacker = board.get(from);
+    final defender = board.get(to);
+    // A move only counts as a capture when it takes an opponent's piece. In
+    // Chess960 castling the king's move ends on the friendly rook's square, so
+    // counting any occupied destination as a capture would mislabel castling
+    // as a material-taking move.
+    if (attacker == null || defender == null) return false;
+    return attacker.color != defender.color;
   }
 
   double _getMaterialDifference(chess.Chess board, String from, String to) {

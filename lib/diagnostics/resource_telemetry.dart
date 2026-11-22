@@ -150,6 +150,12 @@ class ResourceTelemetryLog {
 
   void add(ResourceTelemetryRecord record) {
     records.add(record);
+    // A non-positive limit is invalid (a persisted `-1` reaches here through
+    // the settings). Never trim on it: `records.length > -1` is always true and
+    // would drain the list and then throw removing from an empty list. Only
+    // trim against a positive cap; a zero or negative limit leaves the log
+    // unbounded rather than crashing the sampler.
+    if (maxRecords <= 0) return;
     while (records.length > maxRecords) {
       records.removeAt(0);
     }

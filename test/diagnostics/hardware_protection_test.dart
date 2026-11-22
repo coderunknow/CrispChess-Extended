@@ -519,6 +519,25 @@ void main() {
       expect(decision.action, PressureAction.none);
     });
 
+    test('an unusable budget stays calm even when headroom is thin', () {
+      // The budget is the master switch: with no usable limit the headroom
+      // ladder must not escalate on its own, otherwise a run with no configured
+      // budget would still be stopped by a thin system-headroom reading.
+      final decision = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: 500 * mb,
+          availableBytes: 50 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        const MemoryBudget(source: 'none'),
+        _settings(),
+      );
+      expect(decision.level, ResourcePressureLevel.normal);
+      expect(decision.action, PressureAction.none);
+      expect(decision.headroomLevel, isNull);
+    });
+
     test('thin system headroom escalates even when RSS is below the budget', () {
       // Regression: the RSS ladder alone reported "normal" while the OS
       // reported almost no free memory — the benchmark could be the last

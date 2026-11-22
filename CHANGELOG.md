@@ -27,8 +27,9 @@
   resource-constrained result as equivalent to an unconstrained one.
 - **Engine lifecycle.** All selected engines stay resident for the whole run
   (no arbitrary two-engine limit, no silent unload); every engine process is
-  disposed at the end, on stop, on pause/cancel and on error, so no orphans
-  remain.
+  disposed at the end, on stop, on cancel and on error, so no orphans remain.
+  (A pressure pause keeps the engines resident; disposal happens during run
+  cleanup when the run actually ends.)
 - **Checkpoints after every game.** The runner now checkpoints after each
   completed game (not every ten) on a safe boundary, and on pause, cancel,
   error and finish. Writes are asynchronous and atomic; older result documents

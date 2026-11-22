@@ -60,6 +60,30 @@ void main() {
       expect(registry.count, isZero);
     });
 
+    test('the active owner tags registrations and removeOwnedBy clears only them',
+        () {
+      final registry = ManagedProcessRegistry();
+      // An engine owned by another component, registered outside the run's
+      // ownership window.
+      registry.register(111, label: 'other engine');
+      // The run sets its ownership token before starting engines.
+      registry.setActiveOwner('run-1');
+      registry.register(222, label: 'run engine A');
+      registry.register(333, label: 'run engine B');
+      // A registration made with an explicit different owner is preserved.
+      registry.register(444, label: 'explicit owner', owner: 'other');
+      expect(registry.count, isEqualTo(4));
+
+      registry.removeOwnedBy('run-1');
+
+      // Only the run-1 owned processes are gone; the other engine and the
+      // explicit-owner entry survive.
+      expect(registry.contains(222), isFalse);
+      expect(registry.contains(333), isFalse);
+      expect(registry.contains(111), isTrue);
+      expect(registry.contains(444), isTrue);
+    });
+
     test('a run preserves pre-run registrations owned by other engines',
         () async {
       // A process registered by another live component (preflight, the game

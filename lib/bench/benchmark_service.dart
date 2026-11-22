@@ -403,6 +403,11 @@ class BenchmarkService {
     } finally { _creatingRunner = false; }
   }
 
+  /// Monotonic counter for per-run ownership tokens, so each run tags the
+  /// processes it starts with a unique owner and never removes another run's
+  /// registrations.
+  static int _runOwnerCounter = 0;
+
   /// Runs [runner] to completion, saving it, and releases the "running" flag.
   Future<BenchmarkRun> runWithRunner(BenchmarkRunner runner) async {
     // createRunner awaits profile/fingerprint IO, so two callers may both
@@ -412,11 +417,16 @@ class BenchmarkService {
     // and stopping engines; a run must not overlap it.
     if (_preflighting) throw StateError('Engine Preflight is still running.');
     _active = runner;
-    // Snapshot the processes already registered before this run so the
-    // cleanup below removes only the run's own processes and leaves entries
-    // owned by other live engines (a concurrent preflight, the game screen,
-    // another run) untouched.
-    final preRunPids = managedProcessRegistry.snapshotPids();
+    // Per-run ownership: tag the processes this run starts with a unique
+    // token so the end-of-run cleanup removes exactly the PIDs the RUN
+    // registered. A process-global snapshot-and-sweep (removeNotIn) would
+    // also drop registrations made by OTHER components during the run — a
+    // concurrent preflight, the game screen, an identity probe — charging a
+    // later run their memory. Setting the active owner before the run makes
+    // the runner's engine registrations carry this token; entries owned by
+    // other live engines keep their own (or no) owner and survive.
+    final runOwner = 'bench-run-${_runOwnerCounter++}';
+    managedProcessRegistry.setActiveOwner(runOwner);
     // Diagnostics (dev6): a background run keeps engine processes busy after
     // the screen that started it is gone; the log must say so.
     DiagCounters.benchmarksStarted++;
@@ -441,10 +451,10 @@ class BenchmarkService {
       // The runner's disposal unregisters each engine process it watched, but a
       // process registered outside the runner's watch (or one whose handle was
       // lost) would otherwise stay in the process-global registry and be
-      // charged to the next run. Remove only the PIDs registered during this
-      // run (those not in the pre-run snapshot); pre-existing entries belong
-      // to other live engines and must be preserved.
-      managedProcessRegistry.removeNotIn(preRunPids);
+      // charged to the next run. Remove exactly the processes this run owned,
+      // leaving registrations owned by other components untouched.
+      managedProcessRegistry.removeOwnedBy(runOwner);
+      managedProcessRegistry.setActiveOwner(null);
     }
   }
 

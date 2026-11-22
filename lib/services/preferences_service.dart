@@ -423,7 +423,14 @@ class PreferencesService {
   bool get telemetryEnabled => _prefs?.getBool(_keyHpTelemetryEnabled) ?? true;
   set telemetryEnabled(bool v) => _prefs?.setBool(_keyHpTelemetryEnabled, v);
 
-  int get telemetryMaxRecords => _prefs?.getInt(_keyHpTelemetryMax) ?? 2000;
+  int get telemetryMaxRecords {
+    // A persisted value of 0 or a negative number is invalid: the telemetry
+    // log would trim against it (a negative limit drains the list and throws
+    // removing from an empty list). Fall back to the default for any value
+    // that is not a positive integer, preserving valid positive limits.
+    final value = _prefs?.getInt(_keyHpTelemetryMax);
+    return (value != null && value > 0) ? value : 2000;
+  }
   set telemetryMaxRecords(int v) => _prefs?.setInt(_keyHpTelemetryMax, v);
 
   int get checkpointEveryGame => _prefs?.getInt(_keyHpCheckpointEvery) ?? 1;

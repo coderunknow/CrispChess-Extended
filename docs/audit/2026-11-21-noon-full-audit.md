@@ -85,9 +85,15 @@ Check-run conclusions across the branch (`Build iOS` / `iOS`):
 
 The failures predate every change in this audit (they were already failing
 on b486d83 through b4a589b and on 5e8fcd3), then passed on seven consecutive
-commits, then failed again. This flake is correlated with windows of macOS
-arm64 runner contention, not with the code: the changes here are pure Dart,
-which compiles identically on every platform, and Linux/macOS/Android/Web
-all build; the same-commit `Frozenight (iOS)` job (a Rust build, lighter
-load) passes every time. No code change can fix a runner-capacity flake —
-the next run after capacity frees up is expected to pass.
+commits, then failed again. The failed iOS logs for this PR state show a
+CocoaPods dependency-download failure, not a compile error: `pod install`
+fails while downloading `onnxruntime-c (1.15.1)` from
+`onnxruntimepackages.z14.web.core.windows.net/pod-archive-onnxruntime-c-1.15.1.zip`,
+which returns HTTP 404 (even with `--retry 2`), and `pod install` exits with
+code 1. The changes here are pure Dart, which compiles identically on every
+platform, and Linux/macOS/Android/Web all build; the same-commit
+`Frozenight (iOS)` job (a Rust build, lighter load) passes every time. The
+root cause is the pinned `onnxruntime` CocoaPods dependency being unavailable
+at its archived URL, not runner capacity — a rerun is not expected to pass
+until the dependency is resolved (this audit's follow-up bumps the pinned
+version and patches the Podfile hook; see the iOS onnxruntime fix).

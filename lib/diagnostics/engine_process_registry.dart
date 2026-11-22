@@ -19,10 +19,17 @@ class ManagedProcess {
   final String label;
   final DateTime startedAt;
 
+  /// The run (or component) that owns this process registration, or `null`
+  /// when it was registered outside any run's ownership window. Lets a run's
+  /// cleanup remove only the processes *that run* registered, without
+  /// discarding registrations owned by other live engines.
+  final String? owner;
+
   const ManagedProcess({
     required this.pid,
     required this.label,
     required this.startedAt,
+    this.owner,
   });
 
   Map<String, dynamic> toJson() => {
@@ -36,14 +43,29 @@ class ManagedProcess {
 class ManagedProcessRegistry {
   final Map<int, ManagedProcess> _processes = {};
 
+  /// The owner tag applied to registrations made while [activeOwner] is set.
+  /// A run sets this to its unique token before it starts engines, so the
+  /// engines it spawns are tagged with that token; registrations made outside
+  /// the window (other live engines, the game screen) keep their own or no
+  /// owner and are preserved by a run's [removeOwnedBy] cleanup.
+  String? _activeOwner;
+
+  /// Sets the owner tag applied to subsequent [register] calls. Pass `null` to
+  /// clear it. Not concurrency-safe by design: a benchmark run serializes its
+  /// engine starts, and the token is scoped to a single run.
+  void setActiveOwner(String? owner) => _activeOwner = owner;
+
   /// Registers [pid] as a managed engine process. Re-registering the same pid
-  /// refreshes its label rather than adding a second entry.
-  void register(int pid, {required String label}) {
+  /// refreshes its label rather than adding a second entry. [owner] defaults
+  /// to the currently active owner (see [setActiveOwner]); pass an explicit
+  /// owner to tag a registration outside the active window.
+  void register(int pid, {required String label, String? owner}) {
     if (pid <= 0) return;
     _processes[pid] = ManagedProcess(
       pid: pid,
       label: label,
       startedAt: _processes[pid]?.startedAt ?? DateTime.now(),
+      owner: owner ?? _activeOwner,
     );
   }
 
@@ -77,6 +99,15 @@ class ManagedProcessRegistry {
   /// registrations.
   void removeNotIn(Set<int> baseline) {
     _processes.removeWhere((pid, _) => !baseline.contains(pid));
+  }
+
+  /// Removes every registration owned by [owner], leaving registrations owned
+  /// by other runs or components untouched. This is the precise per-run
+  /// cleanup: a run tags the processes it starts with its unique token and
+  /// removes exactly those at the end, so a process registered by another
+  /// live engine during the run is never discarded.
+  void removeOwnedBy(String owner) {
+    _processes.removeWhere((_, process) => process.owner == owner);
   }
 
   Map<String, dynamic> snapshotJson() => {
