@@ -75,12 +75,13 @@ Duration? _linuxApplicationCpu() {
 ///
 /// Split out from [_linuxApplicationCpu] so the field indexing can be tested
 /// with a fixture without touching the real `/proc`. After the `comm` field
-/// (the last `)`) the 0-based tokens are state(0) ppid(1) ... cmajflt(8)
-/// utime(9) stime(10): utime is field 12 and stime field 13 of /proc, and
-/// after dropping pid(1) and comm(2) the 0-based index is fieldNumber - 3.
-/// Reading utime at index 10 and stime at 11 (the previous values) shifted
-/// every field by one, computing the CPU time from stime + cutime instead of
-/// utime + stime.
+/// (the last `)`) the 0-based tokens are state(0) ppid(1) pgrp(2) session(3)
+/// tty_nr(4) tpgid(5) flags(6) minflt(7) cminflt(8) majflt(9) cmajflt(10)
+/// utime(11) stime(12) cutime(13) cstime(14) ... : utime is field 14 and
+/// stime field 15 of /proc, and after dropping pid(1) and comm(2) the 0-based
+/// index is fieldNumber - 3. All four fault counters (minflt, cminflt, majflt,
+/// cmajflt) sit before utime, so reading utime/stime too early (e.g. at indices
+/// 9/10) would compute CPU time from fault counters instead of CPU ticks.
 @visibleForTesting
 List<int>? parseProcStatCpuTicks(String text) {
   final close = text.lastIndexOf(')');
@@ -89,8 +90,8 @@ List<int>? parseProcStatCpuTicks(String text) {
   // and a split that keeps a leading empty token shifts every index by one,
   // reading the wrong fields.
   final rest = text.substring(close + 1).trim().split(RegExp(r'\s+'));
-  final utime = int.tryParse(rest.length > 9 ? rest[9] : '');
-  final stime = int.tryParse(rest.length > 10 ? rest[10] : '');
+  final utime = int.tryParse(rest.length > 11 ? rest[11] : '');
+  final stime = int.tryParse(rest.length > 12 ? rest[12] : '');
   if (utime == null || stime == null) return null;
   return [utime, stime];
 }

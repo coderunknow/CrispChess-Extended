@@ -205,7 +205,19 @@ class BenchmarkStore {
             if (existing.id != run.id) existing,
         ]..sort((a, b) => b.startedAt.compareTo(a.startedAt));
         await _writeIndex(merged);
-        await _rememberIdentities(run.engines);
+        // Only engines the run actually measured belong in the identity
+        // baseline. A run stopped by resource pressure before any engine
+        // starts still lists every selected engine in `run.engines`, but those
+        // engines never played; recording them would make the next add check
+        // treat the binary as already benchmarked and skip a real re-measure.
+        // Keep the (diagnostic) run in history; baseline only measured ones.
+        final measured = run.engines
+            .where((engine) {
+              final status = run.engineStatus[engine.engineId];
+              return status != null && !status.isFailure;
+            })
+            .toList();
+        await _rememberIdentities(measured);
       }
 
   /// The run document as it is stored, including schema and checksum.

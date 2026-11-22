@@ -578,12 +578,12 @@ class BenchmarkRunner {
       while (scheduleIndex < _schedule.length) {
         final planned = _schedule[scheduleIndex++];
         if (_cancelled) {
-          _stopReason = 'cancelled';
+          if (_stopReason == 'completed') _stopReason = 'cancelled';
           break;
         }
         await _awaitResume();
         if (_cancelled) {
-          _stopReason = 'cancelled';
+          if (_stopReason == 'completed') _stopReason = 'cancelled';
           break;
         }
         if (_deadlinePassed(clock, config.maxDuration)) {
@@ -692,7 +692,7 @@ class BenchmarkRunner {
         ));
 
         if (playedGame.outcome == GameOutcome.cancelled) {
-          _stopReason = 'cancelled';
+          if (_stopReason == 'completed') _stopReason = 'cancelled';
           break;
         }
         if (_timeCapReached) {
@@ -750,8 +750,11 @@ class BenchmarkRunner {
       try {
         await onProgressSave!(run);
       } catch (error) {
+        // The store call threw, but the document may or may not have been
+        // written. Keep the full (telemetry-inclusive) report for the caller
+        // and the finished event: dropping the hardware telemetry here would
+        // hide the very data needed to diagnose a failed save.
         _warnings.add('The finished run could not be stored: $error');
-        run = _buildRun();
       }
     }
     if (!_events.isClosed) _events.add(BenchmarkFinishedEvent(run));
@@ -776,7 +779,10 @@ class BenchmarkRunner {
     // it would race the final (inProgress: false) write and could overwrite
     // the finished run with a stale in-progress snapshot. Checkpoints already
     // enqueued before finalization are unaffected.
-    if (_finalizing) return;
+    // Also skip when no save callback was supplied: the pause/cancel paths
+    // call this unconditionally, and a missing callback must not add a false
+    // "partial save failed" warning (matches _flushCheckpoint's guard).
+    if (_finalizing || onProgressSave == null) return;
     try {
       await onProgressSave!(_buildRun(inProgress: true));
     } catch (error) {
