@@ -63,6 +63,10 @@ jobs:
       # 2. Build Flutter web (WASM Dart)
       - uses: subosito/flutter-action@v2
         with:
+          # Pin the same SDK ci.yml builds and tests with, so the deployed
+          # bundle is produced by a toolchain CI has actually validated
+          # instead of whatever `stable` resolves to on deploy day.
+          flutter-version: '3.44.2'
           channel: stable
           cache: true
 
@@ -188,5 +192,17 @@ jobs:
 
       - name: Deploy to Vercel
         if: github.ref == 'refs/heads/main'
-        run: vercel deploy --prod --yes --token="${{ secrets.VERCEL_TOKEN }}"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          # An empty secret reaches the CLI as `--token=""` and fails with a
+          # cryptic "--token" error only after the full build. Fail fast and
+          # name the missing secret instead. The step (and the job) still
+          # fail in that case — this never reports success without a deploy —
+          # and the GitHub Pages publish above is unaffected.
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN repository secret is empty or not configured, so the Vercel deploy cannot run. Set it under Settings -> Secrets and variables -> Actions (and verify VERCEL_ORG_ID and VERCEL_PROJECT_ID while there)."
+            exit 1
+          fi
+          vercel deploy --prod --yes --token="$VERCEL_TOKEN"
         working-directory: build/web

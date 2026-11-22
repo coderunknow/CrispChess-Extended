@@ -54,6 +54,10 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # Same SDK the CI and release gates run on (see ci.yml), so these
+          # diagnostics mirror those gates instead of drifting with
+          # whatever `stable` resolves to.
+          flutter-version: '3.44.2'
           channel: stable
           cache: true
 
