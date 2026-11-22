@@ -12,6 +12,7 @@
 library;
 
 import 'package:crispchess/bench/benchmark_environment.dart';
+import 'package:crispchess/bench/benchmark_plan.dart';
 import 'package:crispchess/bench/benchmark_runner.dart';
 import 'package:crispchess/bench/benchmark_service.dart';
 import 'package:crispchess/bench/benchmark_storage_base.dart';
