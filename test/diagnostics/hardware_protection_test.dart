@@ -509,7 +509,7 @@ void main() {
         _budget(1000), _settings());
       expect(decision.level, ResourcePressureLevel.normal);
       expect(decision.action, PressureAction.none);
-      expect(decision.reason, contains('No usable memory reading'));
+      expect(decision.reason, contains('No usable RSS reading'));
     });
 
     test('an unusable budget is calm', () {
@@ -661,8 +661,13 @@ void main() {
       // headroom had cleared its own band. With separate histories each ladder
       // only holds its own band.
       //
-      // RSS is critical (960/1000) but headroom is healthy (900/1000
-      // available). Feed RSS's critical forward as the RSS history.
+      // RSS is critical (960/1000) with a critical RSS history, so it stays
+      // critical. Headroom is healthy (100/1000 in use = 900 free) with a
+      // *normal* headroom history, so it stays normal. The combined decision
+      // is the worse (critical), but headroomLevel is normal — proof the
+      // headroom ladder used its own history, not the RSS critical level.
+      // With a shared history the headroom ladder would have been handed the
+      // RSS critical level and dropped to high (one-level hysteresis) instead.
       final combined = evaluatePressure(
         ResourceReading(
           timestamp: DateTime.now(),
@@ -673,12 +678,8 @@ void main() {
         _budget(1000),
         _settings(),
         previousRss: ResourcePressureLevel.critical,
-        previousHeadroom: ResourcePressureLevel.critical,
+        previousHeadroom: ResourcePressureLevel.normal,
       );
-      // RSS is still critical; headroom has cleared to normal. The combined
-      // decision is the worse of the two (critical), but headroomLevel is
-      // normal — proof the headroom ladder used its own history, not the RSS
-      // critical level.
       expect(combined.rssLevel, ResourcePressureLevel.critical);
       expect(combined.headroomLevel, ResourcePressureLevel.normal);
       expect(combined.level, ResourcePressureLevel.critical);
