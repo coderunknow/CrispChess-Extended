@@ -22,7 +22,7 @@ import 'dart:math' as math;
 import '../diagnostics/hardware_protection.dart'
     show PressureAction, ResourcePressureLevel;
 import '../diagnostics/hardware_protection_service.dart'
-    show HardwarePressureSample, HardwareProtectionRuntime;
+    show HardwarePressureSample, HardwareProtectionRuntime, PressureUserDecision;
 import '../engines/chess_engine.dart';
 import '../engines/engine_initialization.dart';
 import '../engines/search_telemetry.dart';
@@ -355,6 +355,12 @@ class BenchmarkRunner {
 
   void resume() {
     if (!_paused) return;
+    // Record the user's decision to continue past a pressure pause, so the
+    // diagnostic report captures it (the pause was requested by resource
+    // pressure, so resuming is an explicit "continue anyway" decision).
+    if (_pressurePauseRequested) {
+      _hardware?.recordUserDecision(PressureUserDecision.continueAnyway);
+    }
     _paused = false;
     _pressurePauseRequested = false;
     _pressurePauseStartedAt = null;
@@ -369,6 +375,8 @@ class BenchmarkRunner {
     if (!_stopSignal.isCompleted) _stopSignal.complete();
     _deadlineTimer?.cancel();
     _deadlineTimer = null;
+    // Cancelling is an explicit stop decision; record it for the report.
+    _hardware?.recordUserDecision(PressureUserDecision.stop);
     resume();
     // dev7: cancellation is a safe boundary — persist what completed first.
     unawaited(_saveProgress());
