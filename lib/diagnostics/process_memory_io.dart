@@ -108,7 +108,7 @@ int _linuxPageSize() {
   int size;
   try {
     final result = Process.runSync('getconf', ['PAGE_SIZE']);
-    size = int.tryParse(String.fromCharCodes(result.stdout).trim()) ?? 4096;
+    size = int.tryParse(result.stdoutAsString.trim()) ?? 4096;
   } catch (_) {
     size = 4096;
   }
@@ -127,7 +127,7 @@ int _linuxClockTicksPerSecond() {
   int ticks;
   try {
     final result = Process.runSync('getconf', ['CLK_TCK']);
-    ticks = int.tryParse(String.fromCharCodes(result.stdout).trim()) ?? 100;
+    ticks = int.tryParse(result.stdoutAsString.trim()) ?? 100;
   } catch (_) {
     ticks = 100;
   }
@@ -191,7 +191,7 @@ SystemMemorySample _linuxSystemMemory() {
 SystemMemorySample _macosSystemMemory() {
   final result = Process.runSync('sysctl', ['-n', 'hw.memsize']);
   if (result.exitCode != 0) return const SystemMemorySample();
-  final totalBytes = int.tryParse(String.fromCharCodes(result.stdout).trim());
+  final totalBytes = int.tryParse(result.stdoutAsString.trim());
   return SystemMemorySample(totalBytes: totalBytes);
 }
 
@@ -295,7 +295,7 @@ ProcessMemorySample _linuxProcessMemory(int pid) {
 ProcessMemorySample _macosProcessMemory(int pid) {
   final result = Process.runSync('ps', ['-o', 'rss=', '-p', '$pid']);
   if (result.exitCode != 0) return ProcessMemorySample(pid: pid);
-  final kb = int.tryParse(String.fromCharCodes(result.stdout).trim());
+  final kb = int.tryParse(result.stdoutAsString.trim());
   if (kb == null) return ProcessMemorySample(pid: pid);
   return ProcessMemorySample(pid: pid, rssBytes: kb * 1024);
 }
