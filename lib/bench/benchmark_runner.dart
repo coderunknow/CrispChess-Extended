@@ -20,9 +20,9 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import '../diagnostics/hardware_protection.dart'
-    show PressureAction, ResourcePressureLevel;
+    show PressureAction, PressureUserDecision, ResourcePressureLevel;
 import '../diagnostics/hardware_protection_service.dart'
-    show HardwarePressureSample, HardwareProtectionRuntime, PressureUserDecision;
+    show HardwarePressureSample, HardwareProtectionRuntime;
 import '../engines/chess_engine.dart';
 import '../engines/engine_initialization.dart';
 import '../engines/search_telemetry.dart';
