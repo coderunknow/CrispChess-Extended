@@ -20,7 +20,7 @@ import 'package:crispchess/diagnostics/engine_process_registry.dart';
 import 'package:crispchess/services/engine_profile_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'support/bench_harness.dart';
+import '../support/bench_harness.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
