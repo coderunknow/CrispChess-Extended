@@ -264,6 +264,14 @@ class BenchmarkRunner {
   // a fire-and-forget checkpoint save enqueued during the run loop could land
   // after the final save and clobber the finished run with a stale partial.
   bool _finalizing = false;
+  // Checkpoint-save coalescing. A fire-and-forget checkpoint per game can
+  // queue many full BenchmarkRun snapshots when storage writes are slower
+  // than games; each snapshot copies the growing game list and the store
+  // retains each until its write completes. Bound the queue: while a save is
+  // in flight, mark a new save as needed and run it once the in-flight one
+  // finishes, instead of stacking unbounded snapshots.
+  bool _saveInFlight = false;
+  bool _saveDirty = false;
   final Completer<void> _stopSignal = Completer<void>();
 
   Future<T> _untilStopped<T>(Future<T> operation) => Future.any<T>([
@@ -601,6 +609,25 @@ class BenchmarkRunner {
         // starting another game — `_checkPressureBoundary()` is the only place
         // that turns a stop decision into a break.
         if (_checkPressureBoundary()) break;
+        // The second boundary check can itself trigger a fresh pause: pressure
+        // fell and rose again while we were paused, clearing the acknowledged
+        // level, so `_checkPressureBoundary()` pauses again. Wait for that
+        // pause before starting a game, then re-check for a stop — otherwise
+        // a game would begin while the run is supposed to be paused.
+        if (_pressurePauseRequested) await _awaitResume();
+        if (_checkPressureBoundary()) break;
+        // The pause wait can also end because the run was cancelled or hit its
+        // time cap while paused. Re-check both before starting a game: a cancel
+        // that landed during the pause must not let another game begin, and a
+        // deadline that passed while paused must not be overrun.
+        if (_cancelled) {
+          if (_stopReason == 'completed') _stopReason = 'cancelled';
+          break;
+        }
+        if (_deadlinePassed(clock, config.maxDuration)) {
+          _stopReason = 'time cap';
+          break;
+        }
         final white = _live[planned.whiteId];
         final black = _live[planned.blackId];
         if (white == null || black == null) {
@@ -783,10 +810,25 @@ class BenchmarkRunner {
     // call this unconditionally, and a missing callback must not add a false
     // "partial save failed" warning (matches _flushCheckpoint's guard).
     if (_finalizing || onProgressSave == null) return;
+    // Coalesce: if a checkpoint save is already in flight, don't stack another
+    // full snapshot. Remember that a newer state needs saving and run one more
+    // save when the in-flight one completes, so at most one save is ever
+    // queued behind the one running.
+    if (_saveInFlight) {
+      _saveDirty = true;
+      return;
+    }
+    _saveInFlight = true;
     try {
       await onProgressSave!(_buildRun(inProgress: true));
     } catch (error) {
       _warnings.add('A partial save failed: $error');
+    } finally {
+      _saveInFlight = false;
+      if (_saveDirty) {
+        _saveDirty = false;
+        unawaited(_saveProgress());
+      }
     }
   }
 
