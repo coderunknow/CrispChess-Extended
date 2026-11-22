@@ -84,14 +84,16 @@ void main() {
 
     test('checkmate evaluates to large negative', () {
       final game = chess.Chess();
-      // Fool's mate position: white is checkmated
-      game.load('rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 0 1');
-      // Actually need to verify checkmate. Let's use a known checkmate FEN
+      // Fool's mate: black's queen on h4 checks the white king on e1 along
+      // the h4-g3-f2-e1 diagonal. The king cannot move (own queen on d1,
+      // bishop on f1, pawns on e2/d2), no piece can block, and nothing
+      // attacks h4 — so white is checkmated.
       game.load('rnb1kbnr/pppp1ppp/4p3/8/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 0 1');
-      if (game.in_checkmate) {
-        final score = evaluate(game);
-        expect(score, lessThan(-90000));
-      }
+      expect(game.in_checkmate, isTrue,
+          reason: 'the loaded FEN must be a real checkmate for this test to '
+              'mean anything — assert it so the test cannot pass silently');
+      final score = evaluate(game);
+      expect(score, lessThan(-90000));
     });
 
     test('material values are positive', () {

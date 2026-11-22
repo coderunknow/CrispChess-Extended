@@ -13,6 +13,8 @@ import 'package:flutter/foundation.dart'
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../diagnostics/app_logger.dart';
+import '../diagnostics/engine_process_registry.dart' show managedProcessRegistry;
+import '../diagnostics/hardware_protection_service.dart' show HardwareProtectionRuntime;
 import '../diagnostics/resource_sampler.dart';
 import '../engines/chess_engine.dart' show ChessEngine;
 import '../engines/engine_initialization.dart' show RuntimeDigestSource;
@@ -20,6 +22,7 @@ import '../engines/engine_registry.dart';
 import '../engines/frozenight_engine.dart' if (dart.library.js_interop) '../engines/frozenight_web_engine.dart';
 import '../engines/generic_uci_engine_stub.dart' show EngineProfile;
 import '../services/engine_profile_store.dart';
+import '../services/preferences_service.dart' show PreferencesService;
 import 'benchmark_config.dart';
 import 'benchmark_environment.dart';
 import 'benchmark_plan.dart';
@@ -311,6 +314,7 @@ class BenchmarkService {
     List<RatingAnchor> anchors = const [],
     String? trigger,
     bool requirePreflight = false,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     if (_active != null || _creatingRunner) {
       throw StateError('A benchmark is already running or being prepared.');
@@ -388,10 +392,21 @@ class BenchmarkService {
       // already played, marked as a partial run rather than as a finished one.
       onProgressSave: store.saveRun,
       validationWarnings: [...validation.warnings, ...unavailable],
+      // Honour the user's checkpoint cadence: the Hardware Protection setting
+      // `checkpointEveryGame` decides how many completed games are buffered
+      // before a checkpoint write. Without this the runner hardcoded 1 and the
+      // setting had no effect.
+      partialSaveInterval: hardwareProtection?.settings.checkpointEveryGame ?? 1,
+      hardwareProtection: hardwareProtection,
     );
     return runner;
     } finally { _creatingRunner = false; }
   }
+
+  /// Monotonic counter for per-run ownership tokens, so each run tags the
+  /// processes it starts with a unique owner and never removes another run's
+  /// registrations.
+  static int _runOwnerCounter = 0;
 
   /// Runs [runner] to completion, saving it, and releases the "running" flag.
   Future<BenchmarkRun> runWithRunner(BenchmarkRunner runner) async {
@@ -402,6 +417,16 @@ class BenchmarkService {
     // and stopping engines; a run must not overlap it.
     if (_preflighting) throw StateError('Engine Preflight is still running.');
     _active = runner;
+    // Per-run ownership: tag the processes this run starts with a unique
+    // token so the end-of-run cleanup removes exactly the PIDs the RUN
+    // registered. A process-global snapshot-and-sweep (removeNotIn) would
+    // also drop registrations made by OTHER components during the run — a
+    // concurrent preflight, the game screen, an identity probe — charging a
+    // later run their memory. Setting the active owner before the run makes
+    // the runner's engine registrations carry this token; entries owned by
+    // other live engines keep their own (or no) owner and survive.
+    final runOwner = 'bench-run-${_runOwnerCounter++}';
+    managedProcessRegistry.setActiveOwner(runOwner);
     // Diagnostics (dev6): a background run keeps engine processes busy after
     // the screen that started it is gone; the log must say so.
     DiagCounters.benchmarksStarted++;
@@ -423,6 +448,13 @@ class BenchmarkService {
       AppLogger.instance.info('benchmark', 'run.finished',
           durationMs: watch.elapsedMilliseconds);
       await runner.dispose();
+      // The runner's disposal unregisters each engine process it watched, but a
+      // process registered outside the runner's watch (or one whose handle was
+      // lost) would otherwise stay in the process-global registry and be
+      // charged to the next run. Remove exactly the processes this run owned,
+      // leaving registrations owned by other components untouched.
+      managedProcessRegistry.removeOwnedBy(runOwner);
+      managedProcessRegistry.setActiveOwner(null);
     }
   }
 
@@ -435,6 +467,7 @@ class BenchmarkService {
     RatingAnchor? anchor,
     List<RatingAnchor> anchors = const [],
     String? trigger,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     final runner = await createRunner(
       engineIds: engineIds,
@@ -445,6 +478,7 @@ class BenchmarkService {
       anchor: anchor,
       anchors: anchors,
       trigger: trigger,
+      hardwareProtection: hardwareProtection,
     );
     return runWithRunner(runner);
   }
@@ -709,6 +743,7 @@ class BenchmarkService {
     RatingAnchor? anchor,
     String? trigger = 'intelligent',
     bool requirePreflight = false,
+    HardwareProtectionRuntime? hardwareProtection,
   }) async {
     if (_active != null || _creatingRunner) {
       throw StateError('A benchmark is already running or being prepared.');
@@ -745,6 +780,9 @@ class BenchmarkService {
         validationWarnings: [...validation.warnings, ...preparation.scheduler.warnings],
         scheduler: preparation.scheduler,
         bootstrapSettings: preparation.bootstrapSettings,
+        // Honour the user's checkpoint cadence (see createRunner).
+        partialSaveInterval: hardwareProtection?.settings.checkpointEveryGame ?? 1,
+        hardwareProtection: hardwareProtection,
       );
     } finally {
       _creatingRunner = false;
@@ -967,10 +1005,19 @@ class BenchmarkService {
     }
     final engineIds = [identity.engineId, ...decision.opponents];
     if (engineIds.length < 2) return null;
+    // Automatic runs (engine added / version changed) must monitor Hardware
+    // Protection like a hand-started run: build the runtime here so those runs
+    // record diagnostics and honor pressure, instead of running unmonitored.
+    final prefs = PreferencesService();
+    await prefs.init();
+    final hardware = HardwareProtectionRuntime(
+      settings: prefs.hardwareProtectionSettings(),
+    );
     return run(
       engineIds: engineIds,
       config: config,
       trigger: 'automatic',
+      hardwareProtection: hardware,
     );
   }
 

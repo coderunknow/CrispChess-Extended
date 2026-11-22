@@ -36,8 +36,13 @@ void main() {
     expect(initial.configuration, {'Hash': '16'});
     final run = (await runScriptedBenchmark()).run;
     // Remember a measured identity, with different benchmark-only options.
+    // Mark the engine as measured (status 'completed') so the identity
+    // baseline records it — a run that never started would not be recorded.
     final document = run.toJson();
     document['engines'] = [initial.withConfiguration({'Hash': '64'}).toJson()];
+    document['engineStatus'] = {
+      initial.engineId: {'status': 'completed', 'gamesCompleted': 0},
+    };
     await store.saveRun(BenchmarkRun.fromJson(document));
     final unchanged = await service.decideAfterChange('custom:p');
     expect(unchanged.shouldRun, isFalse);

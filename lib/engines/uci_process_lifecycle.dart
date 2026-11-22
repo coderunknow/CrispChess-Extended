@@ -23,6 +23,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../diagnostics/engine_process_registry.dart'
+    show managedProcessRegistry;
 import 'chess_engine.dart';
 
 /// Watches a spawned engine process and reports its death.
@@ -81,6 +83,10 @@ mixin UciProcessLifecycle {
       debugPrint('[$processLabel stderr] $line');
     });
 
+    // Register the process by its stable id so Hardware Protection can sum
+    // exactly the engine processes this app started, without matching names.
+    managedProcessRegistry.register(process.pid, label: processLabel);
+
     // A write to stdin after the process has exited (an executable that
     // dies at once: wrong architecture, a missing DLL, not an engine) fails
     // asynchronously with "Broken pipe" on the sink's `done` future. Nobody
@@ -93,12 +99,24 @@ mixin UciProcessLifecycle {
 
     unawaited(process.exitCode.then((code) {
       // A process replaced by a retry (or already let go) must not report its
-      // exit against the one now being watched.
-      if (!identical(_latest, process)) return;
+      // exit against the one now being watched. But its PID was registered when
+      // it started, and nothing else will ever unregister it once it is no
+      // longer `_latest`/`_watched` — so unregister it here before returning,
+      // otherwise a stale PID stays in the registry and, after PID reuse, the
+      // memory monitor could charge an unrelated process as an engine.
+      if (!identical(_latest, process)) {
+        managedProcessRegistry.unregister(process.pid);
+        return;
+      }
       _exitCode = code;
       if (!_disposingProcess) {
         debugPrint('[$processLabel] exited with code $code');
       }
+      // The process has truly exited: stop accounting for it so its memory is
+      // not summed after it has died. Unregister here (the exit path) rather
+      // than inside [releaseOnLoss], because stdout can close while the
+      // process is still running.
+      managedProcessRegistry.unregister(process.pid);
       releaseOnLoss();
     }));
   }
@@ -107,7 +125,18 @@ mixin UciProcessLifecycle {
   ///
   /// Routed from both the exit code and stdout closing, because they do not
   /// arrive together and a request should end on whichever comes first.
+  ///
+  /// This only releases pending work — it deliberately does NOT unregister the
+  /// process from [managedProcessRegistry]. stdout can close while the process
+  /// is still running (a `GenericUciEngine` may close its stdout without
+  /// exiting), and unregistering here would drop a live, still-consuming
+  /// process from the memory monitor's accounting. The process is unregistered
+  /// only when its exit code actually lands (see [watchProcess]); teardown
+  /// ([beginProcessDispose] + [stopWatchingProcess]) detaches the stderr watcher
+  /// but keeps the registration so a monitor sample during `stdin.close()`/kill
+  /// still accounts for the not-yet-dead engine, until the exit callback fires.
   void releaseOnLoss() {
+    if (_exited) return;
     _exited = true;
     onProcessLost();
   }
@@ -118,9 +147,28 @@ mixin UciProcessLifecycle {
   void beginProcessDispose() => _disposingProcess = true;
 
   void stopWatchingProcess() {
+    // Detach the stderr watcher only. The process is left registered: during
+    // teardown the engine is still alive (stdin.close() and kill() have not
+    // completed yet), and a monitor sample in that window must still account
+    // for it. The exitCode callback — which fires when the process actually
+    // exits, or when a replaced process's stale exit lands — is what removes
+    // the registration, so a PID is never dropped while its process still
+    // holds memory.
     _stderrSub?.cancel();
     _stderrSub = null;
     _watched = null;
+  }
+
+  /// Drops the registration for the most recently watched process when there
+  /// is no live process to protect (teardown found `_process` already null).
+  /// The live-teardown path keeps the registration until the exit callback;
+  /// this only fires when nothing is alive, so the stale PID must be removed
+  /// here or it would leak in the registry and, after PID reuse, be charged
+  /// as an engine. `_latest` is kept so a death that lands just after teardown
+  /// still records its exit code.
+  void unregisterStaleLatest() {
+    final latest = _latest;
+    if (latest != null) managedProcessRegistry.unregister(latest.pid);
   }
 
   /// The death report, with the exit code if it can be had.

@@ -1,5 +1,68 @@
 # Changelog
 
+## 2.3.2-dev7 — Hardware Protection, benchmark stability and Live Board
+
+- **Hardware Protection (new).** A cross-platform monitor that samples the
+  application process, every managed engine process and the total process-tree
+  footprint (children counted once, no double counting) plus the memory the OS
+  reports as available, and derives a hybrid memory budget — automatic
+  (available memory minus an OS reserve), an optional absolute MB limit, or an
+  optional percentage of available memory — with separate warning/high/critical
+  thresholds and hysteresis so a hovering reading does not oscillate. Pressure
+  is answered with a graduated response (reduce background work, pause after the
+  current game, or stop at a safe boundary), each user continue/pause/stop
+  decision is recorded, and recovery preserves the results already collected.
+  Adaptive CPU management only scales nonessential background work; it never
+  touches engine Threads, Hash, engine count or statistical precision.
+- **Capability-based reporting, not fabricated parity.** Each platform reports
+  what it can actually do — fully supported / partially supported / monitoring
+  only / unavailable — for application memory, engine-process memory,
+  process-tree memory, available system memory, CPU management, thermal and
+  battery monitoring and engine-process control. Web and mobile platforms state
+  their limits rather than pretending a control works.
+- **Benchmark integrity is untouched.** Hardware Protection only observes and,
+  at a game boundary, requests a safe pause or stop. It never reduces engine
+  strength, changes Threads/Hash, alters the benchmark algorithm, lowers
+  bootstrap/statistical precision, unloads or restarts engines, or labels a
+  resource-constrained result as equivalent to an unconstrained one.
+- **Engine lifecycle.** All selected engines stay resident for the whole run
+  (no arbitrary two-engine limit, no silent unload); every engine process is
+  disposed at the end, on stop, on cancel and on error, so no orphans remain.
+  (A pressure pause keeps the engines resident; disposal happens during run
+  cleanup when the run actually ends.)
+- **Checkpoints after every game.** The runner now checkpoints after each
+  completed game (not every ten) on a safe boundary, and on pause, cancel,
+  error and finish. Writes are asynchronous and atomic; older result documents
+  stay readable and no destructive migration is performed.
+- **Live Board throttling that never drops a move.** Auto/On/Off modes with
+  configurable refresh presets plus a custom rate. The throttle gates only the
+  *view*: every benchmark event is still recorded, the stored game state is
+  separate from the visual rendering, and the screen is not rebuilt on every
+  ply. In Auto mode the rate slows under pressure and restores when it
+  subsides.
+- **Low-overhead bounded diagnostics.** Resource telemetry (application,
+  engine-process and total-tree memory, available system memory, CPU scope,
+  engine count and lifecycle, mode, duration, Threads/Hash config, pressure
+  events, mitigations, user decisions, thermal/battery) is saved locally in a
+  versioned, backward-compatible format. Unavailable metrics are kept distinct
+  from a genuine zero.
+- **User-facing settings, persisted.** Settings → Hardware Protection exposes
+  the budget mode and limits, thresholds and hysteresis, CPU management,
+  thermal/battery monitoring, Live Board mode and refresh rate, sampling
+  interval, telemetry and checkpoint cadence, with sensible defaults. Changes
+  persist immediately and survive restarts.
+- **Hysteresis oscillation fix.** The pressure evaluator now holds a level
+  while a reading sits in the hysteresis band (above the exit threshold but
+  below the entry threshold) instead of dropping to the next lower level; a
+  regression test pins the hold behaviour for all three bands.
+- Reproducibility: `test/diagnostics/hardware_protection_test.dart` and
+  `test/diagnostics/benchmark_hardware_protection_wiring_test.dart` cover the
+  model, budget resolution, pressure evaluation, capabilities, the process
+  registry, the live-board throttle, the runtime monitor and the runner
+  wiring. No Dart/Flutter SDK was available in the build sandbox, so
+  verification is static review plus the CI-bound test suite; no Windows/macOS
+  device claim is made from CI.
+
 ## 2.3.2-dev6 — Custom UCI Engine resource repair and Diagnostics & Logs
 
 - **Engine Preflight shows every engine you chose.** When a benchmark start

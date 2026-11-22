@@ -730,7 +730,12 @@ class GenericUciEngine
     _stdoutSub = null;
 
     if (process == null) {
+      // No live process to protect: the registered PID (if any) is a dead or
+      // replaced process whose exit code never landed or was already handled,
+      // so drop it from the registry now. The live-teardown path below keeps
+      // the registration until the exit callback fires.
       stopWatchingProcess();
+      unregisterStaleLatest();
       return;
     }
 

@@ -5,6 +5,7 @@
 // a PGN with headers and no moves at all. The tree also knows the real starting
 // position, which a game that began from a FEN needs in order to be readable.
 import 'package:crispchess/chess/chess_game.dart';
+import 'package:crispchess/chess/game_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _moveText(String pgn) {
@@ -90,6 +91,45 @@ void main() {
       expect(reloaded.moveHistory, game.moveHistory);
       expect(reloaded.moveHistorySan, game.moveHistorySan);
       expect(reloaded.currentFEN, game.currentFEN);
+    });
+  });
+
+  group('ChessGame.loadPgn state clearing', () {
+    test('clears a resignation so a newly loaded game is not over', () {
+      // Play and resign, then load a fresh PGN into the SAME game object: the
+      // stale resignation flag must not leave the new game permanently
+      // game-over. (A brand-new ChessGame starts with _resigned=false, so the
+      // bug only shows when loadPgn reuses an object that was resigned.)
+      final game = _gameWith(['e2e4']);
+      game.resign();
+      expect(game.isGameOver, isTrue);
+      expect(game.gameOverReason, 'Resignation');
+
+      // Export a clean, unfinished PGN to load back over the resigned game.
+      final clean = _gameWith(['d2d4', 'd7d5']);
+      expect(game.loadPgn(clean.toPgn()), isTrue);
+      expect(game.isGameOver, isFalse,
+          reason: 'loading a new PGN must clear the previous resignation');
+      expect(game.gameOverReason, isNot('Resignation'));
+    });
+
+    test('clears a three-check counter base so a loaded game counts from zero', () {
+      // Simulate a previously played three-check game with non-zero counters,
+      // then load a fresh PGN (whose moves give no checks) into the SAME
+      // game object. The counters must reset to zero — if the stale base
+      // survived, they would still be 5/3 and could falsely trigger a
+      // three-check win on the new game.
+      final game = ChessGame();
+      game.variant = ChessVariant.threeCheck;
+      game.whiteChecks = 5;
+      game.blackChecks = 3;
+      expect(game.whiteChecks, 5);
+
+      final clean = _gameWith(['d2d4', 'd7d5']);
+      expect(game.loadPgn(clean.toPgn()), isTrue);
+      expect(game.whiteChecks, 0,
+          reason: 'a freshly loaded PGN must start the check counters at zero');
+      expect(game.blackChecks, 0);
     });
   });
 }

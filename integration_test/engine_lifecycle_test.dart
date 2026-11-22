@@ -27,7 +27,6 @@ void main() {
     final engine = DartEngine();
     await engine.initialize();
 
-    String position = 'position startpos';
     final moves = <String>[];
 
     for (int i = 0; i < 20; i++) {

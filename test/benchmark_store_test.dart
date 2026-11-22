@@ -55,6 +55,7 @@ BenchmarkRun _run({
   List<BenchGame>? games,
   String stopReason = 'completed',
   CalibrationOutcome? calibration,
+  Map<String, EngineRunStatus>? engineStatus,
 }) {
   final played = games ??
       [
@@ -70,7 +71,7 @@ BenchmarkRun _run({
     config: BenchmarkConfig.quick,
     format: TournamentFormat.roundRobin,
     engines: [_white, _black],
-    engineStatus: {
+    engineStatus: engineStatus ?? {
       _white.engineId: const EngineRunStatus(status: 'completed', gamesCompleted: 2),
       _black.engineId: const EngineRunStatus(status: 'completed', gamesCompleted: 2),
     },
@@ -273,4 +274,28 @@ void main() {
       throwsA(anything),
     );
   });
+  test('the identity baseline records only engines the run actually measured',
+      () async {
+    // A run stopped by resource pressure before any engine starts still lists
+    // every selected engine in `run.engines`. Only engines whose status shows
+    // they actually played belong in the identity baseline; otherwise the next
+    // add check treats an unmeasured binary as already benchmarked and skips
+    // re-measuring it.
+    final run = _run(
+      id: 'pressure-stopped',
+      games: const [],
+      stopReason: 'resource pressure',
+      engineStatus: {
+        _white.engineId:
+            const EngineRunStatus(status: 'completed', gamesCompleted: 0),
+        _black.engineId: const EngineRunStatus(status: 'skipped'),
+      },
+    );
+    await store.saveRun(run);
+
+    final known = await store.knownIdentities();
+    expect(known.containsKey(_white.engineId), isTrue);
+    expect(known.containsKey(_black.engineId), isFalse);
+  });
+
 }

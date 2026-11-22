@@ -1,0 +1,558 @@
+/// The running Hardware Protection monitor.
+///
+/// One instance per benchmark run. It samples the application process, the
+/// managed engine processes (and, where the platform exposes it, their
+/// children) at a low, adaptive rate; derives a memory budget from live system
+/// memory; evaluates the pressure policy with hysteresis; and exposes the
+/// resulting level, action and budget to the benchmark runner and the UI.
+///
+/// What it deliberately does *not* do: change an engine's `Threads` or `Hash`,
+/// change the engine count, reduce the benchmark workload, or alter statistical
+/// precision. Under pressure it slows its own sampling and reports the
+/// recommended background concurrency; the only actions that touch a run are
+/// `pauseAfterGame` and `stop`, which stop at a game boundary and preserve the
+/// results already collected.
+library;
+
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'engine_process_registry.dart' show ManagedProcessRegistry, managedProcessRegistry;
+import 'hardware_protection.dart' show
+    HardwareCapabilitySet,
+    HardwareProtectionSettings,
+    HardwarePlatform,
+    LiveBoardMode,
+    MemoryBudget,
+    PressureAction,
+    PressureDecision,
+    PressureEventRecord,
+    PressureUserDecision,
+    ResourcePressureLevel,
+    ResourceProbe,
+    ResourceReading,
+    SystemMemorySample,
+    ProcessMemorySample,
+    evaluatePressure,
+    hardwareCapabilitiesFor,
+    resolveMemoryBudget;
+// Aliased so the platform top-level readers are reachable from the probe
+// methods below: `applicationRss` is both an imported reader and a method name
+// here, and an unqualified call inside that method would resolve to the
+// method itself (infinite recursion). The alias keeps every reader callable.
+import 'process_memory.dart' as _platform;
+import 'resource_telemetry.dart' show ResourceTelemetryLog, ResourceTelemetryRecord;
+
+/// The [ResourceProbe] backed by the platform resource seam.
+class PlatformResourceProbe implements ResourceProbe {
+  const PlatformResourceProbe();
+
+  @override
+  HardwarePlatform platform() => _platform.hardwarePlatform();
+
+  @override
+  SystemMemorySample systemMemory() => _platform.readSystemMemory();
+
+  @override
+  ProcessMemorySample process(int pid) => _platform.readProcessMemory(pid);
+
+  @override
+  int? applicationRss() => _platform.applicationRss();
+
+  @override
+  Duration? applicationCpu() => _platform.readApplicationCpu();
+
+  @override
+  List<int> children(int pid) => _platform.childPidsOf(pid);
+
+  @override
+  Map<int, List<int>> childrenByParent() => _platform.allChildrenByParent();
+
+  @override
+  String? powerState() => _platform.readPowerState();
+
+  @override
+  String? thermalState() => _platform.readThermalState();
+}
+
+/// One sample plus the decision the policy made about it.
+class HardwarePressureSample {
+  final ResourceReading reading;
+  final PressureDecision decision;
+
+  const HardwarePressureSample({
+    required this.reading,
+    required this.decision,
+  });
+}
+
+/// Context the runtime needs to describe a run in its telemetry.
+class HardwareProtectionContext {
+  final int selectedEngineCount;
+  final String benchmarkMode;
+  final int threads;
+  final int hashMb;
+  final String engineLifecycleState;
+
+  const HardwareProtectionContext({
+    required this.selectedEngineCount,
+    required this.benchmarkMode,
+    required this.threads,
+    required this.hashMb,
+    this.engineLifecycleState = 'running',
+  });
+}
+
+/// The Hardware Protection monitor for one benchmark run.
+/// Upper bound (seconds) for the effective sampling interval, so a corrupted or
+/// excessive stored value cannot make pressure sampling effectively never run.
+const int _maxSamplingIntervalSeconds = 60;
+
+class HardwareProtectionRuntime {
+  final HardwareProtectionSettings settings;
+  final ResourceProbe probe;
+  final ManagedProcessRegistry registry;
+  final ResourceTelemetryLog telemetry;
+
+  HardwareProtectionRuntime({
+    required this.settings,
+    ResourceProbe? probe,
+    ManagedProcessRegistry? registry,
+    ResourceTelemetryLog? telemetry,
+  })  : probe = probe ?? const PlatformResourceProbe(),
+        registry = registry ?? managedProcessRegistry,
+        telemetry = telemetry ?? ResourceTelemetryLog(
+              maxRecords: settings.telemetryMaxRecords,
+            );
+
+  final StreamController<HardwarePressureSample> _samples =
+      StreamController<HardwarePressureSample>.broadcast();
+  final List<PressureEventRecord> _pressureEvents = [];
+
+  Timer? _timer;
+  ResourceReading? _lastReading;
+  PressureDecision _lastDecision = const PressureDecision(
+    level: ResourcePressureLevel.normal,
+    action: PressureAction.none,
+    reason: 'not started',
+    budget: MemoryBudget(source: 'none'),
+    rssLevel: ResourcePressureLevel.normal,
+  );
+  /// The RSS signal's own hysteresis history, kept separate from the
+  /// system-headroom signal's history so the two ladders do not contaminate
+  /// each other's bands.
+  ResourcePressureLevel _lastRssLevel = ResourcePressureLevel.normal;
+  /// The system-headroom signal's own hysteresis history.
+  ResourcePressureLevel _lastHeadroomLevel = ResourcePressureLevel.normal;
+  MemoryBudget _budget = const MemoryBudget(source: 'none');
+  HardwareProtectionContext _context = const HardwareProtectionContext(
+    selectedEngineCount: 0,
+    benchmarkMode: 'unknown',
+    threads: 0,
+    hashMb: 0,
+  );
+
+  Duration? _lastCpu;
+  DateTime? _lastCpuAt;
+  double? _cpuPercent;
+
+  /// The platform capability matrix, computed once.
+  HardwareCapabilitySet get capabilities =>
+      hardwareCapabilitiesFor(probe.platform());
+
+  Stream<HardwarePressureSample> get samples => _samples.stream;
+
+  ResourceReading? get lastReading => _lastReading;
+  PressureDecision get decision => _lastDecision;
+  ResourcePressureLevel get level => _lastDecision.level;
+  MemoryBudget get budget => _budget;
+  double? get cpuPercent => _cpuPercent;
+  List<PressureEventRecord> get pressureEvents =>
+      List.unmodifiable(_pressureEvents);
+
+  bool get isRunning => _timer != null;
+
+  /// The effective sampling interval. Under warning or worse pressure the
+  /// monitor slows its own nonessential sampling; this is adaptive scheduling
+  /// of background work, not a change to the benchmark.
+  Duration get interval {
+    // A stored (or corrupted) `samplingIntervalSeconds` of 0 would schedule a
+    // zero-delay timer that re-runs the synchronous sample on every event loop
+    // tick — a tight spin that starves the run. Enforce a positive minimum.
+    // Bound the maximum too: a huge stored value would make the monitor sample
+    // so rarely that pressure changes are missed between samples.
+    final baseSeconds = math.min(
+      math.max(settings.samplingIntervalSeconds, 1),
+      _maxSamplingIntervalSeconds,
+    );
+    final base = Duration(seconds: baseSeconds);
+    if (!settings.enabled || level == ResourcePressureLevel.normal) return base;
+    // One slowdown step under pressure, capped so the monitor stays useful.
+    // Never shorten below the configured interval: a 60-second setting must
+    // not become 30 seconds (twice as frequent) exactly when the monitor is
+    // supposed to reduce its work.
+    final slowed = math.min(baseSeconds * 2, 30);
+    return Duration(seconds: math.max(slowed, baseSeconds));
+  }
+
+  /// Starts monitoring for a run.
+  void start({
+    required int selectedEngineCount,
+    required String benchmarkMode,
+    required int threads,
+    required int hashMb,
+    String engineLifecycleState = 'running',
+  }) {
+    _context = HardwareProtectionContext(
+      selectedEngineCount: selectedEngineCount,
+      benchmarkMode: benchmarkMode,
+      threads: threads,
+      hashMb: hashMb,
+      engineLifecycleState: engineLifecycleState,
+    );
+    _lastCpu = null;
+    _lastCpuAt = null;
+    _cpuPercent = null;
+    _lastRssLevel = ResourcePressureLevel.normal;
+    _lastHeadroomLevel = ResourcePressureLevel.normal;
+    _runStartedAt = DateTime.now();
+    _timer?.cancel();
+    if (!settings.enabled) return;
+    // Sample once immediately, then keep the monitor alive with a timer that
+    // re-reads the effective interval on every cycle. A `Timer.periodic`
+    // would capture the interval once, at creation, and never notice that the
+    // pressure level (and therefore the intended rate) changed later — the
+    // adaptive slowdown would never take effect.
+    tick();
+    _scheduleTick();
+  }
+
+  /// Schedules the next tick after the current effective interval. Reads
+  /// [interval] fresh each cycle so the adaptive rate follows the pressure
+  /// level as it changes. Cancelling [_timer] (via [stop]/[dispose]) stops the
+  /// chain, since no further `_scheduleTick` runs.
+  void _scheduleTick() {
+    _timer?.cancel();
+    _timer = Timer(interval, () {
+      tick();
+      _scheduleTick();
+    });
+  }
+
+  /// Stops monitoring and releases the timer.
+  void stop() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  /// A settings change is applied by building a fresh runtime for the next
+  /// run; a running monitor keeps the settings it was started with so a
+  /// mid-run change cannot silently alter the pressure policy. This method is
+  /// therefore a deliberate no-op and exists so callers have a stable seam.
+  void updateSettings(HardwareProtectionSettings newSettings) {
+    // Intentionally empty: see the doc comment above.
+  }
+
+  /// Takes one sample and evaluates it. Public so tests can drive the monitor
+  /// without a real timer.
+  void tick() {
+    final reading = _sample();
+    _lastReading = reading;
+
+    // Resolve the budget from the *same* system-memory reading the pressure
+    // decision uses. Calling probe.systemMemory() a second time could read a
+    // different (or failed) value and evaluate a valid low-memory reading
+    // against an unusable budget, publishing a false `normal`. The reading
+    // already carries total and available bytes.
+    _budget = resolveMemoryBudget(
+      settings,
+      totalBytes: reading.totalBytes,
+      availableBytes: reading.availableBytes,
+    );
+    final decision = evaluatePressure(
+      reading,
+      _budget,
+      settings,
+      previousRss: _lastRssLevel,
+      previousHeadroom: _lastHeadroomLevel,
+    );
+    // Keep each signal's own level as its hysteresis history; the combined
+    // level is the worse of the two and is not fed back as either signal's
+    // previous (that would let one signal's critical reading hold the other
+    // at critical after it cleared its own band). Only update a signal's
+    // history when that signal was actually evaluated: a missing RSS reading
+    // leaves rssLevel at normal, and assigning it would erase the previous
+    // RSS hysteresis level (so a transient RSS gap would let a critical
+    // level clear prematurely). Headroom follows the same rule via the null
+    // check on decision.headroomLevel.
+    final rssEvaluated = reading.usageBytes != null && reading.usageBytes! > 0;
+    if (rssEvaluated) _lastRssLevel = decision.rssLevel;
+    _lastHeadroomLevel = decision.headroomLevel ?? _lastHeadroomLevel;
+    _lastDecision = decision;
+
+    if (settings.telemetryEnabled) {
+      telemetry.add(ResourceTelemetryRecord(
+        timestamp: reading.timestamp,
+        appRssBytes: reading.appRssBytes,
+        engineRssBytes: reading.engineRssBytes,
+        totalRssBytes: reading.totalRssBytes,
+        availableBytes: reading.availableBytes,
+        cpuPercent: _cpuPercent,
+        engineProcessCount: reading.engineProcessCount,
+        engineLifecycleState: _context.engineLifecycleState,
+        selectedEngineCount: _context.selectedEngineCount,
+        benchmarkMode: _context.benchmarkMode,
+        elapsedSeconds: (reading.timestamp.difference(_runStartedAt).inMilliseconds / 1000),
+        threads: _context.threads,
+        hashMb: _context.hashMb,
+        pressureLevel: decision.level,
+        mitigation: decision.action == PressureAction.none
+            ? null
+            : decision.action,
+        thermalState: reading.thermalState,
+        powerState: reading.powerState,
+      ));
+    }
+
+    if (decision.level != _previousLevelForEvents()) {
+      _pressureEvents.add(PressureEventRecord(
+        timestamp: reading.timestamp,
+        level: decision.level,
+        action: decision.action,
+        reason: decision.reason,
+        budget: _budget,
+      ));
+      if (_pressureEvents.length > 500) _pressureEvents.removeAt(0);
+    }
+
+    if (_samples.hasListener && !_samples.isClosed) {
+      _samples.add(HardwarePressureSample(reading: reading, decision: decision));
+    }
+  }
+
+  ResourcePressureLevel _previousLevelForEvents() =>
+      _pressureEvents.isEmpty
+          ? ResourcePressureLevel.normal
+          : _pressureEvents.last.level;
+
+  /// Records a user decision (continue / pause / stop) for the report.
+  void recordUserDecision(PressureUserDecision decision) {
+    final record = PressureEventRecord(
+      timestamp: DateTime.now(),
+      level: _lastDecision.level,
+      action: _lastDecision.action,
+      userDecision: decision,
+      reason: 'User decision: ${decision.id}',
+      budget: _budget,
+    );
+    _pressureEvents.add(record);
+    if (_pressureEvents.length > 500) _pressureEvents.removeAt(0);
+    if (settings.telemetryEnabled) {
+      telemetry.add(ResourceTelemetryRecord(
+        timestamp: record.timestamp,
+        appRssBytes: _lastReading?.appRssBytes,
+        engineRssBytes: _lastReading?.engineRssBytes,
+        totalRssBytes: _lastReading?.totalRssBytes,
+        availableBytes: _lastReading?.availableBytes,
+        cpuPercent: _cpuPercent,
+        engineProcessCount: _lastReading?.engineProcessCount ?? 0,
+        engineLifecycleState: _context.engineLifecycleState,
+        selectedEngineCount: _context.selectedEngineCount,
+        benchmarkMode: _context.benchmarkMode,
+        elapsedSeconds:
+            (record.timestamp.difference(_runStartedAt).inMilliseconds / 1000),
+        threads: _context.threads,
+        hashMb: _context.hashMb,
+        pressureLevel: _lastDecision.level,
+        userDecision: decision,
+        thermalState: _lastReading?.thermalState,
+        powerState: _lastReading?.powerState,
+      ));
+    }
+  }
+
+  /// Advisory recommended concurrent nonessential background tasks for the
+  /// current pressure. Never touches engine work.
+  ///
+  /// This is a published recommendation, not an enforced limit: the app has no
+  /// nonessential-work worker pool that consumes it, so `cpuManagement` is
+  /// reported as monitoring-only rather than partially supported. It is kept
+  /// as the honest, pressure-aware figure for any future or external consumer
+  /// of nonessential background work.
+  int backgroundConcurrency() {
+    if (!settings.cpuManagementEnabled) return settings.backgroundWorkConcurrency;
+    return level.severity >= ResourcePressureLevel.warning.severity
+        ? settings.reducedBackgroundConcurrency
+        : settings.backgroundWorkConcurrency;
+  }
+
+  /// Recommended live-board refresh rate for the current mode and pressure.
+  int recommendedBoardRefreshPerSecond() {
+    if (settings.liveBoardMode == LiveBoardMode.off) return 0;
+    if (settings.liveBoardMode == LiveBoardMode.on) {
+      return settings.liveBoardRefreshPerSecond;
+    }
+    // Auto: under warning or worse, halve the rate (at least once per second).
+    if (level.severity >= ResourcePressureLevel.warning.severity) {
+      return math.max(1, settings.liveBoardRefreshPerSecond ~/ 2);
+    }
+    return settings.liveBoardRefreshPerSecond;
+  }
+
+  DateTime _runStartedAt = DateTime.now();
+
+  /// Account every descendant of [pid] — children, grandchildren, and so on —
+  /// and return their combined resident memory. A managed engine can spawn a
+  /// helper that spawns workers, and all of them contribute to the engine's
+  /// memory footprint; only walking immediate children would let nested
+  /// workers escape the budget. [seen] is mutated in place so a process
+  /// reachable through more than one path (or already counted as a managed
+  /// process) is counted exactly once. [pid] itself is not re-counted here;
+  /// the caller has already accounted for it.
+  ({int rss, bool measured}) _accountDescendants(
+      int pid, Map<int, List<int>> childrenByParent, Set<int> seen) {
+    final stack = <int>[pid];
+    int rss = 0;
+    bool measured = false;
+    while (stack.isNotEmpty) {
+      final current = stack.removeLast();
+      for (final child in childrenByParent[current] ?? const []) {
+        if (!seen.add(child)) continue;
+        final mem = probe.process(child);
+        final value = mem.accountedBytes;
+        if (value != null) {
+          rss += value;
+          measured = true;
+        }
+        stack.add(child);
+      }
+    }
+    return (rss: rss, measured: measured);
+  }
+
+  /// One resource sample: application memory, managed engine memory (and
+  /// children where available), and the totals. Unavailable figures stay null.
+  ResourceReading _sample() {
+    final now = DateTime.now();
+    final sys = probe.systemMemory();
+
+    final appRss = probe.applicationRss();
+
+    var engineRss = 0;
+    // The reported engine count is the number of registered processes, taken
+    // independently of the `seen`-based RSS deduplication below. A registered
+    // PID that is a descendant of another registered PID is skipped by `seen`
+    // (its memory is already counted via its parent's traversal) but it is
+    // still a registered engine and must be counted.
+    final engineCount = registry.count;
+    var enginesMeasured = false;
+    final seen = <int>{};
+    // Enumerate the process tree once for the whole sample, then look each
+    // managed process's children up by pid. Calling children(pid) per managed
+    // process would enumerate the tree once per engine, which scales badly with
+    // the number of resident engines.
+    final childrenByParent = probe.childrenByParent();
+    for (final managed in registry.entries) {
+      if (!seen.add(managed.pid)) continue;
+      final mem = probe.process(managed.pid);
+      final value = mem.accountedBytes;
+      if (value != null) {
+        engineRss += value;
+        enginesMeasured = true;
+      }
+      // Supplement, not replace: walk descendants only where the platform
+      // exposes them, and only for processes we manage. A managed engine may
+      // start a helper that itself starts workers, so every level of the
+      // subtree counts toward the engine's memory footprint — walking only
+      // immediate children would let memory-heavy nested workers escape the
+      // budget. `seen` keeps each process counted once across overlapping
+      // subtrees (and skips a managed pid already counted as a descendant).
+      final descendants = _accountDescendants(managed.pid, childrenByParent, seen);
+      engineRss += descendants.rss;
+      if (descendants.measured) enginesMeasured = true;
+    }
+
+    // The application process is the parent of the engine processes, so it is
+    // counted once here and its children are not re-added.
+    final total = (appRss ?? 0) + (enginesMeasured ? engineRss : 0);
+
+    _cpuPercent = _updateCpu();
+
+    return ResourceReading(
+      timestamp: now,
+      appRssBytes: appRss,
+      engineRssBytes: enginesMeasured ? engineRss : null,
+      totalRssBytes: (appRss != null || enginesMeasured) ? total : null,
+      availableBytes: sys.availableBytes,
+      totalBytes: sys.totalBytes,
+      engineProcessCount: engineCount,
+      selectedEngineCount: _context.selectedEngineCount,
+      cpuPercent: _cpuPercent,
+      powerState: settings.thermalPowerMonitoring ? probe.powerState() : null,
+      thermalState: settings.thermalPowerMonitoring ? probe.thermalState() : null,
+    );
+  }
+
+  double? _updateCpu() {
+    // Capture a timestamp around the CPU counter read so the percentage window
+    // reflects the interval between the two counter reads. The sample timestamp
+    // (`now` in _sample) is captured before the probe calls, so using it here
+    // would measure from before the previous read to before the current read,
+    // slightly misaligning the window with the actual counter values.
+    final cpuAt = DateTime.now();
+    final current = probe.applicationCpu();
+    // No CPU reader on this platform: report no percentage rather than a
+    // false 0% derived from a constant-zero fallback.
+    if (current == null) return null;
+    final previous = _lastCpu;
+    final previousAt = _lastCpuAt;
+    _lastCpu = current;
+    _lastCpuAt = cpuAt;
+    if (previous == null || previousAt == null) return null;
+    final windowMs = cpuAt.difference(previousAt).inMilliseconds;
+    if (windowMs <= 0) return null;
+    final deltaMs = current.inMilliseconds - previous.inMilliseconds;
+    if (deltaMs < 0) return null;
+    return (deltaMs * 100 / windowMs).clamp(0.0, 1000.0);
+  }
+
+  /// Everything the diagnostic report needs from this run, in one map.
+  /// The diagnostic snapshot for this run. By default it carries the summary
+  /// (budget, latest decision, pressure events and the telemetry summary); with
+  /// [includeTelemetry] it also carries the full bounded per-sample telemetry
+  /// records, so the run's saved document contains the complete diagnostic
+  /// data. The full records are only included at the final save, not at every
+  /// per-game checkpoint, to keep checkpoints low-overhead.
+  Map<String, dynamic> snapshotJson({bool includeTelemetry = false}) {
+    final telemetryJson = includeTelemetry
+        ? telemetry.toJson()
+        : <String, dynamic>{
+            'schema': 1,
+            'recordCount': telemetry.count,
+            'peakTotalBytes': telemetry.peakTotalBytes,
+          };
+    return <String, dynamic>{
+      'schema': 1,
+      'platform': probe.platform().id,
+      'capabilities': capabilities.toJson(),
+      'settings': settings.toJson(),
+      'budget': _budget.toJson(),
+      'level': _lastDecision.level.id,
+      'action': _lastDecision.action.id,
+      'reason': _lastDecision.reason,
+      'selectedEngineCount': _context.selectedEngineCount,
+      'benchmarkMode': _context.benchmarkMode,
+      'threads': _context.threads,
+      'hashMb': _context.hashMb,
+      'engineLifecycleState': _context.engineLifecycleState,
+      'cpuPercent': _cpuPercent,
+      'pressureEvents': [for (final e in _pressureEvents) e.toJson()],
+      'telemetry': telemetryJson,
+    };
+  }
+
+  Future<void> dispose() async {
+    stop();
+    if (!_samples.isClosed) await _samples.close();
+  }
+}

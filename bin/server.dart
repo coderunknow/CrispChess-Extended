@@ -352,13 +352,12 @@ void _handleBoard(HttpRequest request, Map<String, String> params) {
   lines.add('  a b c d e f g h');
   for (int r = 0; r < 8; r++) {
     final buf = StringBuffer('${8 - r} ');
-    int col = 0;
     for (final ch in ranks[r].split('')) {
       final n = int.tryParse(ch);
       if (n != null) {
-        for (int i = 0; i < n; i++) { buf.write('. '); col++; }
+        for (int i = 0; i < n; i++) { buf.write('. '); }
       } else {
-        buf.write('$ch '); col++;
+        buf.write('$ch ');
       }
     }
     buf.write('${8 - r}');

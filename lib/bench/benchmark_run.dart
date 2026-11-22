@@ -104,6 +104,12 @@ class BenchmarkRun {
   final Map<String, dynamic>? schedulerReport;
   final PrecisionEvaluation? precisionEvaluation;
 
+  /// Hardware Protection diagnostic snapshot for this run (platform,
+  /// capabilities, settings, budget, latest pressure decision, pressure events
+  /// and the bounded resource telemetry summary). Absent in runs saved before
+  /// Hardware Protection existed; such runs still load unchanged.
+  final Map<String, dynamic>? hardwareProtection;
+
   const BenchmarkRun({
     required this.id,
     required this.startedAt,
@@ -123,6 +129,7 @@ class BenchmarkRun {
     this.plan,
     this.schedulerReport,
     this.precisionEvaluation,
+    this.hardwareProtection,
   });
 
   /// Games that produced a rating-eligible result.
@@ -639,6 +646,7 @@ class BenchmarkRun {
         if (plan != null) 'plan': plan!.toJson(),
         if (schedulerReport != null) 'scheduler': schedulerReport,
         if (precisionEvaluation != null) 'precision': precisionEvaluation!.toJson(),
+        if (hardwareProtection != null) 'hardwareProtection': hardwareProtection,
       };
 
   /// Replaces non-finite doubles with null, recursively, and marks every map
@@ -760,6 +768,9 @@ class BenchmarkRun {
       precisionEvaluation: json['precision'] is Map
           ? PrecisionEvaluation.fromJson(
               Map<String, dynamic>.from(json['precision'] as Map))
+          : null,
+      hardwareProtection: json['hardwareProtection'] is Map
+          ? Map<String, dynamic>.from(json['hardwareProtection'] as Map)
           : null,
     );
   }

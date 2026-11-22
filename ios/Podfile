@@ -4,6 +4,53 @@ platform :ios, '15.0'
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# --- onnxruntime-objc distribution override -----------------------------
+# The onnxruntime Flutter plugin (^1.4.1) pins `onnxruntime-objc 1.15.1`. That
+# pod (and its `onnxruntime-c` core dependency) are distributed as prebuilt
+# archives on download.onnxruntime.ai, which has been returning HTTP 500 for
+# every version (1.18.0, 1.20.0, 1.30.0), so `pod install` cannot fetch them.
+#
+# This project vendors both pods locally under ios/vendor/:
+#   * onnxruntime-objc 1.20.0 — the wrapper's Objective-C source, vendored
+#     into the repo (no network dependency).
+#   * onnxruntime-c 1.20.0 — the prebuilt core framework, fetched from a
+#     checksum-verified GitHub release (a fork of Microsoft's official
+#     onnxruntime-swift-package-manager) instead of the down CDN.
+#
+# Rewrite the plugin's podspec dependency to the vendored version (1.20.0, the
+# closest available distribution to the original 1.15.1 pin) before CocoaPods
+# resolves, so the plugin's dependency constraint matches the local podspec.
+# This runs at Podfile evaluation (before resolution) and patches BOTH the
+# .symlinks path CocoaPods resolves through and the pub-cache source, so it
+# survives a `flutter pub get` re-link. Wrapped so a patch failure never breaks
+# the Podfile load itself.
+begin
+  ios_dir = File.dirname(File.realpath(__FILE__))
+  candidates = [
+    # What `pod install` actually resolves through (Flutter plugin symlink).
+    File.join(ios_dir, '.symlinks', 'plugins', 'onnxruntime', 'ios',
+              'onnxruntime.podspec'),
+    # The pub-cache source the symlink points at (in case it is a copy).
+    Dir.glob(File.join(ENV['PUB_CACHE'] || File.join(Dir.home, '.pub-cache'),
+                       'hosted', 'pub.dev', 'onnxruntime-*', 'ios',
+                       'onnxruntime.podspec')),
+  ].flatten
+  candidates.each do |podspec|
+    next unless podspec && File.exist?(podspec)
+    content = File.read(podspec)
+    next if content.include?('1.20.0')
+    patched = content.sub(/(s\.dependency\s+'onnxruntime-objc',\s+)'1\.15\.1'/) do
+      "#{$1}'1.20.0'"
+    end
+    if patched != content
+      File.write(podspec, patched)
+      warn "[crispchess] patched onnxruntime podspec: onnxruntime-objc 1.15.1 -> 1.20.0 (vendored) (#{podspec})"
+    end
+  end
+rescue => e
+  warn "[crispchess] onnxruntime podspec vendor patch skipped: #{e.message}"
+end
+
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,
@@ -30,6 +77,18 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
+
+  # Vendored onnxruntime distribution. The plugin's onnxruntime-objc /
+  # onnxruntime-c pods normally resolve from download.onnxruntime.ai, which is
+  # down (HTTP 500 for every version). Declaring them explicitly from the
+  # local vendored podspecs makes CocoaPods use the vendored wrapper source and
+  # the checksum-verified GitHub-hosted core framework instead.
+  pod 'onnxruntime-objc',
+      :path => File.join(File.dirname(File.realpath(__FILE__)),
+                         'vendor', 'onnxruntime-objc.podspec')
+  pod 'onnxruntime-c',
+      :path => File.join(File.dirname(File.realpath(__FILE__)),
+                         'vendor', 'onnxruntime-c.podspec')
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end

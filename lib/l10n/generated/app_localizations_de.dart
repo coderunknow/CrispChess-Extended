@@ -2205,4 +2205,56 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get diagnosticsTitle => 'Diagnose';
+
+  @override
+  String get hardwareProtection => 'Geräteschutz';
+
+  @override
+  String get hardwareProtectionSummary =>
+      'Überwacht den Speicher der App und der Engine-Prozesse, wendet sichere Reaktionen auf Druck an und drosselt das Live-Brett, ohne die Benchmark-Stärke zu senken.';
+
+  @override
+  String get hardwareProtectionEnabled => 'Schutz aktivieren';
+
+  @override
+  String get ramBudgetMode => 'RAM-Budget-Modus';
+
+  @override
+  String get ramBudgetAutomatic => 'Automatisch';
+
+  @override
+  String get ramBudgetAbsolute => 'Absolut (MB)';
+
+  @override
+  String get ramBudgetPercentage => 'Prozent';
+
+  @override
+  String get memoryReserve => 'OS-Speicherreserve (MB)';
+
+  @override
+  String get absoluteLimit => 'Absolute Grenze (MB)';
+
+  @override
+  String get percentageLimit => 'Prozentanteil (%)';
+
+  @override
+  String get thermalPowerMonitoring => 'Temperatur-/Stromzustand überwachen';
+
+  @override
+  String get liveBoardMode => 'Live-Brett-Modus';
+
+  @override
+  String get liveBoardAuto => 'Auto';
+
+  @override
+  String get liveBoardOn => 'An';
+
+  @override
+  String get liveBoardOff => 'Aus';
+
+  @override
+  String get liveBoardRefresh => 'Live-Brett-Aktualisierungsrate';
+
+  @override
+  String get telemetryEnabled => 'Ressourcen-Telemetrie aufzeichnen';
 }
