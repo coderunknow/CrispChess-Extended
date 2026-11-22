@@ -65,6 +65,20 @@ class ManagedProcessRegistry {
   /// not inherit the previous run's process set.
   void clear() => _processes.clear();
 
+  /// A snapshot of the currently registered PIDs, for per-run cleanup. A caller
+  /// can capture this before a run and later remove only the PIDs registered
+  /// during that run (see [removeNotIn]), preserving entries owned by other
+  /// live engines that were already registered before the run started.
+  Set<int> snapshotPids() => Set<int>.of(_processes.keys);
+
+  /// Removes every registered PID that is not in [baseline], leaving the
+  /// baseline entries (processes owned outside this run) untouched. Used to
+  /// clean up a run's own processes without discarding other live engines'
+  /// registrations.
+  void removeNotIn(Set<int> baseline) {
+    _processes.removeWhere((pid, _) => !baseline.contains(pid));
+  }
+
   Map<String, dynamic> snapshotJson() => {
         'count': count,
         'processes': [for (final p in entries) p.toJson()],

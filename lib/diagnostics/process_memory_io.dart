@@ -21,6 +21,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'hardware_protection.dart'
     show HardwarePlatform, ProcessMemorySample, SystemMemorySample;
@@ -60,21 +61,38 @@ Duration? readApplicationCpu() {
 /// zero is a measured value, and returning it on a parse failure would report a
 /// false 0% CPU while the application is actually busy.
 Duration? _linuxApplicationCpu() {
-  final text = File('/proc/self/stat').readAsStringSync();
+  final ticks =
+      _parseProcStatCpuTicks(File('/proc/self/stat').readAsStringSync());
+  if (ticks == null) return null;
+  final ticksPerSecond = _linuxClockTicksPerSecond();
+  final millis = ((ticks[0] + ticks[1]) * 1000 / ticksPerSecond).toInt();
+  return Duration(milliseconds: millis);
+}
+
+/// Parse the cumulative CPU time (utime + stime, in clock ticks) from a
+/// `/proc/[pid]/stat` text. Returns `[utime, stime]`, or `null` when the
+/// fields cannot be parsed.
+///
+/// Split out from [_linuxApplicationCpu] so the field indexing can be tested
+/// with a fixture without touching the real `/proc`. After the `comm` field
+/// (the last `)`) the 0-based tokens are state(0) ppid(1) ... cmajflt(8)
+/// utime(9) stime(10): utime is field 12 and stime field 13 of /proc, and
+/// after dropping pid(1) and comm(2) the 0-based index is fieldNumber - 3.
+/// Reading utime at index 10 and stime at 11 (the previous values) shifted
+/// every field by one, computing the CPU time from stime + cutime instead of
+/// utime + stime.
+@visibleForTesting
+List<int>? _parseProcStatCpuTicks(String text) {
   final close = text.lastIndexOf(')');
   if (close < 0) return null;
   // Trim before splitting: the substring right after ')' begins with a space,
   // and a split that keeps a leading empty token shifts every index by one,
-  // reading the wrong fields. After trim the tokens are state(0) ppid(1)
-  // ... utime(10) stime(11) — the authoritative /proc field numbering.
+  // reading the wrong fields.
   final rest = text.substring(close + 1).trim().split(RegExp(r'\s+'));
-  // After ')' the fields are: state(0) ppid(1) ... utime(10) stime(11).
-  final utime = int.tryParse(rest.length > 10 ? rest[10] : '');
-  final stime = int.tryParse(rest.length > 11 ? rest[11] : '');
+  final utime = int.tryParse(rest.length > 9 ? rest[9] : '');
+  final stime = int.tryParse(rest.length > 10 ? rest[10] : '');
   if (utime == null || stime == null) return null;
-  final ticksPerSecond = _linuxClockTicksPerSecond();
-  final millis = ((utime + stime) * 1000 / ticksPerSecond).toInt();
-  return Duration(milliseconds: millis);
+  return [utime, stime];
 }
 
 int? _pageSizeCache;

@@ -259,6 +259,11 @@ class BenchmarkRunner {
   String _stopReason = 'completed';
   bool _cancelled = false;
   bool _hasRun = false;
+  // Set immediately before the final (finished) persistence begins. Once set,
+  // _saveProgress() must not enqueue another partial (inProgress: true) write:
+  // a fire-and-forget checkpoint save enqueued during the run loop could land
+  // after the final save and clobber the finished run with a stale partial.
+  bool _finalizing = false;
   final Completer<void> _stopSignal = Completer<void>();
 
   Future<T> _untilStopped<T>(Future<T> operation) => Future.any<T>([
@@ -286,6 +291,9 @@ class BenchmarkRunner {
   ResourcePressureLevel _pressurePauseAcknowledgedLevel =
       ResourcePressureLevel.normal;
   Completer<void>? _pauseGate;
+  /// When a pressure-induced pause began, so an automatic run can bound how
+  /// long it will sit paused waiting for pressure to clear.
+  DateTime? _pressurePauseStartedAt;
   int _finished = 0;
 
   /// Ply within the game in progress, so a move event carries a position in
@@ -341,6 +349,7 @@ class BenchmarkRunner {
     if (!_paused) return;
     _paused = false;
     _pressurePauseRequested = false;
+    _pressurePauseStartedAt = null;
     final gate = _pauseGate;
     _pauseGate = null;
     if (gate != null && !gate.isCompleted) gate.complete();
@@ -414,6 +423,7 @@ class BenchmarkRunner {
     if (!_paused) return;
     _paused = false;
     _pressurePauseRequested = false;
+    _pressurePauseStartedAt = null;
     final gate = _pauseGate;
     _pauseGate = null;
     if (gate != null && !gate.isCompleted) gate.complete();
@@ -440,6 +450,7 @@ class BenchmarkRunner {
       if (decision.level.severity > _pressurePauseAcknowledgedLevel.severity) {
         _pressurePauseAcknowledgedLevel = decision.level;
         _pressurePauseRequested = true;
+        _pressurePauseStartedAt = DateTime.now();
         pause();
         // Notify the screen that the runner paused itself, so its pause state
         // and controls (Resume instead of Pause) reflect the pressure pause.
@@ -731,6 +742,9 @@ class BenchmarkRunner {
     // before the run's finished event fires.
     await _hardware?.dispose();
     await _flushCheckpoint();
+    // Final persistence begins here: block any later partial save from
+    // clobbering the finished run.
+    _finalizing = true;
     var run = _buildRun(includeHardwareTelemetry: true);
     if (onProgressSave != null) {
       try {
@@ -758,6 +772,11 @@ class BenchmarkRunner {
   }
 
   Future<void> _saveProgress() async {
+    // Once final persistence has begun, do not enqueue another partial save:
+    // it would race the final (inProgress: false) write and could overwrite
+    // the finished run with a stale in-progress snapshot. Checkpoints already
+    // enqueued before finalization are unaffected.
+    if (_finalizing) return;
     try {
       await onProgressSave!(_buildRun(inProgress: true));
     } catch (error) {
@@ -778,6 +797,7 @@ class BenchmarkRunner {
         // it "completed". Mark it as an error exit before building the
         // partial run so the report does not misreport completion.
         _stopReason = 'error';
+        _finalizing = true;
         await onProgressSave!(
             _buildRun(inProgress: false, includeHardwareTelemetry: true));
       }
@@ -832,9 +852,29 @@ class BenchmarkRunner {
   Future<void> _awaitResume() async {
     while (_paused && !_cancelled) {
       final gate = _pauseGate ??= Completer<void>();
+      // An automatic run (engine added / version changed) is started with no
+      // in-app pause/resume/cancel control in front of the user, so a
+      // pressure pause could leave it stalled indefinitely. Bound the wait:
+      // if pressure has not cleared after the grace period, cancel the run
+      // (which persists results and releases its engine slots) instead of
+      // stranding it. A manual run keeps waiting for the user's resume.
+      if (_pressurePauseRequested &&
+          trigger == 'automatic' &&
+          _pressurePauseStartedAt != null &&
+          DateTime.now().difference(_pressurePauseStartedAt!) >
+              _automaticPressurePauseGrace) {
+        _stopReason = 'resource pressure';
+        _events.add(const BenchmarkNoticeEvent(
+            'Resource pressure stayed high while the automatic run was '            'paused; stopping after the grace period so it does not sit '            'idle with its engine slots held.'));
+        cancel();
+      }
       await gate.future;
     }
   }
+
+  /// How long an automatic run may sit paused on resource pressure before it
+  /// cancels itself rather than holding engine slots with no user control.
+  static const Duration _automaticPressurePauseGrace = Duration(minutes: 10);
 
   MoveRequester _requesterFor(_LiveEngine live) {
     final engine = live.engine;

@@ -129,6 +129,19 @@ class ResourceTelemetryRecord {
 }
 
 /// A bounded, versioned collection of telemetry records.
+/// Escape a value for CSV: quote it when it contains a comma, a double quote
+/// or a line break, and double any embedded double quotes. Without this a
+/// value such as a state string containing a comma would be split across
+/// columns and shift every following field in the row.
+String _csvEscape(String value) {
+  if (value.isEmpty) return '';
+  if (value.contains(',') || value.contains('"') ||
+      value.contains('\n') || value.contains('\r')) {
+    return '"${value.replaceAll('"', '""')}"';
+  }
+  return value;
+}
+
 class ResourceTelemetryLog {
   final int maxRecords;
   final List<ResourceTelemetryRecord> records = [];
@@ -196,25 +209,25 @@ class ResourceTelemetryLog {
         'pressure_level,mitigation,user_decision,thermal,power,ui_gap_ms\n');
     for (final record in records) {
       buffer.writeln(<String>[
-        record.timestamp.toUtc().toIso8601String(),
-        '${record.appRssBytes ?? ""}',
-        '${record.engineRssBytes ?? ""}',
-        '${record.totalRssBytes ?? ""}',
-        '${record.availableBytes ?? ""}',
-        '${record.cpuPercent ?? ""}',
-        '${record.engineProcessCount}',
-        record.engineLifecycleState,
-        '${record.selectedEngineCount}',
-        record.benchmarkMode,
-        '${record.elapsedSeconds.toStringAsFixed(3)}',
-        '${record.threads}',
-        '${record.hashMb}',
-        record.pressureLevel.id,
-        '${record.mitigation?.id ?? ""}',
-        '${record.userDecision?.id ?? ""}',
-        '${record.thermalState ?? ""}',
-        '${record.powerState ?? ""}',
-        '${record.uiFrameGapMs ?? ""}',
+        _csvEscape(record.timestamp.toUtc().toIso8601String()),
+        _csvEscape('${record.appRssBytes ?? ""}'),
+        _csvEscape('${record.engineRssBytes ?? ""}'),
+        _csvEscape('${record.totalRssBytes ?? ""}'),
+        _csvEscape('${record.availableBytes ?? ""}'),
+        _csvEscape('${record.cpuPercent ?? ""}'),
+        _csvEscape('${record.engineProcessCount}'),
+        _csvEscape(record.engineLifecycleState),
+        _csvEscape('${record.selectedEngineCount}'),
+        _csvEscape(record.benchmarkMode),
+        _csvEscape('${record.elapsedSeconds.toStringAsFixed(3)}'),
+        _csvEscape('${record.threads}'),
+        _csvEscape('${record.hashMb}'),
+        _csvEscape(record.pressureLevel.id),
+        _csvEscape('${record.mitigation?.id ?? ""}'),
+        _csvEscape('${record.userDecision?.id ?? ""}'),
+        _csvEscape('${record.thermalState ?? ""}'),
+        _csvEscape('${record.powerState ?? ""}'),
+        _csvEscape('${record.uiFrameGapMs ?? ""}'),
       ].join(','));
     }
     return buffer.toString();

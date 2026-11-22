@@ -104,6 +104,10 @@ class HardwareProtectionContext {
 }
 
 /// The Hardware Protection monitor for one benchmark run.
+/// Upper bound (seconds) for the effective sampling interval, so a corrupted or
+/// excessive stored value cannot make pressure sampling effectively never run.
+const int _maxSamplingIntervalSeconds = 60;
+
 class HardwareProtectionRuntime {
   final HardwareProtectionSettings settings;
   final ResourceProbe probe;
@@ -175,7 +179,12 @@ class HardwareProtectionRuntime {
     // A stored (or corrupted) `samplingIntervalSeconds` of 0 would schedule a
     // zero-delay timer that re-runs the synchronous sample on every event loop
     // tick — a tight spin that starves the run. Enforce a positive minimum.
-    final baseSeconds = math.max(settings.samplingIntervalSeconds, 1);
+    // Bound the maximum too: a huge stored value would make the monitor sample
+    // so rarely that pressure changes are missed between samples.
+    final baseSeconds = math.min(
+      math.max(settings.samplingIntervalSeconds, 1),
+      _maxSamplingIntervalSeconds,
+    );
     final base = Duration(seconds: baseSeconds);
     if (!settings.enabled || level == ResourcePressureLevel.normal) return base;
     // One slowdown step under pressure, capped so the monitor stays useful.
@@ -270,8 +279,14 @@ class HardwareProtectionRuntime {
     // Keep each signal's own level as its hysteresis history; the combined
     // level is the worse of the two and is not fed back as either signal's
     // previous (that would let one signal's critical reading hold the other
-    // at critical after it cleared its own band).
-    _lastRssLevel = decision.rssLevel;
+    // at critical after it cleared its own band). Only update a signal's
+    // history when that signal was actually evaluated: a missing RSS reading
+    // leaves rssLevel at normal, and assigning it would erase the previous
+    // RSS hysteresis level (so a transient RSS gap would let a critical
+    // level clear prematurely). Headroom follows the same rule via the null
+    // check on decision.headroomLevel.
+    final rssEvaluated = reading.usageBytes != null && reading.usageBytes! > 0;
+    if (rssEvaluated) _lastRssLevel = decision.rssLevel;
     _lastHeadroomLevel = decision.headroomLevel ?? _lastHeadroomLevel;
     _lastDecision = decision;
 
@@ -461,7 +476,7 @@ class HardwareProtectionRuntime {
     // counted once here and its children are not re-added.
     final total = (appRss ?? 0) + (enginesMeasured ? engineRss : 0);
 
-    _cpuPercent = _updateCpu(now);
+    _cpuPercent = _updateCpu();
 
     return ResourceReading(
       timestamp: now,
@@ -478,7 +493,13 @@ class HardwareProtectionRuntime {
     );
   }
 
-  double? _updateCpu(DateTime now) {
+  double? _updateCpu() {
+    // Capture a timestamp around the CPU counter read so the percentage window
+    // reflects the interval between the two counter reads. The sample timestamp
+    // (`now` in _sample) is captured before the probe calls, so using it here
+    // would measure from before the previous read to before the current read,
+    // slightly misaligning the window with the actual counter values.
+    final cpuAt = DateTime.now();
     final current = probe.applicationCpu();
     // No CPU reader on this platform: report no percentage rather than a
     // false 0% derived from a constant-zero fallback.
@@ -486,9 +507,9 @@ class HardwareProtectionRuntime {
     final previous = _lastCpu;
     final previousAt = _lastCpuAt;
     _lastCpu = current;
-    _lastCpuAt = now;
+    _lastCpuAt = cpuAt;
     if (previous == null || previousAt == null) return null;
-    final windowMs = now.difference(previousAt).inMilliseconds;
+    final windowMs = cpuAt.difference(previousAt).inMilliseconds;
     if (windowMs <= 0) return null;
     final deltaMs = current.inMilliseconds - previous.inMilliseconds;
     if (deltaMs < 0) return null;

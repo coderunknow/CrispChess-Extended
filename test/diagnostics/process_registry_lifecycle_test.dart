@@ -1,13 +1,16 @@
 // Regression test for the managed-process registry lifecycle across benchmark
-// runs. The registry is process-global: a PID registered outside the runner's
-// watch (or one whose handle was lost) would otherwise survive into the next
-// run and be charged to it as an engine. `BenchmarkService.runWithRunner`'s
-// finally block clears the registry after the runner is disposed, so a fresh
-// run never inherits the previous run's process set.
+// runs. The registry is process-global: engines are created all over the app
+// (benchmarks, preflight, the game screen), so a run's cleanup must remove
+// only the processes *that run* registered. Clearing the whole registry would
+// discard registrations owned by other live engines (a concurrent preflight,
+// the game screen) and charge a later run their memory.
 //
-// The runner's own engine disposal unregisters the processes it watched; the
-// `clear()` is the safety net for everything else. This test registers a PID
-// that no engine will unregister and proves it is gone after a run.
+// `BenchmarkService.runWithRunner` snapshots the registered PIDs before the run
+// and, in its finally block, calls `removeNotIn(preRunPids)` after the runner
+// is disposed. The runner's own engine disposal unregisters the processes it
+// watched; `removeNotIn` is the safety net for anything the run registered
+// outside the runner's watch — and it deliberately leaves pre-run entries
+// (owned by other components) untouched.
 @TestOn('vm')
 library;
 
@@ -26,30 +29,57 @@ import '../support/bench_harness.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('ManagedProcessRegistry lifecycle across runs', () {
-    test('a run clears process-global registrations left by the previous run',
+  group('ManagedProcessRegistry per-run ownership', () {
+    test('snapshotPids returns the current registrations', () {
+      final registry = ManagedProcessRegistry();
+      registry.register(111, label: 'a');
+      registry.register(222, label: 'b');
+      expect(registry.snapshotPids(), {111, 222});
+    });
+
+    test('removeNotIn removes only PIDs not in the baseline', () {
+      final registry = ManagedProcessRegistry();
+      // Baseline (owned outside this run): 111. The run registers 222.
+      registry.register(111, label: 'pre-existing');
+      final baseline = registry.snapshotPids();
+      registry.register(222, label: 'run-owned');
+      expect(registry.contains(222), isTrue);
+
+      registry.removeNotIn(baseline);
+
+      // The run's PID is gone; the pre-existing owner's PID survives.
+      expect(registry.contains(222), isFalse);
+      expect(registry.contains(111), isTrue);
+    });
+
+    test('removeNotIn with an empty baseline clears every entry', () {
+      final registry = ManagedProcessRegistry();
+      registry.register(1, label: 'a');
+      registry.register(2, label: 'b');
+      registry.removeNotIn(const {});
+      expect(registry.count, isZero);
+    });
+
+    test('a run preserves pre-run registrations owned by other engines',
         () async {
+      // A process registered by another live component (preflight, the game
+      // screen) before this run starts. Per-run ownership means the run must
+      // not discard it.
+      managedProcessRegistry.clear();
+      managedProcessRegistry.register(888888, label: 'other engine');
+      expect(managedProcessRegistry.contains(888888), isTrue);
+
       final service = BenchmarkService(
         store: BenchmarkStore(storage: MemoryBenchmarkStorage()),
         profileStore: EngineProfileStore(),
       );
+      await service.runWithRunner(_scriptedRunner());
 
-      // Simulate a process registered outside the runner's watch — for example
-      // a helper that was registered but whose handle was never released. It
-      // is still in the process-global registry when the next run starts.
-      managedProcessRegistry.register(999999, label: 'stale helper');
-      expect(managedProcessRegistry.contains(999999), isTrue);
-
-      final run = await service.runWithRunner(_scriptedRunner());
-      expect(run.games, isNotEmpty);
-
-      // The run's finally block cleared the registry: the stale PID did not
-      // survive into the next run, so a fresh run cannot charge it as an engine.
-      expect(managedProcessRegistry.contains(999999), isFalse);
-      expect(managedProcessRegistry.count, isZero);
+      // The pre-existing registration survives the run's cleanup.
+      expect(managedProcessRegistry.contains(888888), isTrue);
     });
 
-    test('the registry starts empty for a run with no prior registrations',
+    test('the registry starts clean for a run with no prior registrations',
         () async {
       managedProcessRegistry.clear();
       final service = BenchmarkService(

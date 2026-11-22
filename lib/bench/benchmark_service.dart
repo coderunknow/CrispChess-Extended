@@ -412,6 +412,11 @@ class BenchmarkService {
     // and stopping engines; a run must not overlap it.
     if (_preflighting) throw StateError('Engine Preflight is still running.');
     _active = runner;
+    // Snapshot the processes already registered before this run so the
+    // cleanup below removes only the run's own processes and leaves entries
+    // owned by other live engines (a concurrent preflight, the game screen,
+    // another run) untouched.
+    final preRunPids = managedProcessRegistry.snapshotPids();
     // Diagnostics (dev6): a background run keeps engine processes busy after
     // the screen that started it is gone; the log must say so.
     DiagCounters.benchmarksStarted++;
@@ -436,9 +441,10 @@ class BenchmarkService {
       // The runner's disposal unregisters each engine process it watched, but a
       // process registered outside the runner's watch (or one whose handle was
       // lost) would otherwise stay in the process-global registry and be
-      // charged to the next run. Clearing here is the safety net that keeps a
-      // fresh run from inheriting the previous run's process set.
-      managedProcessRegistry.clear();
+      // charged to the next run. Remove only the PIDs registered during this
+      // run (those not in the pre-run snapshot); pre-existing entries belong
+      // to other live engines and must be preserved.
+      managedProcessRegistry.removeNotIn(preRunPids);
     }
   }
 
