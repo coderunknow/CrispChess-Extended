@@ -483,9 +483,11 @@ void main() {
       // Regression: the acknowledged level is forgotten when pressure falls
       // below it, so a later rise back to that level is a new event and pauses
       // again. This is the counterpart to the resumability test above: the
-      // gate is not a one-way latch. The monitor's tick() is driven directly
-      // so the test does not depend on the adaptive timer's (pressure-doubled)
-      // cadence.
+      // gate is not a one-way latch. The pressure changes are applied while
+      // the runner is still paused (the monitor's tick() is driven directly),
+      // then the runner is resumed — the re-pause must fire at the next
+      // boundary before any game plays, so the test does not depend on how
+      // fast the scripted engines complete.
       final probe = _MutableProbe(900 * _mb);
       final runtime = HardwareProtectionRuntime(
         settings: const HardwareProtectionSettings(
@@ -496,7 +498,7 @@ void main() {
         probe: probe,
       );
       final runner = _runner(
-        benchConfig(gamesPerPairing: 1, repetitions: 4, plyCap: 200),
+        benchConfig(gamesPerPairing: 1, repetitions: 1, plyCap: 200),
         hardware: runtime,
         white: ScriptedEngine('Alpha'),
         black: ScriptedEngine('Beta'),
@@ -504,22 +506,27 @@ void main() {
 
       final runFuture = runner.run();
 
-      // HIGH pressure pauses the run.
+      // HIGH pressure pauses the run at the first boundary.
       final firstPause = await _waitFor(() => runner.isPressurePaused,
           const Duration(seconds: 5));
       expect(firstPause, isTrue);
-      runner.resume();
 
-      // Pressure clears below warning; a tick re-evaluates the decision and the
-      // level drop forgets the acknowledged HIGH level.
+      // While paused: pressure clears below warning. A direct tick re-evaluates
+      // the decision and the level drop forgets the acknowledged HIGH level.
       probe.appRssBytes = 100 * _mb;
       runtime.tick();
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      // Pressure rises back to HIGH: a tick makes it a new pause at the
-      // recovered level (the acknowledged gate was reset, not latched).
+      // While still paused: pressure rises back to HIGH. A tick makes the
+      // decision HIGH again; the acknowledged gate was reset, not latched.
       probe.appRssBytes = 900 * _mb;
       runtime.tick();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Resuming must re-pause at the recovered level: the next boundary check
+      // sees HIGH above the (reset) acknowledged level and pauses again before
+      // any game is played.
+      runner.resume();
       final rePaused = await _waitFor(() => runner.isPressurePaused,
           const Duration(seconds: 5));
       expect(rePaused, isTrue);
