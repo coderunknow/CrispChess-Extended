@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart'
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../diagnostics/app_logger.dart';
+import '../diagnostics/engine_process_registry.dart' show managedProcessRegistry;
 import '../diagnostics/hardware_protection_service.dart' show HardwareProtectionRuntime;
 import '../diagnostics/resource_sampler.dart';
 import '../engines/chess_engine.dart' show ChessEngine;
@@ -432,6 +433,12 @@ class BenchmarkService {
       AppLogger.instance.info('benchmark', 'run.finished',
           durationMs: watch.elapsedMilliseconds);
       await runner.dispose();
+      // The runner's disposal unregisters each engine process it watched, but a
+      // process registered outside the runner's watch (or one whose handle was
+      // lost) would otherwise stay in the process-global registry and be
+      // charged to the next run. Clearing here is the safety net that keeps a
+      // fresh run from inheriting the previous run's process set.
+      managedProcessRegistry.clear();
     }
   }
 

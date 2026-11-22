@@ -442,6 +442,94 @@ void main() {
       await runner.dispose();
     });
 
+    test('a resumed pressure pause does not re-pause at the same level',
+        () async {
+      // Regression: after a user resumes a HIGH-pressure pause, a decision
+      // that persists at the same HIGH level must not pause again immediately.
+      // Without the acknowledged-level gate the run would re-pause on the next
+      // boundary and strand until pressure happened to clear. Only a strictly
+      // higher level re-pauses.
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+          ramBudgetMode: RamBudgetMode.absolute,
+          absoluteLimitMb: 1000,
+        ),
+        probe: _FixedProbe(900 * _mb),
+      );
+      final runner = _runner(
+        benchConfig(gamesPerPairing: 1, repetitions: 1, plyCap: 200),
+        hardware: runtime,
+        white: ScriptedEngine('Alpha'),
+        black: ScriptedEngine('Beta'),
+      );
+
+      final runFuture = runner.run();
+
+      final paused = await _waitFor(() => runner.isPressurePaused,
+          const Duration(seconds: 5));
+      expect(paused, isTrue);
+
+      // The user resumes while pressure is still HIGH (the probe is fixed at
+      // 900 MB of the 1000 MB budget). The run must continue to completion
+      // rather than immediately re-pausing at the same level.
+      runner.resume();
+      final run = await runFuture;
+      expect(run.stopReason, 'completed');
+      await runner.dispose();
+    });
+
+    test('a pressure drop then rise back re-pauses at the recovered level',
+        () async {
+      // Regression: the acknowledged level is forgotten when pressure falls
+      // below it, so a later rise back to that level is a new event and pauses
+      // again. This is the counterpart to the resumability test above: the
+      // gate is not a one-way latch. The monitor's tick() is driven directly
+      // so the test does not depend on the adaptive timer's (pressure-doubled)
+      // cadence.
+      final probe = _MutableProbe(900 * _mb);
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+          ramBudgetMode: RamBudgetMode.absolute,
+          absoluteLimitMb: 1000,
+          samplingIntervalSeconds: 1,
+        ),
+        probe: probe,
+      );
+      final runner = _runner(
+        benchConfig(gamesPerPairing: 1, repetitions: 4, plyCap: 200),
+        hardware: runtime,
+        white: ScriptedEngine('Alpha'),
+        black: ScriptedEngine('Beta'),
+      );
+
+      final runFuture = runner.run();
+
+      // HIGH pressure pauses the run.
+      final firstPause = await _waitFor(() => runner.isPressurePaused,
+          const Duration(seconds: 5));
+      expect(firstPause, isTrue);
+      runner.resume();
+
+      // Pressure clears below warning; a tick re-evaluates the decision and the
+      // level drop forgets the acknowledged HIGH level.
+      probe.appRssBytes = 100 * _mb;
+      runtime.tick();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Pressure rises back to HIGH: a tick makes it a new pause at the
+      // recovered level (the acknowledged gate was reset, not latched).
+      probe.appRssBytes = 900 * _mb;
+      runtime.tick();
+      final rePaused = await _waitFor(() => runner.isPressurePaused,
+          const Duration(seconds: 5));
+      expect(rePaused, isTrue);
+
+      runner.cancel();
+      final run = await runFuture;
+      expect(run.stopReason, 'cancelled');
+      await runner.dispose();
+    });
+
     test('a mid-run error persists the partial results before propagating',
         () async {
       // If an unexpected error escapes the game loop (a runner-side failure,
