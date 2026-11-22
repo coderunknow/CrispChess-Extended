@@ -543,6 +543,14 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         trigger: 'manual',
         hardwareProtection: _hardware,
       );
+      // The screen may have been disposed while createRunner awaited profile and
+      // fingerprint IO. In that case _hardware is already disposed; attaching
+      // and running the runner would start a benchmark against a disposed
+      // monitor. Dispose the runner and return without starting it.
+      if (!mounted) {
+        await runner.dispose();
+        return;
+      }
       _attachRunner(runner);
       final run = await _service.runWithRunner(runner);
       if (!mounted) return;
@@ -777,6 +785,13 @@ class _EngineLabScreenState extends State<EngineLabScreen>
         requirePreflight: true,
         hardwareProtection: _hardware,
       );
+      // Same disposed-during-await case as the manual start path: the screen
+      // may be gone before the intelligent runner finished its setup, so
+      // dispose the runner rather than attaching a run to a dead screen.
+      if (!mounted) {
+        await runner.dispose();
+        return;
+      }
       _attachRunner(runner);
       final run = await _service.runWithRunner(runner);
       if (!mounted) return;

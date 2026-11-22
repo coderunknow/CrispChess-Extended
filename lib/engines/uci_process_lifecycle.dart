@@ -131,8 +131,10 @@ mixin UciProcessLifecycle {
   /// is still running (a `GenericUciEngine` may close its stdout without
   /// exiting), and unregistering here would drop a live, still-consuming
   /// process from the memory monitor's accounting. The process is unregistered
-  /// only when its exit code actually lands (see [watchProcess]) or on explicit
-  /// teardown ([stopWatchingProcess]).
+  /// only when its exit code actually lands (see [watchProcess]); teardown
+  /// ([beginProcessDispose] + [stopWatchingProcess]) detaches the stderr watcher
+  /// but keeps the registration so a monitor sample during `stdin.close()`/kill
+  /// still accounts for the not-yet-dead engine, until the exit callback fires.
   void releaseOnLoss() {
     if (_exited) return;
     _exited = true;
@@ -145,15 +147,15 @@ mixin UciProcessLifecycle {
   void beginProcessDispose() => _disposingProcess = true;
 
   void stopWatchingProcess() {
+    // Detach the stderr watcher only. The process is left registered: during
+    // teardown the engine is still alive (stdin.close() and kill() have not
+    // completed yet), and a monitor sample in that window must still account
+    // for it. The exitCode callback — which fires when the process actually
+    // exits, or when a replaced process's stale exit lands — is what removes
+    // the registration, so a PID is never dropped while its process still
+    // holds memory.
     _stderrSub?.cancel();
     _stderrSub = null;
-    // A replaced or disposed process is no longer a managed engine process.
-    final watched = _watched;
-    if (watched != null) managedProcessRegistry.unregister(watched.pid);
-    final latest = _latest;
-    if (latest != null && latest != watched) {
-      managedProcessRegistry.unregister(latest.pid);
-    }
     _watched = null;
   }
 

@@ -96,4 +96,32 @@ void main() {
         reason: 'the exit path must unregister the process');
     host.stopWatchingProcess();
   });
+
+  test('teardown keeps the PID registered until the process actually exits',
+      () async {
+    // Regression: stopWatchingProcess() unregistered the PID before
+    // stdin.close()/kill() completed, so a Hardware Protection sample taken
+    // during teardown (process still alive, still holding memory) omitted the
+    // live engine. Teardown must detach the stderr watcher only and keep the
+    // registration; the exit-code callback is what finally unregisters it.
+    final host = _Host();
+    final process = await Process.start('sleep', ['30']);
+    final pid = process.pid;
+    host.watchProcess(process);
+    expect(managedProcessRegistry.contains(pid), isTrue);
+
+    // Teardown: detach the watcher while the process is still alive.
+    host.beginProcessDispose();
+    host.stopWatchingProcess();
+    // Still alive and still consuming memory: must stay registered.
+    expect(managedProcessRegistry.contains(pid), isTrue,
+        reason: 'a not-yet-dead engine must remain in memory accounting');
+
+    // Only when the process exits does the registration go away.
+    process.kill(ProcessSignal.sigkill);
+    await process.exitCode;
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(managedProcessRegistry.contains(pid), isFalse,
+        reason: 'the exit callback must unregister after teardown');
+  });
 }

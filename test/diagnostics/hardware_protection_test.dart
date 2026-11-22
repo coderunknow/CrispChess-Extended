@@ -229,6 +229,26 @@ void main() {
       expect(errors, contains('Checkpointing must run at least once per game.'));
     });
 
+    test('validation rejects a non-finite percentage limit (would crash floor)',
+        () {
+      // Regression: percentageLimit = NaN passed the 0 < pct <= 100 check
+      // (NaN comparisons are false) and later crashed resolveMemoryBudget's
+      // floor(). Reject non-finite values at validation time.
+      final nan = HardwareProtectionSettings(
+        ramBudgetMode: RamBudgetMode.percentage,
+        percentageLimit: double.nan,
+      );
+      final errors = nan.validationErrors();
+      expect(errors, contains('A percentage memory limit must be a finite '
+          'number between 1 and 100.'));
+
+      final inf = HardwareProtectionSettings(
+        ramBudgetMode: RamBudgetMode.percentage,
+        percentageLimit: double.infinity,
+      );
+      expect(inf.validationErrors(), isNotEmpty);
+    });
+
     test('budgetExplanation never claims an OS-enforced cap', () {
       final auto = HardwareProtectionSettings(
           ramBudgetMode: RamBudgetMode.automatic).budgetExplanation;
@@ -343,6 +363,21 @@ void main() {
             ramBudgetMode: RamBudgetMode.percentage, percentageLimit: 50));
       expect(noMemory.isUsable, isFalse);
     });
+
+    test('a NaN percentage limit resolves to an unusable budget, not a crash',
+        () {
+      // Regression: NaN passed the old guard and reached floor(total * NaN),
+      // throwing an exception on every sample. resolveMemoryBudget must return
+      // an unusable budget instead of throwing.
+      final budget = resolveMemoryBudget(
+        HardwareProtectionSettings(
+            ramBudgetMode: RamBudgetMode.percentage,
+            percentageLimit: double.nan),
+        totalBytes: 16 * 1024 * 1024 * 1024,
+        availableBytes: 8 * 1024 * 1024 * 1024,
+      );
+      expect(budget.isUsable, isFalse);
+    });
   });
 
   group('evaluatePressure', () {
@@ -400,20 +435,20 @@ void main() {
       // reading not to fall below highAt * (1 - hysteresis) = 80.75%.
       final highDecision = evaluatePressure(
         _reading(940), _budget(1000), _settings(),
-        previous: ResourcePressureLevel.high);
+        previousRss: ResourcePressureLevel.high);
       expect(highDecision.level, ResourcePressureLevel.high);
 
       // Falling to 81% is still above the hysteresis band, so we stay high
       // rather than dropping straight to warning.
       final stillHigh = evaluatePressure(
         _reading(810), _budget(1000), _settings(),
-        previous: ResourcePressureLevel.high);
+        previousRss: ResourcePressureLevel.high);
       expect(stillHigh.level, ResourcePressureLevel.high);
 
       // Falling to 79% is below the band, so we drop to warning.
       final drops = evaluatePressure(
         _reading(790), _budget(1000), _settings(),
-        previous: ResourcePressureLevel.high);
+        previousRss: ResourcePressureLevel.high);
       expect(drops.level, ResourcePressureLevel.warning);
     });
 
@@ -422,13 +457,13 @@ void main() {
       // 940 MB is above the exit band, so critical is held (not cleared).
       final at940 = evaluatePressure(
         _reading(940), _budget(1000), _settings(),
-        previous: ResourcePressureLevel.critical);
+        previousRss: ResourcePressureLevel.critical);
       expect(at940.level, ResourcePressureLevel.critical);
 
       // 900 MB is below the exit band, so critical clears to high.
       final at900 = evaluatePressure(
         _reading(900), _budget(1000), _settings(),
-        previous: ResourcePressureLevel.critical);
+        previousRss: ResourcePressureLevel.critical);
       expect(at900.level, ResourcePressureLevel.high);
     });
 
@@ -441,21 +476,21 @@ void main() {
       // High band: entry 850 MB, exit 807.5 MB. 830 MB is in the band.
       final highStays = evaluatePressure(
         _reading(830), _budget(1000), _settings(),
-        previous: ResourcePressureLevel.high);
+        previousRss: ResourcePressureLevel.high);
       expect(highStays.level, ResourcePressureLevel.high);
       expect(highStays.action, PressureAction.pauseAfterGame);
 
       // Critical band: entry 950 MB, exit 902.5 MB. 930 MB is in the band.
       final criticalStays = evaluatePressure(
         _reading(930), _budget(1000), _settings(),
-        previous: ResourcePressureLevel.critical);
+        previousRss: ResourcePressureLevel.critical);
       expect(criticalStays.level, ResourcePressureLevel.critical);
       expect(criticalStays.action, PressureAction.stop);
 
       // Warning band: entry 750 MB, exit 712.5 MB. 730 MB is in the band.
       final warningStays = evaluatePressure(
         _reading(730), _budget(1000), _settings(),
-        previous: ResourcePressureLevel.warning);
+        previousRss: ResourcePressureLevel.warning);
       expect(warningStays.level, ResourcePressureLevel.warning);
       expect(warningStays.action, PressureAction.reduceBackground);
     });
@@ -569,7 +604,7 @@ void main() {
         ),
         _budget(1000),
         _settings(),
-        previous: ResourcePressureLevel.critical,
+        previousHeadroom: ResourcePressureLevel.critical,
       );
       expect(held.level, ResourcePressureLevel.critical);
       expect(held.action, PressureAction.stop);
@@ -585,7 +620,7 @@ void main() {
         ),
         _budget(1000),
         _settings(),
-        previous: ResourcePressureLevel.critical,
+        previousHeadroom: ResourcePressureLevel.critical,
       );
       expect(cleared.level, ResourcePressureLevel.high);
       expect(cleared.action, PressureAction.pauseAfterGame);
@@ -597,6 +632,68 @@ void main() {
         _reading(800), _budget(1000), _settings());
       expect(decision.level, ResourcePressureLevel.warning);
       expect(decision.action, PressureAction.reduceBackground);
+    });
+
+    test('a missing RSS reading still escalates on thin system headroom', () {
+      // Regression: a null RSS figure previously short-circuited to `normal`
+      // before the headroom ladder ran, so a run with no RSS but almost no
+      // free OS memory was reported calm. Only the RSS ladder is skipped;
+      // headroom still decides.
+      final decision = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: null,
+          availableBytes: 30 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        _budget(1000),
+        _settings(),
+      );
+      expect(decision.level, ResourcePressureLevel.critical);
+      expect(decision.action, PressureAction.stop);
+      expect(decision.rssLevel, ResourcePressureLevel.normal);
+      expect(decision.headroomLevel, ResourcePressureLevel.critical);
+    });
+
+    test('RSS and headroom keep independent hysteresis histories', () {
+      // Regression: one shared `previous` was fed to both ladders, so a
+      // critical RSS reading pinned the headroom ladder at critical even after
+      // headroom had cleared its own band. With separate histories each ladder
+      // only holds its own band.
+      //
+      // RSS is critical (960/1000) but headroom is healthy (900/1000
+      // available). Feed RSS's critical forward as the RSS history.
+      final combined = evaluatePressure(
+        ResourceReading(
+          timestamp: DateTime.now(),
+          totalRssBytes: 960 * mb,
+          availableBytes: 900 * mb,
+          totalBytes: 1000 * mb,
+        ),
+        _budget(1000),
+        _settings(),
+        previousRss: ResourcePressureLevel.critical,
+        previousHeadroom: ResourcePressureLevel.critical,
+      );
+      // RSS is still critical; headroom has cleared to normal. The combined
+      // decision is the worse of the two (critical), but headroomLevel is
+      // normal — proof the headroom ladder used its own history, not the RSS
+      // critical level.
+      expect(combined.rssLevel, ResourcePressureLevel.critical);
+      expect(combined.headroomLevel, ResourcePressureLevel.normal);
+      expect(combined.level, ResourcePressureLevel.critical);
+    });
+
+    test('missing RSS and missing headroom together is calm', () {
+      final decision = evaluatePressure(
+        ResourceReading(timestamp: DateTime.now(), totalRssBytes: null),
+        _budget(1000),
+        _settings(),
+      );
+      expect(decision.level, ResourcePressureLevel.normal);
+      expect(decision.action, PressureAction.none);
+      expect(decision.rssLevel, ResourcePressureLevel.normal);
+      expect(decision.headroomLevel, isNull);
     });
   });
 
@@ -621,11 +718,29 @@ void main() {
         final caps = hardwareCapabilitiesFor(platform);
         expect(caps.applicationMemory, CapabilityLevel.fullySupported);
         expect(caps.engineProcessControl, CapabilityLevel.fullySupported);
-        // Regression: cpuManagement was reported as partiallySupported, but no
-        // nonessential-work worker pool enforces the concurrency recommendation,
-        // so the honest level is monitoringOnly (sample + advisory, no
-        // enforcement).
-        expect(caps.cpuManagement, CapabilityLevel.monitoringOnly);
+      }
+    });
+
+    test('cpuManagement is monitoringOnly only where a CPU reader exists',
+        () {
+      // Regression: cpuManagement was reported as monitoringOnly on every
+      // platform, but readApplicationCpu() returns null everywhere except
+      // Linux. Claiming monitoringOnly where there is no reader at all is a
+      // fabricated capability, so those platforms report unavailable and only
+      // Linux — the sole host with a CPU-time reader — keeps monitoringOnly.
+      final linux = hardwareCapabilitiesFor(HardwarePlatform.linux);
+      expect(linux.cpuManagement, CapabilityLevel.monitoringOnly);
+      for (final platform in <HardwarePlatform>[
+        HardwarePlatform.windows,
+        HardwarePlatform.macos,
+        HardwarePlatform.android,
+        HardwarePlatform.ios,
+        HardwarePlatform.web,
+        HardwarePlatform.unknown,
+      ]) {
+        expect(hardwareCapabilitiesFor(platform).cpuManagement,
+            CapabilityLevel.unavailable,
+            reason: '$platform has no readApplicationCpu() implementation');
       }
     });
 
@@ -839,6 +954,39 @@ void main() {
       // Total = app (100) + engines (600) = 700 MB.
       expect(reading.totalRssBytes, 700 * 1024 * 1024);
       expect(reading.engineProcessCount, 2);
+    });
+
+    test('engine count reports every registered PID, not only RSS-deduped ones',
+        () {
+      // Regression: the count was incremented inside the `seen`-guarded loop, so
+      // a registered PID already visited as a descendant of another managed
+      // process was skipped before `engineCount++`, undercounting the resident
+      // engines. The count must equal the registry size regardless of RSS
+      // deduplication; `seen` is only for memory accounting.
+      final registry = ManagedProcessRegistry();
+      registry.register(10, label: 'engine-a');
+      registry.register(11, label: 'engine-a-child'); // descendant of 10
+      final probe = _FakeProbe(
+        appRssBytes: 100 * 1024 * 1024,
+        engineRssByPid: {
+          10: 300 * 1024 * 1024,
+          11: 100 * 1024 * 1024,
+        },
+        childPidsByPid: {10: [11]},
+      );
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+            ramBudgetMode: RamBudgetMode.absolute, absoluteLimitMb: 10000),
+        probe: probe,
+        registry: registry,
+      );
+      runtime.tick();
+      final reading = runtime.lastReading!;
+      // Both registered engines count even though 11's memory is folded into
+      // 10's subtree walk (RSS dedup).
+      expect(reading.engineProcessCount, 2);
+      // RSS is still deduped: 10 + its child 11 counted once = 400 MB.
+      expect(reading.engineRssBytes, 400 * 1024 * 1024);
     });
 
     test('the process tree is enumerated once per sample, not once per engine',
@@ -1103,6 +1251,30 @@ void main() {
       runtime.recordUserDecision(PressureUserDecision.continueAnyway);
       final last = runtime.telemetry.records.last;
       expect(last.userDecision, PressureUserDecision.continueAnyway);
+    });
+
+    test('user-decision elapsedSeconds reflects time since the run started',
+        () async {
+      // Regression: the user-decision telemetry record was hardcoded to
+      // elapsedSeconds: 0, losing how long into the run the decision was made.
+      final runtime = HardwareProtectionRuntime(
+        settings: const HardwareProtectionSettings(
+            ramBudgetMode: RamBudgetMode.absolute, absoluteLimitMb: 1000),
+        probe: _FakeProbe(appRssBytes: 960 * 1024 * 1024),
+      );
+      runtime.start(
+        selectedEngineCount: 1,
+        benchmarkMode: 'manual',
+        threads: 1,
+        hashMb: 128,
+      );
+      runtime.tick();
+      // Give the clock a measurable gap so the elapsed figure is non-zero.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      runtime.recordUserDecision(PressureUserDecision.continueAnyway);
+      final last = runtime.telemetry.records.last;
+      expect(last.elapsedSeconds, greaterThan(0));
+      await runtime.dispose();
     });
 
     test('dispose stops monitoring and closes the stream', () async {

@@ -132,7 +132,14 @@ class HardwareProtectionRuntime {
     action: PressureAction.none,
     reason: 'not started',
     budget: MemoryBudget(source: 'none'),
+    rssLevel: ResourcePressureLevel.normal,
   );
+  /// The RSS signal's own hysteresis history, kept separate from the
+  /// system-headroom signal's history so the two ladders do not contaminate
+  /// each other's bands.
+  ResourcePressureLevel _lastRssLevel = ResourcePressureLevel.normal;
+  /// The system-headroom signal's own hysteresis history.
+  ResourcePressureLevel _lastHeadroomLevel = ResourcePressureLevel.normal;
   MemoryBudget _budget = const MemoryBudget(source: 'none');
   HardwareProtectionContext _context = const HardwareProtectionContext(
     selectedEngineCount: 0,
@@ -197,6 +204,8 @@ class HardwareProtectionRuntime {
     _lastCpu = null;
     _lastCpuAt = null;
     _cpuPercent = null;
+    _lastRssLevel = ResourcePressureLevel.normal;
+    _lastHeadroomLevel = ResourcePressureLevel.normal;
     _runStartedAt = DateTime.now();
     _timer?.cancel();
     if (!settings.enabled) return;
@@ -241,18 +250,29 @@ class HardwareProtectionRuntime {
     final reading = _sample();
     _lastReading = reading;
 
-    final sys = probe.systemMemory();
+    // Resolve the budget from the *same* system-memory reading the pressure
+    // decision uses. Calling probe.systemMemory() a second time could read a
+    // different (or failed) value and evaluate a valid low-memory reading
+    // against an unusable budget, publishing a false `normal`. The reading
+    // already carries total and available bytes.
     _budget = resolveMemoryBudget(
       settings,
-      totalBytes: sys.totalBytes,
-      availableBytes: sys.availableBytes,
+      totalBytes: reading.totalBytes,
+      availableBytes: reading.availableBytes,
     );
     final decision = evaluatePressure(
       reading,
       _budget,
       settings,
-      previous: _lastDecision.level,
+      previousRss: _lastRssLevel,
+      previousHeadroom: _lastHeadroomLevel,
     );
+    // Keep each signal's own level as its hysteresis history; the combined
+    // level is the worse of the two and is not fed back as either signal's
+    // previous (that would let one signal's critical reading hold the other
+    // at critical after it cleared its own band).
+    _lastRssLevel = decision.rssLevel;
+    _lastHeadroomLevel = decision.headroomLevel ?? _lastHeadroomLevel;
     _lastDecision = decision;
 
     if (settings.telemetryEnabled) {
@@ -324,7 +344,8 @@ class HardwareProtectionRuntime {
         engineLifecycleState: _context.engineLifecycleState,
         selectedEngineCount: _context.selectedEngineCount,
         benchmarkMode: _context.benchmarkMode,
-        elapsedSeconds: 0,
+        elapsedSeconds:
+            (record.timestamp.difference(_runStartedAt).inMilliseconds / 1000),
         threads: _context.threads,
         hashMb: _context.hashMb,
         pressureLevel: _lastDecision.level,
@@ -403,7 +424,12 @@ class HardwareProtectionRuntime {
     final appRss = probe.applicationRss();
 
     var engineRss = 0;
-    var engineCount = 0;
+    // The reported engine count is the number of registered processes, taken
+    // independently of the `seen`-based RSS deduplication below. A registered
+    // PID that is a descendant of another registered PID is skipped by `seen`
+    // (its memory is already counted via its parent's traversal) but it is
+    // still a registered engine and must be counted.
+    final engineCount = registry.count;
     var enginesMeasured = false;
     final seen = <int>{};
     // Enumerate the process tree once for the whole sample, then look each
@@ -419,7 +445,6 @@ class HardwareProtectionRuntime {
         engineRss += value;
         enginesMeasured = true;
       }
-      engineCount++;
       // Supplement, not replace: walk descendants only where the platform
       // exposes them, and only for processes we manage. A managed engine may
       // start a helper that itself starts workers, so every level of the

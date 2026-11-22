@@ -171,10 +171,14 @@ enum HardwarePlatform {
 /// reported as unavailable rather than guessed. Mobile and web cannot inspect
 /// arbitrary host processes.
 ///
-/// `cpuManagement` is `monitoringOnly` on every platform: CPU usage is sampled
-/// and an advisory background-concurrency recommendation is published, but no
-/// nonessential-work worker pool enforces it, so the app does not claim to
-/// manage (as opposed to monitor) background CPU work.
+/// `cpuManagement` is `monitoringOnly` on Linux, the only platform that reads
+/// a CPU-time figure (`/proc/self/stat`): CPU usage is sampled and an advisory
+/// background-concurrency recommendation is published, but no nonessential-work
+/// worker pool enforces it, so the app does not claim to manage (as opposed to
+/// monitor) background CPU work. On every other platform there is no CPU-time
+/// reader, so `cpuManagement` is reported `unavailable` rather than implying a
+/// CPU reading that does not exist; the memory-pressure concurrency
+/// recommendation is still published as a separate advisory value.
 HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
     switch (platform) {
       HardwarePlatform.windows => const HardwareCapabilitySet(
@@ -182,7 +186,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.fullySupported,
-          cpuManagement: CapabilityLevel.monitoringOnly,
+          cpuManagement: CapabilityLevel.unavailable,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.fullySupported),
@@ -200,7 +204,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.fullySupported,
           processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.partiallySupported,
-          cpuManagement: CapabilityLevel.monitoringOnly,
+          cpuManagement: CapabilityLevel.unavailable,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.fullySupported),
@@ -209,7 +213,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.unavailable,
-          cpuManagement: CapabilityLevel.monitoringOnly,
+          cpuManagement: CapabilityLevel.unavailable,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.unavailable),
@@ -218,7 +222,7 @@ HardwareCapabilitySet hardwareCapabilitiesFor(HardwarePlatform platform) =>
           engineProcessMemory: CapabilityLevel.unavailable,
           processTreeMemory: CapabilityLevel.unavailable,
           availableSystemMemory: CapabilityLevel.unavailable,
-          cpuManagement: CapabilityLevel.monitoringOnly,
+          cpuManagement: CapabilityLevel.unavailable,
           thermalMonitoring: CapabilityLevel.unavailable,
           batteryMonitoring: CapabilityLevel.unavailable,
           engineProcessControl: CapabilityLevel.unavailable),
@@ -374,18 +378,21 @@ class HardwareProtectionSettings {
   /// settings screen so the user knows what the numbers mean.
   String get budgetExplanation => switch (ramBudgetMode) {
         RamBudgetMode.automatic =>
-            'Automatic: the limit is the memory the OS currently reports as '
-            'usable, minus a ${memoryReserveMb} MB reserve. It follows changing '
-            'availability, not just installed RAM. This is a planning target, '
-            'not an OS-enforced cap.',
+            'Automatic: the limit is the total system memory, minus a '
+            '${memoryReserveMb} MB reserve. It is derived from the installed '
+            'RAM (falling back to currently available memory only when total '
+            'memory is not reported), so it stays a stable target while usage '
+            'rises toward it. This is a planning target, not an OS-enforced '
+            'cap.',
         RamBudgetMode.absolute =>
             'Absolute: the app and its engines aim to stay under '
             '${absoluteLimitMb ?? 0} MB. This is a planning target, not an '
             'OS-enforced cap on platforms that cannot enforce one.',
         RamBudgetMode.percentage =>
             'Percentage: the app and its engines aim to stay under '
-            '${(percentageLimit ?? 0).toStringAsFixed(0)}% of the memory the '
-            'OS currently reports as usable. This is a planning target, not an '
+            '${(percentageLimit ?? 0).toStringAsFixed(0)}% of the total system '
+            'memory (falling back to currently available memory only when '
+            'total memory is not reported). This is a planning target, not an '
             'OS-enforced cap.',
       };
 
@@ -473,8 +480,11 @@ class HardwareProtectionSettings {
       errors.add('An absolute memory limit must be positive.');
     }
     if (percentageLimit != null &&
-        (percentageLimit! <= 0 || percentageLimit! > 100)) {
-      errors.add('A percentage memory limit must be between 1 and 100.');
+        (!percentageLimit!.isFinite ||
+            percentageLimit! <= 0 ||
+            percentageLimit! > 100)) {
+      errors.add('A percentage memory limit must be a finite number between 1 '
+          'and 100.');
     }
     for (final (name, ratio) in <(String, double)>[
       ('warning', warningRatio),
@@ -707,7 +717,8 @@ MemoryBudget resolveMemoryBudget(
       // 4 GiB RSS would immediately saturate). Total memory is the consistent
       // quantity: the run's RSS is a subset of it.
       final base = totalBytes ?? available;
-      if (pct == null || pct <= 0 || base == null || base <= 0) {
+      if (pct == null || !pct.isFinite || pct <= 0 || base == null ||
+          base <= 0) {
         return const MemoryBudget(
           source: 'percentage: no usable limit',
         );
@@ -911,17 +922,34 @@ enum PressureAction {
 }
 
 /// The outcome of evaluating one reading.
+///
+/// [level]/[action]/[reason] are the *combined* decision (the worse of the two
+/// signals). [rssLevel] and [headroomLevel] carry each signal's own evaluated
+/// level so the caller can keep a separate hysteresis history per signal:
+/// passing the combined level back as either signal's `previous` would let one
+/// signal's critical reading hold the other signal at critical even after that
+/// signal cleared its own band.
 class PressureDecision {
   final ResourcePressureLevel level;
   final PressureAction action;
   final String reason;
   final MemoryBudget budget;
 
+  /// The RSS ladder's own level for this sample (normal when RSS was
+  /// unavailable and the ladder was skipped).
+  final ResourcePressureLevel rssLevel;
+
+  /// The system-headroom ladder's own level for this sample, or null when no
+  /// headroom data was available and the ladder was skipped.
+  final ResourcePressureLevel? headroomLevel;
+
   const PressureDecision({
     required this.level,
     required this.action,
     required this.reason,
     required this.budget,
+    required this.rssLevel,
+    this.headroomLevel,
   });
 
   bool get isCalm => level == ResourcePressureLevel.normal;
@@ -931,6 +959,7 @@ class PressureDecision {
         'action': action.id,
         'reason': reason,
         'budget': budget.toJson(),
+        if (headroomLevel != null) 'headroomLevel': headroomLevel!.id,
       };
 }
 
@@ -1055,10 +1084,12 @@ class PressureDecision {
 
 /// Pure pressure evaluation with hysteresis.
 ///
-/// Given a reading, a budget and the previous level, it returns the next level
-/// and the action to take. The previous level is part of the input so the
-/// hysteresis bands are stable across samples: leaving a level requires the
-/// usage to fall below the entry threshold by the hysteresis fraction.
+/// Given a reading, a budget and each signal's own previous level, it returns
+/// the next combined level and the action to take. Each signal keeps its own
+/// hysteresis history: [previousRss] feeds the RSS ladder and [previousHeadroom]
+/// feeds the system-headroom ladder. Sharing one combined `previous` between
+/// them would let a critical reading in one signal hold the *other* signal at
+/// critical even after that signal had cleared its own band.
 ///
 /// Two independent signals are combined by taking the *worse* of the two:
 /// the benchmark's RSS against its budget, and the measured system headroom
@@ -1066,12 +1097,16 @@ class PressureDecision {
 /// while the OS reports almost no free memory — other processes, page cache or
 /// the kernel can consume the rest — leaving the benchmark as the last
 /// allocation before an OOM kill. A thin headroom is therefore an independent
-/// signal that must be able to escalate on its own.
+/// signal that must be able to escalate on its own, and it is evaluated even
+/// when the RSS figure is unavailable (a missing RSS reading skips only the
+/// RSS ladder, not the headroom ladder). The decision is `normal` only when
+/// neither signal can be evaluated.
 PressureDecision evaluatePressure(
   ResourceReading reading,
   MemoryBudget budget,
   HardwareProtectionSettings settings, {
-  ResourcePressureLevel previous = ResourcePressureLevel.normal,
+  ResourcePressureLevel previousRss = ResourcePressureLevel.normal,
+  ResourcePressureLevel previousHeadroom = ResourcePressureLevel.normal,
 }) {
   if (!settings.enabled || !budget.isUsable) {
     return const PressureDecision(
@@ -1079,53 +1114,75 @@ PressureDecision evaluatePressure(
       action: PressureAction.none,
       reason: 'Hardware Protection is disabled or no budget is available.',
       budget: MemoryBudget(source: 'none'),
-    );
-  }
-  final usage = reading.usageBytes;
-  if (usage == null || usage <= 0) {
-    return PressureDecision(
-      level: ResourcePressureLevel.normal,
-      action: PressureAction.none,
-      reason: 'No usable memory reading was available.',
-      budget: budget,
+      rssLevel: ResourcePressureLevel.normal,
     );
   }
 
-  final limit = budget.limitBytes!;
-  final (rssLevel, rssAction, rssReason) =
-      _evaluateLadder(usage, limit, settings, previous, headroom: false);
+  // RSS ladder. Only evaluated when a usable RSS figure exists; a missing
+  // reading skips this ladder alone and leaves the headroom ladder to decide.
+  final usage = reading.usageBytes;
+  final ResourcePressureLevel rssLevel;
+  final PressureAction rssAction;
+  final String rssReason;
+  if (usage != null && usage > 0) {
+    final (level, action, reason) =
+        _evaluateLadder(usage, budget.limitBytes!, settings, previousRss,
+            headroom: false);
+    rssLevel = level;
+    rssAction = action;
+    rssReason = reason;
+  } else {
+    rssLevel = ResourcePressureLevel.normal;
+    rssAction = PressureAction.none;
+    rssReason = 'No usable RSS reading was available.';
+  }
 
   // Measured system headroom: the memory the OS still has available, evaluated
-  // against total system memory with the same ladder. This is independent of
-  // the benchmark's RSS: a run can sit comfortably below its budget while the
-  // OS reports almost no free memory, so headroom must be able to escalate on
-  // its own. The two signals are combined by taking the worse.
+  // against total system memory with the same ladder and its own previous
+  // level. This is independent of the benchmark's RSS: a run can sit comfortably
+  // below its budget while the OS reports almost no free memory, so headroom
+  // must be able to escalate on its own. The two signals are combined by
+  // taking the worse.
   final available = reading.availableBytes;
   final total = reading.totalBytes;
-  ResourcePressureLevel next = rssLevel;
-  PressureAction action = rssAction;
-  String reason = rssReason;
-
+  final ResourcePressureLevel? headroomLevel;
+  final PressureAction? headroomAction;
+  final String? headroomReason;
   if (available != null && total != null && total > 0) {
     final headroomUsed = total - available;
-    final (headroomLevel, headroomAction, headroomReason) = _evaluateLadder(
+    final (level, action, reason) = _evaluateLadder(
       headroomUsed,
       total,
       settings,
-      previous,
+      previousHeadroom,
       headroom: true,
     );
-    // Take the worse of the two signals. When headroom is at least as severe
-    // as the RSS reading, its level, action and reason win; otherwise the RSS
-    // signal stands.
-    if (headroomLevel.index >= next.index) {
-      next = headroomLevel;
-      action = headroomAction;
-      reason = headroomReason;
-    }
+    headroomLevel = level;
+    headroomAction = action;
+    headroomReason = reason;
   }
 
-  return PressureDecision(level: next, action: action, reason: reason, budget: budget);
+  // Combine: take the worse of the two signals. When headroom is at least as
+  // severe as the RSS reading, its level, action and reason win; otherwise the
+  // RSS signal stands. If RSS was unavailable, the headroom signal (if any)
+  // decides; if neither was available, the decision is normal.
+  ResourcePressureLevel next = rssLevel;
+  PressureAction action = rssAction;
+  String reason = rssReason;
+  if (headroomLevel != null && headroomLevel.index >= next.index) {
+    next = headroomLevel;
+    action = headroomAction!;
+    reason = headroomReason!;
+  }
+
+  return PressureDecision(
+    level: next,
+    action: action,
+    reason: reason,
+    budget: budget,
+    rssLevel: rssLevel,
+    headroomLevel: headroomLevel,
+  );
 }
 
 /// A user decision recorded for the diagnostic report.
