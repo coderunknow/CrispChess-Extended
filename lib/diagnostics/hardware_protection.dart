@@ -1145,9 +1145,9 @@ PressureDecision evaluatePressure(
   // taking the worse.
   final available = reading.availableBytes;
   final total = reading.totalBytes;
-  final ResourcePressureLevel? headroomLevel;
-  final PressureAction? headroomAction;
-  final String? headroomReason;
+  ResourcePressureLevel? headroomLevel;
+  PressureAction? headroomAction;
+  String? headroomReason;
   if (available != null && total != null && total > 0) {
     final headroomUsed = total - available;
     final (level, action, reason) = _evaluateLadder(

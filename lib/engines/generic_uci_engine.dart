@@ -11,7 +11,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../diagnostics/app_logger.dart';
-import '../diagnostics/engine_process_registry.dart' show managedProcessRegistry;
 import '../diagnostics/resource_sampler.dart';
 import 'chess_engine.dart';
 import 'engine_initialization.dart';
@@ -735,9 +734,8 @@ class GenericUciEngine
       // replaced process whose exit code never landed or was already handled,
       // so drop it from the registry now. The live-teardown path below keeps
       // the registration until the exit callback fires.
-      final stale = _latest;
       stopWatchingProcess();
-      if (stale != null) managedProcessRegistry.unregister(stale.pid);
+      unregisterStaleLatest();
       return;
     }
 

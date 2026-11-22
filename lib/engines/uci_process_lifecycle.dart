@@ -159,6 +159,18 @@ mixin UciProcessLifecycle {
     _watched = null;
   }
 
+  /// Drops the registration for the most recently watched process when there
+  /// is no live process to protect (teardown found `_process` already null).
+  /// The live-teardown path keeps the registration until the exit callback;
+  /// this only fires when nothing is alive, so the stale PID must be removed
+  /// here or it would leak in the registry and, after PID reuse, be charged
+  /// as an engine. `_latest` is kept so a death that lands just after teardown
+  /// still records its exit code.
+  void unregisterStaleLatest() {
+    final latest = _latest;
+    if (latest != null) managedProcessRegistry.unregister(latest.pid);
+  }
+
   /// The death report, with the exit code if it can be had.
   ///
   /// Stdout closes a moment before the exit code lands, and the code is the
