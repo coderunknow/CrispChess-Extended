@@ -13,8 +13,7 @@ void main() {
     test('a value containing a comma is quoted', () {
       final log = ResourceTelemetryLog();
       log.add(_record(benchmarkMode: 'quick, deep'));
-      final csv = log.toCsv();
-      final dataLine = csv.split('\n').last;
+      final dataLine = _lastDataLine(log.toCsv());
       // The comma inside the value is protected by quotes, so the row still has
       // exactly 19 columns.
       expect(_columnCount(dataLine), 19);
@@ -24,25 +23,35 @@ void main() {
     test('a value containing a double quote has the quote doubled', () {
       final log = ResourceTelemetryLog();
       log.add(_record(benchmarkMode: 'a "quoted" mode'));
-      final csv = log.toCsv();
-      final dataLine = csv.split('\n').last;
+      final dataLine = _lastDataLine(log.toCsv());
       expect(_columnCount(dataLine), 19);
       expect(dataLine, contains('"a ""quoted"" mode"'));
     });
 
     test('an empty log writes only the header row', () {
-      final csv = ResourceTelemetryLog().toCsv();
-      expect(csv.split('\n').length, 1);
+      final lines = _nonEmptyLines(ResourceTelemetryLog().toCsv());
+      expect(lines.length, 1);
     });
 
     test('a plain value is written unquoted', () {
       final log = ResourceTelemetryLog();
       log.add(_record(benchmarkMode: 'standard'));
-      final dataLine = log.toCsv().split('\n').last;
+      final dataLine = _lastDataLine(log.toCsv());
       expect(dataLine, contains(',standard,'));
     });
   });
 }
+
+/// The last non-empty line of the CSV (the most recently added record). The
+/// writer ends each line with a newline, so a trailing empty segment must be
+/// dropped before reading the data row.
+String _lastDataLine(String csv) {
+  final lines = _nonEmptyLines(csv);
+  return lines.last;
+}
+
+List<String> _nonEmptyLines(String csv) =>
+    csv.split('\n').where((line) => line.isNotEmpty).toList();
 
 /// Count CSV columns on a single data line, honouring quoted fields (which may
 /// contain commas). A naive split would miscount a line whose value was quoted
