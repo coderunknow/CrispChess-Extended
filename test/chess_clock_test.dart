@@ -119,5 +119,45 @@ void main() {
       expect(TimeControl.rapid15.baseTime, const Duration(minutes: 15));
       expect(TimeControl.rapid15.incrementSeconds, 10);
     });
+
+    test('charges real time when the event loop was blocked', () async {
+      final clock = ChessClock(timeControl: TimeControl.blitz5);
+      clock.start();
+      final before = clock.white.remaining;
+
+      // Block the event loop for ~600ms: Timer.periodic cannot fire during
+      // it, and the old fixed -100ms-per-fire accounting charged only one
+      // queued fire afterwards — losing most of the minute the player
+      // actually spent. The tick must charge the whole gap.
+      final blocked = Stopwatch()..start();
+      while (blocked.elapsedMilliseconds < 600) {}
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final charged = before - clock.white.remaining;
+      expect(charged, greaterThan(const Duration(milliseconds: 450)));
+      clock.dispose();
+    });
+
+    test('paused time is never charged', () async {
+      final clock = ChessClock(timeControl: TimeControl.blitz5);
+      clock.start();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      clock.pause();
+      final atPause = clock.white.remaining;
+
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      clock.resume();
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      final chargedWhilePausedAndAfter = atPause - clock.white.remaining;
+      // Nothing for the 600ms paused window (a reset-marker regression would
+      // charge it: ~750ms total); only the ~150ms of running time after
+      // resume, with slack for a stalled test machine.
+      expect(
+        chargedWhilePausedAndAfter,
+        lessThan(const Duration(milliseconds: 450)),
+      );
+      clock.dispose();
+    });
   });
 }
