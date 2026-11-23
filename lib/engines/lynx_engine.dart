@@ -116,9 +116,20 @@ class LynxEngine
     }
   }
 
-  static bool get isAvailable =>
-      !kIsWeb &&
-      (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
+  static bool get isAvailable {
+    if (kIsWeb) return false;
+    // macOS ships both arches; Windows ships x64 (emulated on arm64).
+    if (Platform.isMacOS || Platform.isWindows) return true;
+    // The release only ships x64 Linux binaries — the artifact registry
+    // records them as arch: 'x64' and `sourceFor` refuses other arches.
+    // This gate used to accept any Linux, so an arm64 host was offered a
+    // ~30MB x64 zip that extracted cleanly and then failed to exec on every
+    // start, while the Engine Manager correctly said "no artifact for
+    // linux/arm64". The two must agree: no download for an arch nothing can
+    // run here.
+    if (Platform.isLinux) return currentArchName() == 'x64';
+    return false;
+  }
 
   @override
   String get processLabel => 'Lynx';
