@@ -35,7 +35,16 @@ class PlayerProfile {
 
   static const empty = PlayerProfile(0, {}, []);
 
-  /// Builds a profile from saved games (the app's history, newest last).
+  /// Builds a profile from saved games.
+  ///
+  /// [pgns] is the app's history in storage order — newest first, which is
+  /// how `addGameToHistory` writes it (insert at the front) — and [moves]
+  /// keeps that order: most recent games first, as the field documents. The
+  /// old `pgns.reversed` flipped production's newest-first list into
+  /// oldest-first, so `estimatePlayerElo`'s `moves.take(120)` sampled the
+  /// player's first few games ever instead of their current form. The
+  /// repertoire is a count map and does not depend on order.
+  ///
   /// [playerName] is the PGN name of the player's side ("Human" in games
   /// against an engine; both sides in two-player games). Only games from the
   /// standard start count; the repertoire covers the first [bookPlies] plies.
@@ -44,7 +53,7 @@ class PlayerProfile {
     final repertoire = <String, Map<String, int>>{};
     final moves = <PlayerMove>[];
     var games = 0;
-    for (final pgn in pgns.reversed) {
+    for (final pgn in pgns) {
       final headers = parseHeaders(pgn);
       final white = headers['White'] == playerName;
       final black = headers['Black'] == playerName;
