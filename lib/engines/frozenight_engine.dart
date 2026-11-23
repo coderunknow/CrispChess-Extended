@@ -150,7 +150,10 @@ class FrozenightEngine implements ChessEngine {
       stage = 'verify-ready';
       _available = true;
       _initializationError = null;
-      _stateNotifier.value = EngineState.ready;
+      // A dispose() that landed while the library was being resolved must not
+      // be overwritten with `ready` — the tail of this body is synchronous,
+      // so this is the first point it can interleave.
+      if (!_disposed) _stateNotifier.value = EngineState.ready;
     } catch (error, stack) {
       _releaseHandle();
       _available = false;

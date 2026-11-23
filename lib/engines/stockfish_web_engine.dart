@@ -282,7 +282,9 @@ class StockfishEngine
       final parts = trimmed.split(' ');
       finishSearch(
           parts.length >= 2 && parts[1] != '(none)' ? parts[1] : null);
-      _stateNotifier.value = EngineState.ready;
+      // A buffered bestmove can still be delivered after dispose(); it must
+      // not resurrect the engine to `ready` (same rule as stop() below).
+      if (!_init.disposed) _stateNotifier.value = EngineState.ready;
     }
   }
 

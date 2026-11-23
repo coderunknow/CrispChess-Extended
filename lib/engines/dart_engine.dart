@@ -103,7 +103,7 @@ class DartEngine implements ChessEngine {
       // 1 with no clock inside the isolate; the web path has to do it here.
       // A cancelled search must not fall back either: the fallback is fresh
       // depth-1 work the caller just asked us to stop doing.
-      if (kIsWeb && !_stopRequested) {
+      if (kIsWeb && !_stopRequested && !_disposed) {
         result ??= await _searchFallback(parsed.baseFen, parsed.moves);
       }
       if (_stopRequested) {
@@ -120,7 +120,10 @@ class DartEngine implements ChessEngine {
       rethrow;
     }
 
-    _stateNotifier.value = EngineState.ready;
+    // A dispose() that landed while the web search was breaking out of its
+    // loop must not be overwritten with `ready` here (the catch above guards
+    // its own write; this one runs on the success path).
+    if (!_disposed) _stateNotifier.value = EngineState.ready;
 
     // Genuinely nothing to play: checkmate or stalemate.
     if (result == null) throw StateError('No legal moves');

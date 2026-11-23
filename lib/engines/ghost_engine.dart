@@ -132,7 +132,7 @@ class GhostEngine
     if (_maia == null && policyOverride == null) {
       throw StateError('Not initialized');
     }
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
     try {
       final fen = fenFromPositionCommand(positionCommand);
       final legal = {
@@ -155,7 +155,7 @@ class GhostEngine
       }
       return policy.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
     } finally {
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
     }
   }
 
@@ -164,6 +164,14 @@ class GhostEngine
           {int? depth, bool infinite = false}) =>
       _maia?.analyze(positionCommand, depth: depth, infinite: infinite) ??
       const Stream.empty();
+
+  /// State writes never resurrect a disposed engine: dispose() may land while
+  /// a policy lookup is in flight, and its completion must not overwrite
+  /// [EngineState.disposed] with [EngineState.ready]. The same guard is what
+  /// dart_engine and the Frozenight engines already use.
+  void _setState(EngineState next) {
+    if (!_init.disposed) _stateNotifier.value = next;
+  }
 
   @override
   void stop() => _maia?.stop();

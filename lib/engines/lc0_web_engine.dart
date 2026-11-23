@@ -158,7 +158,7 @@ class Lc0Engine
     int? skillLevel,
   }) async {
     if (!_modelLoaded) throw StateError('Not initialized');
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
     _stopRequested = false;
 
     try {
@@ -181,12 +181,12 @@ class Lc0Engine
       }
 
       if (legalMoves.isEmpty) {
-        _stateNotifier.value = EngineState.ready;
+        _setState(EngineState.ready);
         throw StateError('No legal moves');
       }
 
       if (legalMoves.length == 1) {
-        _stateNotifier.value = EngineState.ready;
+        _setState(EngineState.ready);
         return legalMoves.first;
       }
 
@@ -229,11 +229,11 @@ class Lc0Engine
       _searchBaseFen = parsed.baseFen;
       _searchMoves = List.of(parsed.moves);
 
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
       return search.move;
     } catch (e) {
       debugPrint('[Lc0/Web] bestMove failed: $e');
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
       rethrow;
     }
   }
@@ -443,7 +443,7 @@ class Lc0Engine
   Stream<EvalInfo> analyze(String positionCommand,
       {int? depth, bool infinite = false}) async* {
     if (!_modelLoaded) return;
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
 
     try {
       final played =
@@ -471,11 +471,21 @@ class Lc0Engine
       // stream error as an analysis failure, which is reported quietly and
       // does not touch the game.
       debugPrint('[Lc0/Web] Analysis error: $e');
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
       rethrow;
     }
 
-    _stateNotifier.value = EngineState.ready;
+    _setState(EngineState.ready);
+  }
+
+  /// State writes never resurrect a disposed engine: dispose() may land while
+  /// a search is in flight, and its completion must not overwrite
+  /// [EngineState.disposed] with [EngineState.ready]. A resurrected engine
+  /// looks usable while `_modelLoaded` is false — every later move fails with
+  /// `StateError('Not initialized')` and nothing ever rebuilds it. The same
+  /// guard is what dart_engine and the Frozenight engines already use.
+  void _setState(EngineState next) {
+    if (!_init.disposed) _stateNotifier.value = next;
   }
 
   @override
