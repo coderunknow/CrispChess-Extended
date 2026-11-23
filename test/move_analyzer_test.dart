@@ -310,10 +310,12 @@ void main() {
         );
 
     test('a bishop that pins a knight to the king is labelled a pin', () {
-      // After 1.e4 e5 2.Nf3 Nc6 white plays 3.Bb5: the bishop on b5 attacks
-      // the knight on c6, which shields the king on e8 along c6-d7-e8.
-      const preFen = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3';
-      const postFen = 'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 3';
+      // Bishop on b5, knight on c6, king on e8 with d7 empty: the ray
+      // b5-c6-d7-e8 is the pin line. (In the real Ruy Lopez the d7 pawn
+      // sits on that ray, so Bb5 pins nothing — the pawn is removed here
+      // to make the pattern the explanation describes.)
+      const preFen = 'r1bqkbnr/ppp1pppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3';
+      const postFen = 'r1bqkbnr/ppp1pppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 3';
       final analyzer = MoveAnalyzer(chess.Chess.fromFEN(postFen));
       final annotation = analyzer.analyzeMove(
         uciMove: 'f1b5',
