@@ -1,4 +1,6 @@
 {
+  "installCommand": "export PATH=$HOME/flutter/bin:$PATH; if [ ! -x $HOME/flutter/bin/flutter ]; then git clone --depth 1 -b stable https://github.com/flutter/flutter.git $HOME/flutter || exit 1; fi; flutter config --no-analytics >/dev/null 2>&1 || true; flutter --version && flutter pub get",
+  "buildCommand": "export PATH=$HOME/flutter/bin:$PATH; dart run intl_utils:generate || flutter gen-l10n || true; flutter build web --release --wasm || flutter build web --release",
   "outputDirectory": "build/web",
   "routes": [
     { "handle": "filesystem" },
