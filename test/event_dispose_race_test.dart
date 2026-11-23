@@ -11,7 +11,6 @@
 // lands after `await bestMove(...)`, which a dispose() can outlive.
 import 'dart:async';
 
-import 'package:crispchess/engines/chess_engine.dart';
 import 'package:crispchess/services/engine_match_service.dart';
 import 'package:crispchess/services/engine_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,7 +72,7 @@ void main() {
 
   test('EngineService: dispose mid-move lets requestMove complete', () async {
     final engine = ScriptedEngine('S');
-    final release = Completer<void>();
+    final release = Completer<String>();
     engine.ask = (moveNumber, ply) => release.future;
 
     final service = EngineService(engine);
