@@ -534,37 +534,53 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
 
   /// Load a game from PGN. Returns true on success.
   bool loadPgn(String pgnText) {
-    final loaded = importPgn(pgnText);
-    if (loaded == null) return false;
-
-    _invalidatePositionCaches();
-    // Replace the game state — chess package doesn't support direct assignment
-    // so we reset and replay
-    _game.reset();
-    _annotations.clear();
-    _lastEvaluation = null;
-    _lastDepth = null;
-
-    // Load the PGN into our game instance
+    final headers = parseHeaders(pgnText);
+    final startFen = (headers['FEN'] ?? '').trim();
     final moveText = pgnText.split('\n')
         .where((l) => !l.trim().startsWith('[') && l.trim().isNotEmpty)
         .join(' ')
         .trim();
-    if (moveText.isNotEmpty) {
-      _game.load_pgn(moveText);
+
+    // Movetext without move numbers never matches the package's header
+    // finder (`\n<digits>.`), so a [FEN] tag on such a paste would be
+    // silently ignored and the moves checked against the wrong board.
+    // Reject rather than load a position the PGN did not describe.
+    if (startFen.isNotEmpty &&
+        moveText.isNotEmpty &&
+        !RegExp(r'\r?\n\s*\d+\.{1,3}').hasMatch(pgnText)) {
+      return false;
     }
 
-    // Rebuild the tree from what was loaded. The tree is the source of truth
-    // for the move list, the notation and the engine's position command, so
-    // leaving it pointing at the previous game would describe the wrong game
-    // to the engine. Replaying through makeMove also fills in SAN and
-    // annotations exactly as if the moves had been played.
-    final replay = _game.history
+    // Validate the movetext against the position the PGN actually starts
+    // from. The package's load_pgn reads the [FEN] header itself, so it gets
+    // the whole text: the old path stripped every header first and checked
+    // the moves against the standard initial position, which both rejected
+    // legal games from custom positions and — worse — silently loaded the
+    // wrong board when the moves happened to also be legal from the start.
+    final probe = chess.Chess();
+    if (moveText.isNotEmpty) {
+      bool ok;
+      try {
+        ok = probe.load_pgn(pgnText);
+      } catch (_) {
+        return false;
+      }
+      if (!ok) return false;
+    } else if (startFen.isNotEmpty) {
+      // A position-only PGN (no moves) still has to load its position.
+      if (!probe.load(startFen)) return false;
+    }
+    final replay = probe.history
         .map((h) =>
             '${h.move.fromAlgebraic}${h.move.toAlgebraic}${h.move.promotion?.name ?? ''}')
         .toList();
-    _game.reset();
+
     _invalidatePositionCaches();
+    // Replace the game state — chess package doesn't support direct assignment
+    // so we reset and replay
+    _annotations.clear();
+    _lastEvaluation = null;
+    _lastDepth = null;
     // Clear the game-end and three-check flags too: loading a new PGN must
     // start from a fresh state. Without this, a previously resigned/drawn
     // game left `isGameOver` permanently true, and a previously played
@@ -575,6 +591,18 @@ void _completeLastAnnotation(double evalAfter, String bestMove, int depth) {
     _drawAgreed = false;
     whiteChecks = 0;
     blackChecks = 0;
+    if (startFen.isNotEmpty) {
+      if (!_game.load(startFen)) return false;
+    } else {
+      _game.reset();
+    }
+
+    // Rebuild the tree from what was loaded. The tree is the source of truth
+    // for the move list, the notation and the engine's position command, so
+    // leaving it pointing at the previous game would describe the wrong game
+    // to the engine. Replaying through makeMove also fills in SAN and
+    // annotations exactly as if the moves had been played. The probe above
+    // proved every move legal from this same starting position.
     _tree = GameTree(startFen: _game.fen);
     _annotations.clear();
     for (final uci in replay) {

@@ -92,6 +92,44 @@ void main() {
       expect(reloaded.moveHistorySan, game.moveHistorySan);
       expect(reloaded.currentFEN, game.currentFEN);
     });
+
+    test('round-trips a FEN-start game back onto the same position', () {
+      // The importer used to strip every header before parsing, so the moves
+      // were checked against the standard initial position: this game's
+      // `Nf6 Nc3` are legal from the start, so the load "succeeded" and
+      // silently produced a different position than the PGN described.
+      const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 3 3';
+      final game = ChessGame();
+      expect(game.loadFen(fen), isTrue);
+      expect(game.makeMove('g8f6'), isTrue);
+      expect(game.makeMove('b1c3'), isTrue);
+
+      final reloaded = ChessGame();
+      expect(reloaded.loadPgn(game.toPgn()), isTrue);
+      expect(reloaded.currentFEN, game.currentFEN);
+      expect(reloaded.moveHistory, game.moveHistory);
+      expect(reloaded.moveHistorySan, game.moveHistorySan);
+    });
+
+    test('rejects a PGN whose moves are illegal from its own [FEN]', () {
+      // Na1 is a knight here but a rook on the standard board: the old
+      // standard-start validation failed with "Invalid PGN" for a legal
+      // game. The moves must be checked against the tagged position — and
+      // genuinely illegal input must still be rejected.
+      const fen = '4k3/8/8/8/8/8/8/N3K3 w - - 0 1';
+      final game = ChessGame();
+      expect(game.loadFen(fen), isTrue);
+      expect(game.makeMove('a1b3'), isTrue);
+      final pgn = game.toPgn();
+
+      final reloaded = ChessGame();
+      expect(reloaded.loadPgn(pgn), isTrue);
+      expect(reloaded.currentFEN, game.currentFEN);
+
+      final bad = ChessGame();
+      expect(bad.loadPgn(pgn.replaceFirst('Nb3', 'Nf3')), isFalse,
+          reason: 'a move illegal from the tagged position must be rejected');
+    });
   });
 
   group('ChessGame.loadPgn state clearing', () {
