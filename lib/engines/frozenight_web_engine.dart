@@ -123,6 +123,9 @@ class FrozenightEngine implements ChessEngine {
     if (!_loaded || _disposed) throw StateError('Engine disposed');
     try {
     _stateNotifier.value = EngineState.thinking;
+    // Per-search flag: a stop from an earlier search must not kill this one
+    // (same contract as the native driver and ChessMamba).
+    _stopped = false;
 
     _applyPosition(positionCommand);
 
@@ -157,8 +160,19 @@ class FrozenightEngine implements ChessEngine {
     // a hang into an early return.
     for (int d = 1; d <= webDepth; d++) {
       final remaining = budget - sw.elapsed;
-      if (d > 1 && !worthStartingDepth(remaining, budget)) break;
+      if (d > 1) {
+        // stop() cannot interrupt the WASM call already in flight, but it
+        // must stop the loop from starting another one — the contract
+        // stop()'s comment states and analyze() already honours. The best
+        // completed iteration is still returned, so an aborted search
+        // answers like a UCI engine's `stop` → `bestmove`. d=1 is not
+        // gated: the first move must exist for there be anything to return.
+        if (_stopped) break;
+        if (!worthStartingDepth(remaining, budget)) break;
+      }
       await Future.delayed(Duration.zero);
+      // A stop that landed during the yield must not start the next call.
+      if (d > 1 && _stopped) break;
 
       final before = sw.elapsed;
       var answer = _frozenightSearchBounded(

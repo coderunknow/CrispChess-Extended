@@ -333,11 +333,19 @@ class MctsConfig {
   final int maxNodes; // Maximum nodes to expand
   final Duration maxTime; // Maximum search time
 
+  /// Asked before each simulation; true stops the loop.
+  ///
+  /// This is how `stop()` reaches a running search: the engine sets a flag
+  /// and the loop checks it between simulations, so an aborted request stops
+  /// burning the budget instead of running to [maxTime] regardless.
+  final bool Function()? shouldStop;
+
   const MctsConfig({
     this.cpuct = 2.5,
     this.fpuValue = -1.0,
     this.maxNodes = 800,
     this.maxTime = const Duration(seconds: 10),
+    this.shouldStop,
   });
 
   /// Scale config by skill level (0-20).
@@ -350,6 +358,7 @@ class MctsConfig {
       fpuValue: fpuValue,
       maxNodes: nodes,
       maxTime: maxTime,
+      shouldStop: shouldStop,
     );
   }
 }
@@ -457,8 +466,13 @@ Future<MctsSearchResult> mctsSearchWithTree({
   var simulations = 0;
   while (simulations < config.maxNodes) {
     // Each simulation costs a network evaluation, so the clock is checked
-    // before starting one rather than after.
-    if (stopwatch.elapsed > config.maxTime) break;
+    // before starting one rather than after. The stop flag is checked here
+    // for the same reason: an aborted search must not start another
+    // simulation, it must return the tree it already has.
+    if (stopwatch.elapsed > config.maxTime ||
+        (config.shouldStop?.call() ?? false)) {
+      break;
+    }
 
     var nodes = <MctsNode>[];
     final positions = <MctsPosition>[];

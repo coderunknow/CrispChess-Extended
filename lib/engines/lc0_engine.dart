@@ -57,6 +57,11 @@ class Lc0Engine
   String? _searchBaseFen;
   List<String> _searchMoves = const [];
 
+  /// Set by [stop], read by the MCTS loop through [MctsConfig.shouldStop],
+  /// cleared when the next search starts — one flag per search, so an abort
+  /// cannot silently weaken every later request.
+  bool _stopRequested = false;
+
   Lc0Engine({
     String? variantId,
     int? isolateWorkers,
@@ -200,6 +205,7 @@ class Lc0Engine
   }) async {
     if (_model == null) throw StateError('Not initialized');
     _stateNotifier.value = EngineState.thinking;
+    _stopRequested = false;
 
     try {
       final played =
@@ -225,6 +231,10 @@ class Lc0Engine
             : 200,
         maxTime: moveTime ?? const Duration(seconds: 5),
         cpuct: skillLevel != null ? 2.5 + (20 - skillLevel) * 0.2 : 2.5,
+        // stop() must end the search at the next simulation boundary and
+        // return the tree it has, not keep spending up to maxTime (which a
+        // clocked game sets as high as 30s) on a request the user aborted.
+        shouldStop: () => _stopRequested,
       );
 
       final retained = _advancedTree(parsed.baseFen, parsed.moves);
@@ -476,6 +486,9 @@ class Lc0Engine
 
   @override
   void stop() {
+    // The MCTS loop checks this before every simulation; without it stop()
+    // only relabelled the state while the search kept running to its budget.
+    _stopRequested = true;
     // Only a live search goes back to `ready`: a failed or disposed engine
     // must not be reported as usable.
     if (_stateNotifier.value == EngineState.thinking) {

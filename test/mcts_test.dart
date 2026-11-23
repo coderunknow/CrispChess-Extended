@@ -273,6 +273,47 @@ void main() {
           reason: 'the search should reach past the first ply');
     });
 
+    test('shouldStop ends the loop before any simulation runs', () async {
+      // stop() reaches a running search through MctsConfig.shouldStop: the
+      // flag must abort the loop at the first boundary — the root expansion
+      // still happens (it is what makes a move answerable), but not a single
+      // simulation may start after it says stop.
+      var evaluations = 0;
+      final move = await mctsSearch(
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        legalMoves: _legal,
+        evaluate: (fen, _, __) async {
+          evaluations++;
+          return _eval();
+        },
+        positionAt: (moves) {
+          final board = chess.Chess();
+          for (final uci in moves) {
+            board
+                .move({'from': uci.substring(0, 2), 'to': uci.substring(2, 4)});
+          }
+          return MctsPosition(
+            fen: board.fen,
+            legalMoves: [
+              for (final m in board.generate_moves())
+                '${m.fromAlgebraic}${m.toAlgebraic}${m.promotion?.name ?? ''}'
+            ],
+          );
+        },
+        config: MctsConfig(
+          maxNodes: 100000,
+          maxTime: const Duration(minutes: 5),
+          shouldStop: () => true,
+        ),
+      );
+
+      expect(evaluations, 1,
+          reason: 'only the root may be evaluated: the stop flag is checked '
+              'before the first simulation, not after the budget is spent');
+      expect(move, 'e2e4',
+          reason: 'with no visits to compare, the highest prior must win');
+    });
+
     test('batches distinct leaves and preserves the simulation budget',
         () async {
       var individualEvaluations = 0;
