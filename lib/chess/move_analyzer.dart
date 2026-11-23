@@ -276,10 +276,30 @@ class MoveAnalyzer {
     return (pieceValues[defender.type] ?? 0.0) - (pieceValues[attacker.type] ?? 0.0);
   }
   
-  TacticalPattern? _detectPin(String square) {
-    final squareIndex = chess.Chess.SQUARES[square];
-    if (squareIndex == null) return null;
+  /// The moves of the piece on [square], generated for that piece's own side.
+  ///
+  /// `generate_moves({'square': ...})` only ever generates for the side to
+  /// move and takes the square as an algebraic key — after a move has been
+  /// played the piece on `to` belongs to the player who just moved, so the
+  /// live board's turn is the wrong colour, and passing the int index that
+  /// `SQUARES[square]` yields is rejected outright. Both mistakes returned
+  /// an empty list silently, which is why pin and fork detection never
+  /// fired at all. A flipped-turn probe with `legal: false` yields the
+  /// piece's attack set (uncensored by self-check) without touching the
+  /// live board.
+  List<chess.Move> _movesFrom(String square) {
+    final piece = game.get(square);
+    if (piece == null) return const [];
+    final fields = game.fen.split(' ');
+    if (fields.length > 1) {
+      fields[1] = piece.color == chess.Color.WHITE ? 'w' : 'b';
+    }
+    final probe =
+        chess.Chess.fromFEN(fields.join(' '), check_validity: false);
+    return probe.generate_moves({'square': square, 'legal': false});
+  }
 
+  TacticalPattern? _detectPin(String square) {
     final piece = game.get(square);
     if (piece == null) return null;
     // Only a sliding attack holds a piece in place: the pin works because our
@@ -302,7 +322,7 @@ class MoveAnalyzer {
     // which labelled ordinary double attacks (forks) as pins while missing
     // the archetypal bishop-pins-knight entirely — it never looked behind the
     // attacked piece at all.
-    for (final move in game.generate_moves({'square': squareIndex})) {
+    for (final move in _movesFrom(square)) {
       final targetSquare = _squareFromIndex(move.to);
       if (targetSquare == null) continue;
       final target = game.get(targetSquare);
@@ -348,17 +368,13 @@ class MoveAnalyzer {
   }
   
   TacticalPattern? _detectFork(String square) {
-    final squareIndex = chess.Chess.SQUARES[square];
-    if (squareIndex == null) return null;
-    
-    final moves = game.generate_moves({'square': squareIndex});
     final piece = game.get(square);
     
     if (piece == null) return null;
     
     // Count valuable pieces attacked
     int valuableTargets = 0;
-    for (var move in moves) {
+    for (var move in _movesFrom(square)) {
       final toSquare = _squareFromIndex(move.to);
       if (toSquare == null) continue;
       

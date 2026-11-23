@@ -332,7 +332,10 @@ void main() {
       // counted two occupied destinations as a "Pin"; a knight holds no pin
       // (its attack is not a line), so only the fork may be reported.
       const preFen = 'r3k3/8/8/1N6/8/8/8/4K3 b - - 0 1';
-      const postFen = 'r3k3/2N5/8/8/8/8/8/4K3 w - - 0 2';
+      // The knight gives check on the post-move board, so the position is
+      // only legal with black to move — a king in check while the other
+      // side is to move is rejected by the library.
+      const postFen = 'r3k3/2N5/8/8/8/8/8/4K3 b - - 0 2';
       final analyzer = MoveAnalyzer(chess.Chess.fromFEN(postFen));
       final annotation = analyzer.analyzeMove(
         uciMove: 'b5c7',

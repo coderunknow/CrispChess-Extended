@@ -205,7 +205,6 @@ final builtInDrills = <Drill>[
         hint: 'Take the opposition! Place your king directly facing the enemy king.',
         explanation: 'Kd3 takes the opposition — kings face each other with one square between. This is the key to K+P endings.',
         wrongMoveMessages: {
-          'e2e4': 'e4? allows Ke5 and Black gets the opposition, drawing.',
           'e3f4': 'Kf4? sidesteps — Black plays Ke6 and draws.',
         },
       ),
