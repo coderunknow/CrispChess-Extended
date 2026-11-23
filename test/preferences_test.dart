@@ -103,4 +103,84 @@ void main() {
       expect(prefs.timeControl, TimeControl.unlimited);
     });
   });
+
+  group('daily login streak', () {
+    String ymd(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+    test('a consecutive-day login extends the streak', () async {
+      final now = DateTime.now();
+      SharedPreferences.setMockInitialValues({
+        'lastLoginDate': ymd(DateTime(now.year, now.month, now.day - 1)),
+        'dailyStreak': 3,
+        'totalXp': 100,
+      });
+      final prefs = PreferencesService();
+      await prefs.init();
+      final xp = prefs.checkDailyLogin();
+      expect(prefs.dailyStreak, 4, reason: 'yesterday + today is consecutive');
+      expect(xp, 9, reason: '5 + min(streak, 10)');
+      expect(prefs.totalXp, 109);
+    });
+
+    test('a two-day gap resets the streak', () async {
+      final now = DateTime.now();
+      SharedPreferences.setMockInitialValues({
+        'lastLoginDate': ymd(DateTime(now.year, now.month, now.day - 2)),
+        'dailyStreak': 3,
+        'totalXp': 100,
+      });
+      final prefs = PreferencesService();
+      await prefs.init();
+      final xp = prefs.checkDailyLogin();
+      expect(prefs.dailyStreak, 1);
+      expect(xp, 5);
+      expect(prefs.totalXp, 105);
+    });
+
+    test('a corrupt login date resets instead of throwing', () async {
+      SharedPreferences.setMockInitialValues({
+        'lastLoginDate': 'not-a-date',
+        'dailyStreak': 7,
+        'totalXp': 50,
+      });
+      final prefs = PreferencesService();
+      await prefs.init();
+      expect(prefs.checkDailyLogin(), 5);
+      expect(prefs.dailyStreak, 1);
+    });
+
+    test('same-day login earns nothing', () async {
+      final today = ymd(DateTime.now());
+      SharedPreferences.setMockInitialValues({
+        'lastLoginDate': today,
+        'dailyStreak': 4,
+        'totalXp': 10,
+      });
+      final prefs = PreferencesService();
+      await prefs.init();
+      expect(prefs.checkDailyLogin(), 0);
+      expect(prefs.dailyStreak, 4);
+    });
+
+    test('consecutiveDayGap is calendar-exact, not clock-dependent', () {
+      // An evening "now" is still one calendar day after the stored date —
+      // the case the old UTC-midnight-vs-local difference got wrong in
+      // negative offsets.
+      expect(PreferencesService.consecutiveDayGap(
+          '2026-11-22', DateTime(2026, 11, 23, 20, 30)), 1);
+      expect(PreferencesService.consecutiveDayGap(
+          '2026-11-22', DateTime(2026, 11, 23, 0, 5)), 1);
+      expect(PreferencesService.consecutiveDayGap(
+          '2026-11-22', DateTime(2026, 11, 24, 9)), 2);
+      expect(PreferencesService.consecutiveDayGap(
+          '2026-11-25', DateTime(2026, 11, 23)), -2,
+          reason: 'a future stored date is not a consecutive day');
+      expect(PreferencesService.consecutiveDayGap(
+          'garbage', DateTime(2026, 11, 23)), isNull);
+      expect(
+          PreferencesService.consecutiveDayGap(null, DateTime(2026, 11, 23)),
+          isNull);
+    });
+  });
 }
