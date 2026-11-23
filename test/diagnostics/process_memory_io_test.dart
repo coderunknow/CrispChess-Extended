@@ -35,6 +35,18 @@ String _statLine({
       '0 0 20 0 1';
 }
 
+/// Whether `getconf PAGE_SIZE` can actually run on this host: it exists on
+/// most POSIX systems, but not on Windows and not in minimal containers, so
+/// the real-command test must skip there instead of failing its assertion.
+bool _canRunGetconf() {
+  if (Platform.isWindows) return false;
+  try {
+    return Process.runSync('getconf', ['PAGE_SIZE']).exitCode == 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 void main() {
   group('parseProcStatCpuTicks', () {
     test('reads utime and stime at the correct field indices', () {
@@ -164,7 +176,7 @@ void main() {
         runPositiveIntCommand('getconf', ['PAGE_SIZE'], fallback: -1),
         greaterThan(0),
       );
-    }, skip: Platform.isWindows ? 'getconf is not available on Windows' : null);
+    }, skip: _canRunGetconf() ? null : 'getconf is not available on this host');
   });
 
   group('parseSysctlMemorySample', () {
