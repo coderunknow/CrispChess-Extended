@@ -100,7 +100,11 @@ void main() {
         for (final bookMove in moves!) {
           expect(bookMove.uci.length, 4,
               reason: 'book UCI is from/to only: ${bookMove.uci}');
-          final ok = game.move({
+          // A fresh probe per candidate: each move flips the side to move,
+          // so legality must be re-checked from the entry's own position.
+          final probe = chess.Chess();
+          expect(probe.load(fen), isTrue, reason: 'entry "$key" must be a FEN');
+          final ok = probe.move({
             'from': bookMove.uci.substring(0, 2),
             'to': bookMove.uci.substring(2, 4),
           });
