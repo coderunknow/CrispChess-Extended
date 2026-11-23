@@ -172,10 +172,10 @@ class ChessClock extends ChangeNotifier {
     // Time between the previous state change (start/resume/switch) and now
     // belongs to no running tick — never charge it (that is what keeps a
     // pause from billing the player for the time they were paused).
-    _lastTickMicros = _wall.elapsedMicros;
+    _lastTickMicros = _wall.elapsedMicroseconds;
 
     _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      final now = _wall.elapsedMicros;
+      final now = _wall.elapsedMicroseconds;
       final elapsed = now - _lastTickMicros;
       _lastTickMicros = now;
 
