@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chess/chess.dart' as chess;
+import 'package:crispchess/chess/chess_game.dart';
 import 'package:crispchess/chess/move_analyzer.dart';
 
 void main() {
@@ -374,6 +375,28 @@ void main() {
         evaluation: eval(),
       );
       expect(analyzeInIsolate(request).gamePhase, GamePhase.endgame);
+    });
+  });
+
+  group('annotation completion', () {
+    test('completes an annotation whose scoreBefore is exactly 0.0', () {
+      // A fresh game has no evaluation yet, so the first move's temporary
+      // annotation is built with scoreBefore = 0.0. The completion guard used
+      // to read that zero as "nothing to complete", so the first move of a
+      // game never got its evaluation: always shown as a good move, with no
+      // evaluation change and no "Better:" suggestion.
+      final game = ChessGame();
+      expect(game.makeMove('e2e4'), isTrue);
+      expect(game.lastAnnotation!.evaluation.scoreBefore, 0.0,
+          reason: 'no analysis has run yet, so this is the zero-score path');
+
+      game.updateEvaluation(-0.4, 'e7e5', 14);
+
+      final completed = game.lastAnnotation!.evaluation;
+      expect(completed.bestMove, isNotEmpty,
+          reason: 'the pending annotation must complete even from scoreBefore 0.0');
+      expect(completed.scoreAfter, -0.4);
+      expect(completed.depth, 14);
     });
   });
 }

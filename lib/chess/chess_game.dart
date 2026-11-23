@@ -187,13 +187,19 @@ class ChessGame with ChangeNotifier {
     _lastEvaluation = evaluation;
     _lastDepth = depth;
     
-    // If we have a pending annotation without complete evaluation, update it
+    // If we have a pending annotation without complete evaluation, update it.
+    //
+    // Incompleteness is `bestMove.isEmpty`: makeMove's temporary evaluation
+    // always leaves it empty and completion always fills it (the caller only
+    // arrives here with a non-empty best move). The old test also required
+    // `scoreBefore != 0.0`, treating zero as "no score yet" — but a fresh
+    // game, and every game after loadPgn/loadFen/reset, starts with
+    // _lastEvaluation null, so the first move's scoreBefore really is 0.0 and
+    // its annotation never completed: the panel showed it as a good move with
+    // no evaluation change and no "Better:" line whatever the engine said.
     if (_annotations.isNotEmpty) {
       final last = _annotations.last;
-      // Check if this is an incomplete annotation (has scoreBefore but scoreAfter is 0)
-      if (last.evaluation.scoreBefore != 0.0 && 
-          last.evaluation.scoreAfter == 0.0 && 
-          last.evaluation.bestMove.isEmpty) {
+      if (last.evaluation.bestMove.isEmpty) {
         _completeLastAnnotation(evaluation, bestMove, depth);
       }
     }
