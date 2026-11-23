@@ -44,6 +44,13 @@ class StockfishEngine
   final _stateNotifier = ValueNotifier<EngineState>(EngineState.idle);
   late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
   final _evalController = StreamController<EvalInfo>.broadcast();
+
+  /// Set when the Worker reports an error *after* startup (the handler stays
+  /// attached for the worker's whole life, per spec): the outstanding search
+  /// can never be answered, so it is released as a process death (retriable)
+  /// rather than left to hang until the cap on this and every later move.
+  /// Cleared when a new attempt starts — that attempt gets a fresh worker.
+  bool _workerDead = false;
   final Duration handshakeTimeout;
   final Duration readinessTimeout;
   String _detectedName = '';
@@ -138,6 +145,7 @@ class StockfishEngine
 
   Future<void> _start(EngineInitScope scope) async {
     _terminateWorker();
+    _workerDead = false;
     debugPrint('[StockfishWeb] Loading ${sfVersion.label} from CDN...');
     scope.stage = EngineInitStage.download;
     scope.runtimePath = sfVersion.url;
@@ -174,6 +182,12 @@ class StockfishEngine
           EngineFailureKind.backendInitializationFailed,
           'the Stockfish Web Worker reported an error',
           cause: StateError('Worker error: $message')));
+      if (!_init.isInitializing) {
+        // Fires any time the worker script throws, not just at load: the
+        // search in flight would wait out its cap and every later search
+        // would do the same. Report it as the death it is.
+        _reportWorkerDeath(message);
+      }
     }).toJS;
 
     scope.stage = EngineInitStage.handshake;
@@ -279,7 +293,16 @@ class StockfishEngine
     Duration? moveTime,
     int? skillLevel,
   }) async {
-    if (_worker == null) throw StateError('Engine not initialized');
+    if (_worker == null) {
+      if (_workerDead) {
+        // Death found while nothing was searching (during background
+        // analysis, say): the next move request must still take the
+        // retriable path instead of failing with a bare StateError forever.
+        throw EngineProcessDiedException('Stockfish', null,
+            ['worker error: the Stockfish Web Worker is gone']);
+      }
+      throw StateError('Engine not initialized');
+    }
     _stateNotifier.value = EngineState.thinking;
 
     // Apply skill level
@@ -308,8 +331,29 @@ class StockfishEngine
       abandonSearch();
       return null;
     });
-    if (move == null) throw TimeoutException('Search timed out');
+    if (move == null) {
+      if (_workerDead) {
+        throw EngineProcessDiedException('Stockfish', null,
+            ['worker error: the Stockfish Web Worker died mid-search']);
+      }
+      throw TimeoutException('Search timed out');
+    }
     return move;
+  }
+
+  /// The worker is gone: release whatever is in flight, drop the dead worker,
+  /// and report `error` so nothing pretends the engine is still usable. The
+  /// service's one-shot restart-and-retry answers the EngineProcessDied-
+  /// Exception with a fresh engine.
+  void _reportWorkerDeath(String message) {
+    if (_workerDead) return;
+    _workerDead = true;
+    resetSearches(); // no bestmove will ever arrive for the debt
+    _terminateWorker();
+    if (_stateNotifier.value != EngineState.disposed) {
+      _stateNotifier.value = EngineState.error;
+    }
+    debugPrint('[StockfishWeb] worker failed: $message');
   }
 
   @override
