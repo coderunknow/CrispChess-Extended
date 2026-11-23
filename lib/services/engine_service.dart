@@ -280,6 +280,11 @@ class EngineService {
         _eventController.add(BestMoveEvent(move));
       }
     } catch (e) {
+      // stop() during a move search cancels it by contract (the worker test
+      // pins the throw). A cancellation is the user pressing Abort, not a
+      // failure — reporting it as a red banner made every normal abort look
+      // like the engine had broken.
+      if (e is StateError && e.message == 'Search cancelled') return;
       _eventController.add(EngineErrorEvent('Move request failed: $e',
           kind: e is TimeoutException
               ? EngineFailure.timeout
