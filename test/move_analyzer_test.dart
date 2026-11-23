@@ -297,4 +297,83 @@ void main() {
       expect(annotation.tactics.any((t) => t.name == 'Material Gain'), isTrue);
     });
   });
+
+  group('pin detection', () {
+    MoveEvaluation eval() => MoveEvaluation(
+          scoreBefore: 0.0,
+          scoreAfter: 0.0,
+          bestMove: '',
+          bestMoveScore: 0.0,
+          depth: 10,
+          whiteToMove: true,
+        );
+
+    test('a bishop that pins a knight to the king is labelled a pin', () {
+      // After 1.e4 e5 2.Nf3 Nc6 white plays 3.Bb5: the bishop on b5 attacks
+      // the knight on c6, which shields the king on e8 along c6-d7-e8.
+      const preFen = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3';
+      const postFen = 'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 3';
+      final analyzer = MoveAnalyzer(chess.Chess.fromFEN(postFen));
+      final annotation = analyzer.analyzeMove(
+        uciMove: 'f1b5',
+        evaluation: eval(),
+        preMoveFen: preFen,
+      );
+      final pin = annotation.tactics.where((t) => t.name == 'Pin').toList();
+      expect(pin, isNotEmpty,
+          reason: 'Bb5 pins Nc6 to the king and must be labelled');
+      expect(pin.single.involvedSquares, contains('b5'));
+      expect(pin.single.involvedSquares, contains('c6'));
+    });
+
+    test('a knight fork is not labelled a pin', () {
+      // White knight lands on c7 forking king e8 and rook a8. The old logic
+      // counted two occupied destinations as a "Pin"; a knight holds no pin
+      // (its attack is not a line), so only the fork may be reported.
+      const preFen = 'r3k3/8/8/1N6/8/8/8/4K3 b - - 0 1';
+      const postFen = 'r3k3/2N5/8/8/8/8/8/4K3 w - - 0 2';
+      final analyzer = MoveAnalyzer(chess.Chess.fromFEN(postFen));
+      final annotation = analyzer.analyzeMove(
+        uciMove: 'b5c7',
+        evaluation: eval(),
+        preMoveFen: preFen,
+      );
+      expect(annotation.tactics.any((t) => t.name == 'Fork'), isTrue,
+          reason: 'Nc7 hits the king and the rook');
+      expect(annotation.tactics.any((t) => t.name == 'Pin'), isFalse,
+          reason: 'a double attack is not a pin');
+    });
+  });
+
+  group('GamePhase on FEN-loaded positions', () {
+    MoveEvaluation eval() => MoveEvaluation(
+          scoreBefore: 0.0,
+          scoreAfter: 0.0,
+          bestMove: '',
+          bestMoveScore: 0.0,
+          depth: 10,
+          whiteToMove: true,
+        );
+
+    test('a loaded middlegame is not called an opening', () {
+      // No history (fresh from FEN) but full material past move 15: the
+      // move-count branch used to fire on history.length == 0 and hand every
+      // loaded position the opening advice.
+      final request = AnalysisRequest(
+        fen: 'r1bq1rk1/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 16',
+        uciMove: 'c4b3',
+        evaluation: eval(),
+      );
+      expect(analyzeInIsolate(request).gamePhase, GamePhase.middlegame);
+    });
+
+    test('a loaded endgame is not called an opening', () {
+      final request = AnalysisRequest(
+        fen: '8/5k2/8/8/8/8/4K3/4R3 w - - 0 40',
+        uciMove: 'e1e7',
+        evaluation: eval(),
+      );
+      expect(analyzeInIsolate(request).gamePhase, GamePhase.endgame);
+    });
+  });
 }

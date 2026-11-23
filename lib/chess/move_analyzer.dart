@@ -279,30 +279,71 @@ class MoveAnalyzer {
   TacticalPattern? _detectPin(String square) {
     final squareIndex = chess.Chess.SQUARES[square];
     if (squareIndex == null) return null;
-    
-    final moves = game.generate_moves({'square': squareIndex});
+
     final piece = game.get(square);
-    
     if (piece == null) return null;
-    
-    // Check if this piece attacks multiple valuable pieces
-    if (moves.length >= 2) {
-      final targets = moves.where((m) {
-        final toSquare = _squareFromIndex(m.to);
-        if (toSquare == null) return false;
-        final targetPiece = game.get(toSquare);
-        return targetPiece != null;
-      }).toList();
-      
-      if (targets.length >= 2) {
-        return TacticalPattern(
-          name: 'Pin',
-          description: 'Piece cannot move without exposing a more valuable piece',
-          involvedSquares: [square],
-        );
+    // Only a sliding attack holds a piece in place: the pin works because our
+    // attack continues *through* the pinned piece to the piece behind it. A
+    // pawn's capture ends at the first diagonal square (it cannot threaten
+    // anything further along the line), and a knight does not attack along a
+    // line at all.
+    if (piece.type == chess.PieceType.PAWN ||
+        piece.type == chess.PieceType.KNIGHT) {
+      return null;
+    }
+
+    // The mover sits on [square] (the post-move board, as ChessGame builds the
+    // analyzer). A pin exists when it attacks an enemy piece that shields a
+    // valuable piece of its own colour further along the same line — the
+    // attacked piece cannot leave that line without giving up the piece
+    // behind it.
+    //
+    // The previous logic counted any two occupied destinations as a "Pin",
+    // which labelled ordinary double attacks (forks) as pins while missing
+    // the archetypal bishop-pins-knight entirely — it never looked behind the
+    // attacked piece at all.
+    for (final move in game.generate_moves({'square': squareIndex})) {
+      final targetSquare = _squareFromIndex(move.to);
+      if (targetSquare == null) continue;
+      final target = game.get(targetSquare);
+      if (target == null || target.color == piece.color) continue;
+
+      final fromFile = square.codeUnitAt(0) - 97;
+      final fromRank = int.parse(square[1]) - 1;
+      final toFile = targetSquare.codeUnitAt(0) - 97;
+      final toRank = int.parse(targetSquare[1]) - 1;
+      final df = toFile - fromFile;
+      final dr = toRank - fromRank;
+      // Sliding line (a knight's leap is neither, and is skipped above anyway).
+      if (df != 0 && dr != 0 && df.abs() != dr.abs()) continue;
+
+      // Walk from the target away from the mover to find what it shields.
+      final stepF = df == 0 ? 0 : df.sign;
+      final stepR = dr == 0 ? 0 : dr.sign;
+      var f = toFile + stepF;
+      var r = toRank + stepR;
+      while (f >= 0 && f < 8 && r >= 0 && r < 8) {
+        final behind = game.get('${'abcdefgh'[f]}${r + 1}');
+        if (behind != null) {
+          if (behind.color == target.color &&
+              (behind.type == chess.PieceType.KING ||
+                  behind.type == chess.PieceType.QUEEN ||
+                  behind.type == chess.PieceType.ROOK ||
+                  behind.type == chess.PieceType.BISHOP)) {
+            return TacticalPattern(
+              name: 'Pin',
+              description:
+                  'Piece cannot move without exposing a more valuable piece',
+              involvedSquares: [square, targetSquare],
+            );
+          }
+          break; // the first piece along the line decides
+        }
+        f += stepF;
+        r += stepR;
       }
     }
-    
+
     return null;
   }
   
@@ -395,12 +436,28 @@ class MoveAnalyzer {
   }
   
   GamePhase _getGamePhase() {
-    final moves = game.history.length;
+    // A board loaded from a FEN has no move history at all (load/loadFen
+    // clear it), so testing `history.length` first called every FEN-loaded
+    // position an opening — a loaded endgame got "Focus on development,
+    // center control, and king safety". When there is no history, the FEN's
+    // full-move number carries the same signal; with history present nothing
+    // changes for a game played move by move.
+    final moves = game.history.isNotEmpty
+        ? game.history.length
+        : _fullmoveFromFen();
     final majorPieces = _countMajorPieces();
-    
+
     if (moves < 15) return GamePhase.opening;
     if (majorPieces > 4) return GamePhase.middlegame;
     return GamePhase.endgame;
+  }
+
+  /// The full-move number of [game]'s FEN (0 when unreadable), standing in
+  /// for a move count the history cannot provide on a loaded position.
+  int _fullmoveFromFen() {
+    final parts = game.fen.split(' ');
+    if (parts.length < 6) return 0;
+    return int.tryParse(parts[5]) ?? 0;
   }
   
   int _countMajorPieces() {
