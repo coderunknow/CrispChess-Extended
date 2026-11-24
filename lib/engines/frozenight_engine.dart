@@ -150,7 +150,10 @@ class FrozenightEngine implements ChessEngine {
       stage = 'verify-ready';
       _available = true;
       _initializationError = null;
-      _stateNotifier.value = EngineState.ready;
+      // A dispose() that landed while the library was being resolved must not
+      // be overwritten with `ready` — the tail of this body is synchronous,
+      // so this is the first point it can interleave.
+      if (!_disposed) _stateNotifier.value = EngineState.ready;
     } catch (error, stack) {
       _releaseHandle();
       _available = false;
@@ -196,6 +199,10 @@ class FrozenightEngine implements ChessEngine {
     // bounded.
     return _serialized(() async {
       if (_disposed || !_available) throw StateError('Engine disposed');
+      // A stop left over from an earlier search must not kill this one: like
+      // ChessMamba's `_stopRequested`, the flag is per-search and cleared
+      // when the search actually starts.
+      _stopped = false;
       _stateNotifier.value = EngineState.thinking;
       try {
       _applyPosition(positionCommand);
@@ -206,6 +213,14 @@ class FrozenightEngine implements ChessEngine {
         if (_disposed) break;
         final remaining = budget - sw.elapsed;
         if (d > 1) {
+          // stop() cannot interrupt the FFI call already in flight, but it
+          // must stop the loop from starting another one — the contract
+          // stop()'s own comment states and analyze() already honours. The
+          // best completed iteration is returned below, so an aborted search
+          // still answers like a UCI engine's `stop` → `bestmove` does. d=1
+          // is deliberately not gated: the first move must exist for there
+          // be anything to return.
+          if (_stopped) break;
           // With a node bound there is no need to predict whether a depth
           // fits: it is cut short if it does not. Without one, fall back to
           // the prediction, which is all the older library can support.
@@ -216,6 +231,9 @@ class FrozenightEngine implements ChessEngine {
           }
           // Yield so the UI can paint between iterations.
           await Future<void>.delayed(Duration.zero);
+          // A stop (or disposal) that landed during the yield must not start
+          // the next uninterruptible call.
+          if (_stopped || _disposed) break;
         }
 
         final before = sw.elapsed;

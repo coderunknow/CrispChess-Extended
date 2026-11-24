@@ -29,6 +29,11 @@ class DartEngine implements ChessEngine {
   /// set on this (the UI) isolate, so termination is the only real stop.
   final _worker = NativeSearchWorker();
 
+  /// Web has no isolate to kill, so cancellation there is this flag: set by
+  /// [stop], checked between depth iterations, cleared when the next search
+  /// starts so an old stop cannot cancel a later request.
+  bool _stopRequested = false;
+
   final ValueNotifier<EngineState> _stateNotifier =
       ValueNotifier(EngineState.idle);
 
@@ -66,6 +71,7 @@ class DartEngine implements ChessEngine {
     int? skillLevel,
   }) async {
     if (_disposed) throw StateError('Engine disposed');
+    _stopRequested = false;
     _stateNotifier.value = EngineState.thinking;
 
     _applyPosition(positionCommand);
@@ -95,8 +101,16 @@ class DartEngine implements ChessEngine {
       // as "No legal moves", which is both wrong and unrecoverable for the
       // caller: the game just stops. The native worker already retries at depth
       // 1 with no clock inside the isolate; the web path has to do it here.
-      if (kIsWeb) {
+      // A cancelled search must not fall back either: the fallback is fresh
+      // depth-1 work the caller just asked us to stop doing.
+      if (kIsWeb && !_stopRequested && !_disposed) {
         result ??= await _searchFallback(parsed.baseFen, parsed.moves);
+      }
+      if (_stopRequested) {
+        // Web cancellation, matching the native worker's contract (pinned by
+        // dart_engine_worker_test): stop() throws, it never reports a late
+        // success for a search the user aborted.
+        throw StateError('Search cancelled');
       }
     } on StateError {
       // Cancelled or disposed mid-search. Report ready and never fall back: the
@@ -106,7 +120,10 @@ class DartEngine implements ChessEngine {
       rethrow;
     }
 
-    _stateNotifier.value = EngineState.ready;
+    // A dispose() that landed while the web search was breaking out of its
+    // loop must not be overwritten with `ready` here (the catch above guards
+    // its own write; this one runs on the success path).
+    if (!_disposed) _stateNotifier.value = EngineState.ready;
 
     // Genuinely nothing to play: checkmate or stalemate.
     if (result == null) throw StateError('No legal moves');
@@ -199,7 +216,9 @@ class DartEngine implements ChessEngine {
 
     for (int d = 1; d <= webDepth; d++) {
       await Future.delayed(Duration.zero);
-      if (_disposed) break;
+      // stop() lands in the gap this yield opens; without the check the web
+      // path ran every remaining iteration to the full budget.
+      if (_disposed || _stopRequested) break;
 
       final remaining = budget - sw.elapsed;
       if (remaining <= Duration.zero) break;
@@ -220,6 +239,7 @@ class DartEngine implements ChessEngine {
   Stream<EvalInfo> analyze(String positionCommand,
       {int? depth, bool infinite = false}) async* {
     if (_disposed) return;
+    _stopRequested = false;
     _stateNotifier.value = EngineState.thinking;
     _applyPosition(positionCommand);
     final parsed = parsePositionCommand(positionCommand);
@@ -267,7 +287,7 @@ class DartEngine implements ChessEngine {
     }
 
     for (int d = 1; d <= maxDepth; d++) {
-      if (_disposed) break;
+      if (_disposed || _stopRequested) break;
       SearchResult? result;
       await Future.delayed(Duration.zero);
       final game = chess.Chess();
@@ -305,6 +325,8 @@ class DartEngine implements ChessEngine {
     // the isolate is rebuilt lazily on the next search.
     _worker.cancel();
     _search?.stop();
+    // The web path has no isolate: its depth loop is what must notice.
+    _stopRequested = true;
   }
 
   @override

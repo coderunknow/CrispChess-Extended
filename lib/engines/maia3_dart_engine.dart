@@ -91,6 +91,15 @@ class Maia3DartEngine
   /// Why the preferred runtime was not used, when the engine fell back.
   String? _fallbackNote;
 
+  /// State writes never resurrect a disposed engine: dispose() may land while
+  /// a prediction is in flight, and its completion must not overwrite
+  /// [EngineState.disposed] with [EngineState.ready]. A resurrected engine
+  /// looks usable while `_model` is null — every later move fails with
+  /// `StateError('Not initialized')` and nothing ever rebuilds it.
+  void _setState(EngineState next) {
+    if (!_init.disposed) _stateNotifier.value = next;
+  }
+
   @override
   EngineInitializationException? get initializationError => _init.lastFailure;
   @override
@@ -198,7 +207,7 @@ class Maia3DartEngine
     int? skillLevel,
   }) async {
     if (_model == null) throw StateError('Not initialized');
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
 
     try {
       final selfElo = skillLevel != null
@@ -230,11 +239,11 @@ class Maia3DartEngine
       String bestUci = moves.indexToMove(moveIdx);
       if (legal.isBlack) bestUci = mirrorMove(bestUci);
 
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
       return bestUci;
     } catch (e) {
       debugPrint('[Maia3Dart] Prediction failed: $e');
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
       rethrow;
     }
   }
@@ -314,7 +323,7 @@ class Maia3DartEngine
   Stream<EvalInfo> analyze(String positionCommand, {int? depth, bool infinite = false}) async* {
     // Maia3 provides WDL, not depth-based eval
     if (_model == null) return;
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
 
     try {
       final history = _historyFor(positionCommand);
@@ -346,7 +355,7 @@ class Maia3DartEngine
       debugPrint('[Maia3Dart] Analysis error: $e');
     }
 
-    _stateNotifier.value = EngineState.ready;
+    _setState(EngineState.ready);
   }
 
   @override

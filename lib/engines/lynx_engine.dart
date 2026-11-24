@@ -116,9 +116,20 @@ class LynxEngine
     }
   }
 
-  static bool get isAvailable =>
-      !kIsWeb &&
-      (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
+  static bool get isAvailable {
+    if (kIsWeb) return false;
+    // macOS ships both arches; Windows ships x64 (emulated on arm64).
+    if (Platform.isMacOS || Platform.isWindows) return true;
+    // The release only ships x64 Linux binaries — the artifact registry
+    // records them as arch: 'x64' and `sourceFor` refuses other arches.
+    // This gate used to accept any Linux, so an arm64 host was offered a
+    // ~30MB x64 zip that extracted cleanly and then failed to exec on every
+    // start, while the Engine Manager correctly said "no artifact for
+    // linux/arm64". The two must agree: no download for an arch nothing can
+    // run here.
+    if (Platform.isLinux) return currentArchName() == 'x64';
+    return false;
+  }
 
   @override
   String get processLabel => 'Lynx';
@@ -361,7 +372,9 @@ class LynxEngine
       final parts = t.split(' ');
       finishSearch(
           parts.length >= 2 && parts[1] != '(none)' ? parts[1] : null);
-      _stateNotifier.value = EngineState.ready;
+      // A buffered bestmove can still be delivered after dispose(); it must
+      // not resurrect the engine to `ready` (same rule as stop() below).
+      if (!_init.disposed) _stateNotifier.value = EngineState.ready;
     }
   }
 
@@ -370,7 +383,7 @@ class LynxEngine
     int? depth, Duration? moveTime, int? skillLevel,
   }) async {
     if (_process == null) throw StateError('Not initialized');
-    _stateNotifier.value = EngineState.thinking;
+    if (!_init.disposed) _stateNotifier.value = EngineState.thinking;
 
     // Lynx has no Skill Level option, so strength used to be dialled with a
     // fixed depth — up to `go depth 15`. A given depth costs an order of
@@ -414,7 +427,7 @@ class LynxEngine
       if (processGone) debugPrint('[$processLabel] analysis skipped: process gone');
       return const Stream.empty();
     }
-    _stateNotifier.value = EngineState.thinking;
+    if (!_init.disposed) _stateNotifier.value = EngineState.thinking;
     // Bound the depth search by the clock too. A fixed depth costs whatever
     // that depth costs in the position in front of it — the thing that was
     // taken out of `bestMove` because it turned into seconds per move by the

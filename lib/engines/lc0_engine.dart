@@ -57,6 +57,11 @@ class Lc0Engine
   String? _searchBaseFen;
   List<String> _searchMoves = const [];
 
+  /// Set by [stop], read by the MCTS loop through [MctsConfig.shouldStop],
+  /// cleared when the next search starts — one flag per search, so an abort
+  /// cannot silently weaken every later request.
+  bool _stopRequested = false;
+
   Lc0Engine({
     String? variantId,
     int? isolateWorkers,
@@ -106,6 +111,16 @@ class Lc0Engine
   static bool get isAvailable => !kIsWeb;
 
   late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
+
+  /// State writes never resurrect a disposed engine: dispose() may land while
+  /// a search is in flight, and its completion must not overwrite
+  /// [EngineState.disposed] with [EngineState.ready]. A resurrected engine
+  /// looks usable while `_model` is null — every later move fails with
+  /// `StateError('Not initialized')` and nothing ever rebuilds it. The same
+  /// guard is what dart_engine and the Frozenight engines already use.
+  void _setState(EngineState next) {
+    if (!_init.disposed) _stateNotifier.value = next;
+  }
 
   @override
   EngineInitializationException? get initializationError => _init.lastFailure;
@@ -199,7 +214,8 @@ class Lc0Engine
     int? skillLevel,
   }) async {
     if (_model == null) throw StateError('Not initialized');
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
+    _stopRequested = false;
 
     try {
       final played =
@@ -211,11 +227,11 @@ class Lc0Engine
       final legalMoves = _legalMoves(board);
 
       if (legalMoves.isEmpty) {
-        _stateNotifier.value = EngineState.ready;
+        _setState(EngineState.ready);
         throw StateError('No legal moves');
       }
       if (legalMoves.length == 1) {
-        _stateNotifier.value = EngineState.ready;
+        _setState(EngineState.ready);
         return legalMoves.first;
       }
 
@@ -225,6 +241,10 @@ class Lc0Engine
             : 200,
         maxTime: moveTime ?? const Duration(seconds: 5),
         cpuct: skillLevel != null ? 2.5 + (20 - skillLevel) * 0.2 : 2.5,
+        // stop() must end the search at the next simulation boundary and
+        // return the tree it has, not keep spending up to maxTime (which a
+        // clocked game sets as high as 30s) on a request the user aborted.
+        shouldStop: () => _stopRequested,
       );
 
       final retained = _advancedTree(parsed.baseFen, parsed.moves);
@@ -252,11 +272,11 @@ class Lc0Engine
       _searchBaseFen = parsed.baseFen;
       _searchMoves = List.of(parsed.moves);
 
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
       return search.move;
     } catch (e) {
       debugPrint('[Lc0] bestMove failed: $e');
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
       rethrow;
     }
   }
@@ -275,7 +295,7 @@ class Lc0Engine
   Stream<EvalInfo> analyze(String positionCommand,
       {int? depth, bool infinite = false}) async* {
     if (_model == null) return;
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
     try {
       final played =
           fenHistoryFromPositionCommand(positionCommand, limit: _historyLimit);
@@ -303,7 +323,7 @@ class Lc0Engine
     } catch (e) {
       debugPrint('[Lc0] analyze failed: $e');
     } finally {
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
     }
   }
 
@@ -476,6 +496,9 @@ class Lc0Engine
 
   @override
   void stop() {
+    // The MCTS loop checks this before every simulation; without it stop()
+    // only relabelled the state while the search kept running to its budget.
+    _stopRequested = true;
     // Only a live search goes back to `ready`: a failed or disposed engine
     // must not be reported as usable.
     if (_stateNotifier.value == EngineState.thinking) {

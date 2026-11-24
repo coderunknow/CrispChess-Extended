@@ -72,7 +72,7 @@ void main() {
       registry.register(333, label: 'run engine B');
       // A registration made with an explicit different owner is preserved.
       registry.register(444, label: 'explicit owner', owner: 'other');
-      expect(registry.count, isEqualTo(4));
+      expect(registry.count, equals(4));
 
       registry.removeOwnedBy('run-1');
 

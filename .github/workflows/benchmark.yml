@@ -32,12 +32,21 @@ on:
       - 'lib/screens/engine_storage_screen.dart'
       - 'lib/engines/**'
       - 'lib/services/engine_match_service.dart'
+      - 'lib/services/engine_profile_store.dart'
+      - 'lib/services/rating_fit.dart'
+      - 'lib/diagnostics/**'
       - 'lib/l10n/**'
-      - 'test/bench_*_test.dart'
+      - 'test/bench*_test.dart'
+      - 'test/generic_uci_*_test.dart'
       - 'test/engine_preflight_test.dart'
       - 'test/engine_preflight_screen_test.dart'
       - 'test/stockfish_runtime_test.dart'
       - 'test/stability_probe_test.dart'
+      - 'test/lab_*_test.dart'
+      - 'test/rating_fit_test.dart'
+      - 'test/match_config_test.dart'
+      - 'test/match_result_test.dart'
+      - 'test/support/**'
       - 'tool/bench/**'
       - '.github/workflows/benchmark.yml'
   pull_request:
@@ -52,12 +61,21 @@ on:
       - 'lib/screens/engine_storage_screen.dart'
       - 'lib/engines/**'
       - 'lib/services/engine_match_service.dart'
+      - 'lib/services/engine_profile_store.dart'
+      - 'lib/services/rating_fit.dart'
+      - 'lib/diagnostics/**'
       - 'lib/l10n/**'
-      - 'test/bench_*_test.dart'
+      - 'test/bench*_test.dart'
+      - 'test/generic_uci_*_test.dart'
       - 'test/engine_preflight_test.dart'
       - 'test/engine_preflight_screen_test.dart'
       - 'test/stockfish_runtime_test.dart'
       - 'test/stability_probe_test.dart'
+      - 'test/lab_*_test.dart'
+      - 'test/rating_fit_test.dart'
+      - 'test/match_config_test.dart'
+      - 'test/match_result_test.dart'
+      - 'test/support/**'
       - 'tool/bench/**'
       - '.github/workflows/benchmark.yml'
   workflow_dispatch:
@@ -137,6 +155,10 @@ jobs:
           persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
+          # Same SDK the CI and release gates run on (see ci.yml), so the
+          # Lab tests validate the same toolchain instead of drifting with
+          # whatever `stable` resolves to.
+          flutter-version: '3.44.2'
           channel: stable
           cache: true
       - run: flutter pub get

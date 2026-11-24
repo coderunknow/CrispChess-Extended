@@ -74,6 +74,25 @@ void main() {
     });
   });
 
+  group('requestMove cancellation', () {
+    test('a cancelled search reports no error event', () async {
+      final service = EngineService(_CancelledEngine());
+      await service.initialize();
+      final events = <EngineEvent>[];
+      final sub = service.events.listen(events.add);
+
+      await service.requestMove('position startpos', depth: 1);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.whereType<EngineErrorEvent>(), isEmpty,
+          reason: 'stop() during a move search is a cancellation, not an '
+              'engine failure — a red banner on every Abort is a false alarm');
+      expect(events.whereType<BestMoveEvent>(), isEmpty,
+          reason: 'a cancelled search must not report a late success');
+      await sub.cancel();
+      service.dispose();
+    });
+  });
 }
 
 /// An engine that starts, and one that cannot.
@@ -159,6 +178,18 @@ class _BrokenEngine extends _StartingEngine {
 
   @override
   String get name => 'Broken';
+}
+
+/// A fake whose move search ends the way a stop() does — the exact throw
+/// `NativeSearchWorker` produces when its isolate is cancelled.
+class _CancelledEngine extends _StartingEngine {
+  @override
+  Future<String> bestMove(String p,
+          {int? depth, Duration? moveTime, int? skillLevel}) async =>
+      throw StateError('Search cancelled');
+
+  @override
+  String get name => 'Cancelled';
 }
 
 void _engineSwitchingTests() {

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chess/chess.dart' as chess;
+import 'package:crispchess/chess/chess_game.dart';
 import 'package:crispchess/chess/move_analyzer.dart';
 
 void main() {
@@ -295,6 +296,196 @@ void main() {
 
       // Capture + material gain must be read from the pre-move board.
       expect(annotation.tactics.any((t) => t.name == 'Material Gain'), isTrue);
+    });
+  });
+
+  group('pin detection', () {
+    MoveEvaluation eval() => MoveEvaluation(
+          scoreBefore: 0.0,
+          scoreAfter: 0.0,
+          bestMove: '',
+          bestMoveScore: 0.0,
+          depth: 10,
+          whiteToMove: true,
+        );
+
+    test('a bishop that pins a knight to the king is labelled a pin', () {
+      // Bishop on b5, knight on c6, king on e8 with d7 empty: the ray
+      // b5-c6-d7-e8 is the pin line. (In the real Ruy Lopez the d7 pawn
+      // sits on that ray, so Bb5 pins nothing — the pawn is removed here
+      // to make the pattern the explanation describes.)
+      const preFen = 'r1bqkbnr/ppp1pppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3';
+      const postFen = 'r1bqkbnr/ppp1pppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 3';
+      final analyzer = MoveAnalyzer(chess.Chess.fromFEN(postFen));
+      final annotation = analyzer.analyzeMove(
+        uciMove: 'f1b5',
+        evaluation: eval(),
+        preMoveFen: preFen,
+      );
+      final pin = annotation.tactics.where((t) => t.name == 'Pin').toList();
+      expect(pin, isNotEmpty,
+          reason: 'Bb5 pins Nc6 to the king and must be labelled');
+      expect(pin.single.involvedSquares, contains('b5'));
+      expect(pin.single.involvedSquares, contains('c6'));
+    });
+
+    test('a knight fork is not labelled a pin', () {
+      // White knight lands on c7 forking king e8 and rook a8. The old logic
+      // counted two occupied destinations as a "Pin"; a knight holds no pin
+      // (its attack is not a line), so only the fork may be reported.
+      const preFen = 'r3k3/8/8/1N6/8/8/8/4K3 b - - 0 1';
+      // The knight gives check on the post-move board, so the position is
+      // only legal with black to move — a king in check while the other
+      // side is to move is rejected by the library.
+      const postFen = 'r3k3/2N5/8/8/8/8/8/4K3 b - - 0 2';
+      final analyzer = MoveAnalyzer(chess.Chess.fromFEN(postFen));
+      final annotation = analyzer.analyzeMove(
+        uciMove: 'b5c7',
+        evaluation: eval(),
+        preMoveFen: preFen,
+      );
+      expect(annotation.tactics.any((t) => t.name == 'Fork'), isTrue,
+          reason: 'Nc7 hits the king and the rook');
+      expect(annotation.tactics.any((t) => t.name == 'Pin'), isFalse,
+          reason: 'a double attack is not a pin');
+    });
+  });
+
+  group('GamePhase on FEN-loaded positions', () {
+    MoveEvaluation eval() => MoveEvaluation(
+          scoreBefore: 0.0,
+          scoreAfter: 0.0,
+          bestMove: '',
+          bestMoveScore: 0.0,
+          depth: 10,
+          whiteToMove: true,
+        );
+
+    test('a loaded middlegame is not called an opening', () {
+      // No history (fresh from FEN) but full material past move 15: the
+      // move-count branch used to fire on history.length == 0 and hand every
+      // loaded position the opening advice.
+      final request = AnalysisRequest(
+        fen: 'r1bq1rk1/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 16',
+        uciMove: 'c4b3',
+        evaluation: eval(),
+      );
+      expect(analyzeInIsolate(request).gamePhase, GamePhase.middlegame);
+    });
+
+    test('a loaded endgame is not called an opening', () {
+      final request = AnalysisRequest(
+        fen: '8/5k2/8/8/8/8/4K3/4R3 w - - 0 40',
+        uciMove: 'e1e7',
+        evaluation: eval(),
+      );
+      expect(analyzeInIsolate(request).gamePhase, GamePhase.endgame);
+    });
+  });
+
+  group('GamePhase canonical unit consistency', () {
+    MoveEvaluation eval() => MoveEvaluation(
+          scoreBefore: 0.0,
+          scoreAfter: 0.0,
+          bestMove: '',
+          bestMoveScore: 0.0,
+          depth: 10,
+          whiteToMove: true,
+        );
+
+    // 15-ply Ruy Lopez: 1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 5.O-O Be7
+    // 6.Re1 b5 7.Bb3 d6 8.c3. After Black's 7th move (plies 14) White is to
+    // move on move 8; after White's 8th (plies 15) Black is to move on move 8.
+    // fullmove is 8 in both cases. The old code split these: the history path
+    // compared plies (< 15) so plies 15 was "not opening", while the FEN path
+    // compared full-moves (8 < 15) so it was "opening". Both paths now use the
+    // canonical full-move unit, so both say opening.
+    const _ruyLopez15 = [
+      'e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1b5', 'a7a6', 'b5a4', 'g8f6', 'e1g1',
+      'f8e7', 'f1e1', 'b7b5', 'a4b3', 'd7d6', 'c2c3',
+    ];
+
+    ChessGame _played(int plies) {
+      final game = ChessGame();
+      for (var i = 0; i < plies; i++) {
+        expect(
+          game.makeMove(_ruyLopez15[i]),
+          isTrue,
+          reason: 'Ruy Lopez ply $i must be legal',
+        );
+      }
+      return game;
+    }
+
+    test('history path: plies 15 (fullmove 8) is opening', () {
+      // The old history path compared plies < 15, so plies 15 was "not
+      // opening". The canonical fullmove unit gives fullmove 8 < 15.
+      final game = _played(15);
+      expect(game.lastAnnotation!.gamePhase, GamePhase.opening,
+          reason: '15 plies is fullmove 8, which is opening');
+    });
+
+    test('both sides to move at fullmove 8 are opening', () {
+      // plies 14: White to move on move 8; plies 15: Black to move on move 8.
+      for (final plies in [14, 15]) {
+        final game = _played(plies);
+        expect(game.lastAnnotation!.gamePhase, GamePhase.opening,
+            reason: '$plies plies is fullmove 8 and must be opening');
+      }
+    });
+
+    test('history and FEN paths agree at fullmove 8 (old mismatch)', () {
+      final game = _played(15);
+      final fen = game.currentFEN;
+      final phaseByHistory = game.lastAnnotation!.gamePhase;
+      final phaseByFen = analyzeInIsolate(AnalysisRequest(
+        fen: fen,
+        uciMove: _ruyLopez15.last,
+        evaluation: eval(),
+      )).gamePhase;
+      expect(phaseByFen, phaseByHistory,
+          reason: 'FEN path ($fen) must match history path at fullmove 8');
+    });
+
+    test('FEN path threshold: fullmove 14 opening, fullmove 15 middlegame', () {
+      final opening = analyzeInIsolate(AnalysisRequest(
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 14',
+        uciMove: 'e2e4',
+        evaluation: eval(),
+      )).gamePhase;
+      expect(opening, GamePhase.opening);
+
+      final notOpening = analyzeInIsolate(AnalysisRequest(
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 15',
+        uciMove: 'e2e4',
+        evaluation: eval(),
+      )).gamePhase;
+      expect(notOpening, isNot(GamePhase.opening),
+          reason: 'fullmove 15 is not opening');
+      expect(notOpening, GamePhase.middlegame,
+          reason: 'full material at fullmove 15 is middlegame');
+    });
+  });
+
+  group('annotation completion', () {
+    test('completes an annotation whose scoreBefore is exactly 0.0', () {
+      // A fresh game has no evaluation yet, so the first move's temporary
+      // annotation is built with scoreBefore = 0.0. The completion guard used
+      // to read that zero as "nothing to complete", so the first move of a
+      // game never got its evaluation: always shown as a good move, with no
+      // evaluation change and no "Better:" suggestion.
+      final game = ChessGame();
+      expect(game.makeMove('e2e4'), isTrue);
+      expect(game.lastAnnotation!.evaluation.scoreBefore, 0.0,
+          reason: 'no analysis has run yet, so this is the zero-score path');
+
+      game.updateEvaluation(-0.4, 'e7e5', 14);
+
+      final completed = game.lastAnnotation!.evaluation;
+      expect(completed.bestMove, isNotEmpty,
+          reason: 'the pending annotation must complete even from scoreBefore 0.0');
+      expect(completed.scoreAfter, -0.4);
+      expect(completed.depth, 14);
     });
   });
 }

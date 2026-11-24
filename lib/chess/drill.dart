@@ -61,7 +61,7 @@ final builtInDrills = <Drill>[
         explanation: 'Re8# is checkmate! The king cannot escape because its own pawns block the retreat.',
       ),
       DrillStep(
-        fen: '3r2k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1',
+        fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1',
         correctMove: 'a1a8',
         hint: 'Another back rank pattern. The rook can deliver mate in one.',
         explanation: 'Ra8# — same pattern, different file. Always look for back rank weakness!',
@@ -97,7 +97,6 @@ final builtInDrills = <Drill>[
         hint: 'You need to advance your pawn, but first gain the opposition.',
         explanation: 'Kd2 starts the king march to support the pawn. Direct e3 or e4 allows Black to gain opposition.',
         wrongMoveMessages: {
-          'e2e4': 'e4+? After Ke5, Black has the opposition and can blockade the pawn.',
           'e2e3': 'e3? allows Black to take the opposition with Ke5.',
         },
       ),
@@ -206,7 +205,6 @@ final builtInDrills = <Drill>[
         hint: 'Take the opposition! Place your king directly facing the enemy king.',
         explanation: 'Kd3 takes the opposition — kings face each other with one square between. This is the key to K+P endings.',
         wrongMoveMessages: {
-          'e2e4': 'e4? allows Ke5 and Black gets the opposition, drawing.',
           'e3f4': 'Kf4? sidesteps — Black plays Ke6 and draws.',
         },
       ),
@@ -232,7 +230,7 @@ final builtInDrills = <Drill>[
     steps: [
       DrillStep(
         fen: '8/8/8/4k3/8/8/8/2B1KB2 w - - 0 1',
-        correctMove: 'c1d2',
+        correctMove: 'e1d2',
         hint: 'Step 1: Centralize your king. The bishops need the king\'s help.',
         explanation: 'Kd2 begins the king march. Two bishops control diagonals — you need the king to push the enemy to the corner.',
       ),

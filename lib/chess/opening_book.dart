@@ -10,6 +10,8 @@
 
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 /// A candidate book move with a weight (higher = more likely to be chosen).
 class BookMove {
   final String uci;
@@ -27,6 +29,14 @@ class OpeningBook {
     final key = _positionKey(fen);
     return _book[key];
   }
+
+  /// Every position key in the book.
+  ///
+  /// Test-only: lets a test walk every entry and prove each offered move is
+  /// legal from its own position, so a typo in the table cannot ship a book
+  /// that hands the game an illegal move.
+  @visibleForTesting
+  static Iterable<String> get testedKeys => _book.keys;
 
   /// Pick a random book move weighted by popularity.
   /// Returns null if no book move exists.

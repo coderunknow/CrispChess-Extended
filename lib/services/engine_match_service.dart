@@ -233,6 +233,17 @@ class EngineMatchService {
 
   Stream<MatchEvent> get events => _eventController.stream;
 
+  /// Emits an event unless the stream is already closed.
+  ///
+  /// [dispose] can land while a game, a handshake or a move request is still
+  /// in flight; the continuation then reaches an emit for a listener the screen
+  /// has already dropped. Adding to a closed controller throws StateError, so
+  /// "the user left the screen" turned into a failed run() instead of a quiet
+  /// finish. With the guard, a disposed service simply stops reporting.
+  void _emit(MatchEvent event) {
+    if (!_eventController.isClosed) _eventController.add(event);
+  }
+
   EngineMatchService({
     required this.engine1,
     required this.engine2,
@@ -264,16 +275,16 @@ class EngineMatchService {
       final whiteId = swapped ? engine2Id : engine1Id;
       final blackId = swapped ? engine1Id : engine2Id;
 
-      _eventController.add(MatchGameStarted(i + 1, white.name, black.name));
+      _emit(MatchGameStarted(i + 1, white.name, black.name));
 
       final result = await _playGame(white, black, whiteId, blackId, i + 1);
       if (result != null) {
         results.add(result);
-        _eventController.add(MatchGameFinished(result));
+        _emit(MatchGameFinished(result));
       }
     }
 
-    _eventController.add(MatchFinished(results));
+    _emit(MatchFinished(results));
     return results;
   }
 
@@ -347,7 +358,7 @@ class EngineMatchService {
       moveTime: config.moveTime,
       cancelled: () => _stopped,
       onMove: (fen, san, whiteToMove) {
-        _eventController.add(MatchMovePlayed(gameNum, san, fen, whiteToMove));
+        _emit(MatchMovePlayed(gameNum, san, fen, whiteToMove));
       },
     );
     if (_stopped && game.outcome == GameOutcome.cancelled) return null;
@@ -464,6 +475,17 @@ class TournamentService {
 
   Stream<MatchEvent> get events => _eventController.stream;
 
+  /// Emits an event unless the stream is already closed.
+  ///
+  /// [dispose] can land while a game, a handshake or a move request is still
+  /// in flight; the continuation then reaches an emit for a listener the screen
+  /// has already dropped. Adding to a closed controller throws StateError, so
+  /// "the user left the screen" turned into a failed run() instead of a quiet
+  /// finish. With the guard, a disposed service simply stops reporting.
+  void _emit(MatchEvent event) {
+    if (!_eventController.isClosed) _eventController.add(event);
+  }
+
   TournamentService({
     required this.engines,
     this.depthPerMove = 8,
@@ -531,7 +553,7 @@ class TournamentService {
       }
     }
     if (failures.isNotEmpty) {
-      _eventController.add(TournamentEnginesUnavailable(failures));
+      _emit(TournamentEnginesUnavailable(failures));
     }
 
     final pairings = _pairings;
@@ -541,7 +563,7 @@ class TournamentService {
       for (var g = 0; g < gamesPerPairing && !_stopped; g++) {
         final (w, b) = g.isEven ? (i, j) : (j, i);
         round++;
-        _eventController.add(TournamentRoundStart(
+        _emit(TournamentRoundStart(
             round, totalGames, engines[w].name, engines[b].name));
         final match = EngineMatchService(
           engine1: engines[w],
@@ -562,7 +584,7 @@ class TournamentService {
         _activeMatch = match;
         final sub = match.events
             .where((event) => event is! MatchFinished)
-            .listen(_eventController.add);
+            .listen(_emit);
         try {
           results.addAll(await match.run());
         } finally {
@@ -574,7 +596,7 @@ class TournamentService {
       if (_stopped) break;
     }
 
-    _eventController.add(MatchFinished(results));
+    _emit(MatchFinished(results));
     return results;
   }
 

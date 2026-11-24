@@ -6,6 +6,9 @@
 //    correct indices — reading them too early computes CPU time from the
 //    fault counters (minflt/cminflt/majflt/cmajflt) instead of CPU ticks;
 //  * unavailable figures stay null rather than a false zero.
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:crispchess/diagnostics/process_memory_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -30,6 +33,18 @@ String _statLine({
   return '1234 (my process name) S 100 1234 1234 0 -1 4194304 '
       '$minflt $cminflt $majflt $cmajflt $utime $stime $cutime $cstime '
       '0 0 20 0 1';
+}
+
+/// Whether `getconf PAGE_SIZE` can actually run on this host: it exists on
+/// most POSIX systems, but not on Windows and not in minimal containers, so
+/// the real-command test must skip there instead of failing its assertion.
+bool _canRunGetconf() {
+  if (Platform.isWindows) return false;
+  try {
+    return Process.runSync('getconf', ['PAGE_SIZE']).exitCode == 0;
+  } catch (_) {
+    return false;
+  }
 }
 
 void main() {
@@ -77,5 +92,155 @@ void main() {
           '1234 (p) S 1 2 3 4 5 6 7 8 9 10 abc 200 99 101 0 0 20 0 1';
       expect(parseProcStatCpuTicks(line), isNull);
     });
+  });
+
+  group('stdoutText', () {
+    test('passes a String stdout through unchanged', () {
+      expect(stdoutText(ProcessResult(1, 0, '4096\n', '')), '4096\n');
+    });
+
+    test('decodes a byte-list stdout as UTF-8', () {
+      expect(
+        stdoutText(ProcessResult(1, 0, utf8.encode('100\n'), '')),
+        '100\n',
+      );
+    });
+
+    test('treats a null stdout as empty text', () {
+      expect(stdoutText(ProcessResult(1, 0, null, '')), '');
+    });
+  });
+
+  group('positiveIntFromResult', () {
+    test('parses the figure a successful command printed', () {
+      expect(
+        positiveIntFromResult(ProcessResult(1, 0, '8192\n', ''),
+            fallback: 4096),
+        8192,
+      );
+      expect(
+        positiveIntFromResult(ProcessResult(1, 0, '  100  \n', ''),
+            fallback: 100),
+        100,
+      );
+    });
+
+    test('returns the fallback for output that is not a number', () {
+      expect(
+        positiveIntFromResult(ProcessResult(1, 0, 'not-a-number', ''),
+            fallback: 4096),
+        4096,
+      );
+      expect(
+        positiveIntFromResult(ProcessResult(1, 0, '', ''), fallback: 100),
+        100,
+      );
+    });
+
+    test('returns the fallback when the command exits non-zero', () {
+      // Even parseable output is ignored when the command itself failed.
+      expect(
+        positiveIntFromResult(ProcessResult(1, 2, '4096', ''), fallback: 4096),
+        4096,
+      );
+    });
+
+    test('returns the fallback for a zero or negative figure', () {
+      expect(
+        positiveIntFromResult(ProcessResult(1, 0, '0', ''), fallback: 4096),
+        4096,
+      );
+      expect(
+        positiveIntFromResult(ProcessResult(1, 0, '-5', ''), fallback: 100),
+        100,
+      );
+    });
+  });
+
+  group('runPositiveIntCommand', () {
+    test('falls back when the command cannot be started at all', () {
+      // A missing binary surfaces as an exception, not an exit code — the
+      // "getconf unavailable" path the Linux readers depend on.
+      expect(
+        runPositiveIntCommand(
+          'crispchess-no-such-binary-for-regression-tests',
+          [],
+          fallback: 4096,
+        ),
+        4096,
+      );
+    });
+
+    test('reads a real positive figure from getconf where it exists', () {
+      expect(
+        runPositiveIntCommand('getconf', ['PAGE_SIZE'], fallback: -1),
+        greaterThan(0),
+      );
+    }, skip: _canRunGetconf() ? null : 'getconf is not available on this host');
+  });
+
+  group('parseSysctlMemorySample', () {
+    test('parses a successful hw.memsize reading', () {
+      final sample = parseSysctlMemorySample(
+        ProcessResult(1, 0, '17179869184\n', ''),
+      );
+      expect(sample.totalBytes, 17179869184);
+      expect(sample.isUsable, isTrue);
+    });
+
+    test('keeps totalBytes null (not zero) when sysctl fails', () {
+      final sample = parseSysctlMemorySample(ProcessResult(1, 1, '', ''));
+      expect(sample.totalBytes, isNull);
+      expect(sample.isUsable, isFalse);
+    });
+
+    test('keeps totalBytes null when the output is not a number', () {
+      final sample =
+          parseSysctlMemorySample(ProcessResult(1, 0, 'garbage', ''));
+      expect(sample.totalBytes, isNull);
+      expect(sample.isUsable, isFalse);
+    });
+  });
+
+  group('parsePsMemorySample', () {
+    test('converts a successful rss reading from kilobytes', () {
+      final sample =
+          parsePsMemorySample(42, ProcessResult(1, 0, '  1234\n', ''));
+      expect(sample.pid, 42);
+      expect(sample.rssBytes, 1234 * 1024);
+      expect(sample.accountedBytes, 1234 * 1024);
+      expect(sample.isUsable, isTrue);
+    });
+
+    test('leaves rss null when the process is gone (non-zero exit)', () {
+      final sample = parsePsMemorySample(42, ProcessResult(1, 1, '', ''));
+      expect(sample.pid, 42);
+      expect(sample.rssBytes, isNull);
+      expect(sample.isUsable, isFalse);
+    });
+
+    test('leaves rss null when the output is not a number', () {
+      final sample = parsePsMemorySample(42, ProcessResult(1, 0, 'RSS', ''));
+      expect(sample.rssBytes, isNull);
+      expect(sample.isUsable, isFalse);
+    });
+  });
+
+  group('Linux host readers (end-to-end over /proc + getconf)', () {
+    test('readSystemMemory reports a real total from /proc/meminfo', () {
+      final sample = readSystemMemory();
+      expect(sample.totalBytes, isNotNull);
+      expect(sample.totalBytes!, greaterThan(0));
+    }, skip: Platform.isLinux ? null : 'exercises the Linux /proc reader');
+
+    test('readProcessMemory reports a real rss for this process', () {
+      final sample = readProcessMemory(pid);
+      expect(sample.rssBytes, isNotNull);
+      expect(sample.rssBytes!, greaterThan(0));
+    }, skip: Platform.isLinux ? null : 'exercises the Linux /proc reader');
+
+    test('readApplicationCpu is measured, not a constant zero', () {
+      expect(readApplicationCpu(), isNotNull);
+    }, skip: Platform.isLinux ? null : 'exercises the Linux /proc reader');
   });
 }

@@ -236,11 +236,19 @@ class SearchlessEngine
   static double? temperatureFor(int level) =>
       level >= 20 ? null : 0.005 + (20 - level.clamp(0, 20)) * 0.01;
 
+  /// State writes never resurrect a disposed engine: dispose() may land while
+  /// a probability lookup is in flight, and its completion must not overwrite
+  /// [EngineState.disposed] with [EngineState.ready]. The same guard is what
+  /// dart_engine and the Frozenight engines already use.
+  void _setState(EngineState next) {
+    if (!_init.disposed) _stateNotifier.value = next;
+  }
+
   @override
   Future<String> bestMove(String positionCommand,
       {int? depth, Duration? moveTime, int? skillLevel}) async {
     if (_model == null) throw StateError('Not initialized');
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
     try {
       final wins = await winProbabilities(positionCommand);
       if (wins.isEmpty) throw StateError('No legal moves');
@@ -258,7 +266,7 @@ class SearchlessEngine
       }
       return w.keys.last;
     } finally {
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
     }
   }
 

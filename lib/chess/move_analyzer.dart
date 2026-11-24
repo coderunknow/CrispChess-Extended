@@ -276,48 +276,105 @@ class MoveAnalyzer {
     return (pieceValues[defender.type] ?? 0.0) - (pieceValues[attacker.type] ?? 0.0);
   }
   
-  TacticalPattern? _detectPin(String square) {
-    final squareIndex = chess.Chess.SQUARES[square];
-    if (squareIndex == null) return null;
-    
-    final moves = game.generate_moves({'square': squareIndex});
+  /// The moves of the piece on [square], generated for that piece's own side.
+  ///
+  /// `generate_moves({'square': ...})` only ever generates for the side to
+  /// move and takes the square as an algebraic key — after a move has been
+  /// played the piece on `to` belongs to the player who just moved, so the
+  /// live board's turn is the wrong colour, and passing the int index that
+  /// `SQUARES[square]` yields is rejected outright. Both mistakes returned
+  /// an empty list silently, which is why pin and fork detection never
+  /// fired at all. A flipped-turn probe with `legal: false` yields the
+  /// piece's attack set (uncensored by self-check) without touching the
+  /// live board.
+  List<chess.Move> _movesFrom(String square) {
     final piece = game.get(square);
-    
+    if (piece == null) return const [];
+    final fields = game.fen.split(' ');
+    if (fields.length > 1) {
+      fields[1] = piece.color == chess.Color.WHITE ? 'w' : 'b';
+    }
+    final probe =
+        chess.Chess.fromFEN(fields.join(' '), check_validity: false);
+    return probe.generate_moves({'square': square, 'legal': false});
+  }
+
+  TacticalPattern? _detectPin(String square) {
+    final piece = game.get(square);
     if (piece == null) return null;
-    
-    // Check if this piece attacks multiple valuable pieces
-    if (moves.length >= 2) {
-      final targets = moves.where((m) {
-        final toSquare = _squareFromIndex(m.to);
-        if (toSquare == null) return false;
-        final targetPiece = game.get(toSquare);
-        return targetPiece != null;
-      }).toList();
-      
-      if (targets.length >= 2) {
-        return TacticalPattern(
-          name: 'Pin',
-          description: 'Piece cannot move without exposing a more valuable piece',
-          involvedSquares: [square],
-        );
+    // Only a sliding attack holds a piece in place: the pin works because our
+    // attack continues *through* the pinned piece to the piece behind it. A
+    // pawn's capture ends at the first diagonal square (it cannot threaten
+    // anything further along the line), and a knight does not attack along a
+    // line at all.
+    if (piece.type == chess.PieceType.PAWN ||
+        piece.type == chess.PieceType.KNIGHT) {
+      return null;
+    }
+
+    // The mover sits on [square] (the post-move board, as ChessGame builds the
+    // analyzer). A pin exists when it attacks an enemy piece that shields a
+    // valuable piece of its own colour further along the same line — the
+    // attacked piece cannot leave that line without giving up the piece
+    // behind it.
+    //
+    // The previous logic counted any two occupied destinations as a "Pin",
+    // which labelled ordinary double attacks (forks) as pins while missing
+    // the archetypal bishop-pins-knight entirely — it never looked behind the
+    // attacked piece at all.
+    for (final move in _movesFrom(square)) {
+      final targetSquare = _squareFromIndex(move.to);
+      if (targetSquare == null) continue;
+      final target = game.get(targetSquare);
+      if (target == null || target.color == piece.color) continue;
+
+      final fromFile = square.codeUnitAt(0) - 97;
+      final fromRank = int.parse(square[1]) - 1;
+      final toFile = targetSquare.codeUnitAt(0) - 97;
+      final toRank = int.parse(targetSquare[1]) - 1;
+      final df = toFile - fromFile;
+      final dr = toRank - fromRank;
+      // Sliding line (a knight's leap is neither, and is skipped above anyway).
+      if (df != 0 && dr != 0 && df.abs() != dr.abs()) continue;
+
+      // Walk from the target away from the mover to find what it shields.
+      final stepF = df == 0 ? 0 : df.sign;
+      final stepR = dr == 0 ? 0 : dr.sign;
+      var f = toFile + stepF;
+      var r = toRank + stepR;
+      while (f >= 0 && f < 8 && r >= 0 && r < 8) {
+        final behind = game.get('${'abcdefgh'[f]}${r + 1}');
+        if (behind != null) {
+          if (behind.color == target.color &&
+              (behind.type == chess.PieceType.KING ||
+                  behind.type == chess.PieceType.QUEEN ||
+                  behind.type == chess.PieceType.ROOK ||
+                  behind.type == chess.PieceType.BISHOP)) {
+            return TacticalPattern(
+              name: 'Pin',
+              description:
+                  'Piece cannot move without exposing a more valuable piece',
+              involvedSquares: [square, targetSquare],
+            );
+          }
+          break; // the first piece along the line decides
+        }
+        f += stepF;
+        r += stepR;
       }
     }
-    
+
     return null;
   }
   
   TacticalPattern? _detectFork(String square) {
-    final squareIndex = chess.Chess.SQUARES[square];
-    if (squareIndex == null) return null;
-    
-    final moves = game.generate_moves({'square': squareIndex});
     final piece = game.get(square);
     
     if (piece == null) return null;
     
     // Count valuable pieces attacked
     int valuableTargets = 0;
-    for (var move in moves) {
+    for (var move in _movesFrom(square)) {
       final toSquare = _squareFromIndex(move.to);
       if (toSquare == null) continue;
       
@@ -395,12 +452,30 @@ class MoveAnalyzer {
   }
   
   GamePhase _getGamePhase() {
-    final moves = game.history.length;
+    // Use full-moves as the single canonical unit so a position classified by
+    // its move history matches the same position loaded from a FEN.
+    //
+    // `game.history` counts plies (half-moves); the FEN full-move number
+    // counts complete moves (fullmove = floor(plies / 2) + 1). The old code
+    // compared plies against the threshold when history was present but
+    // full-moves when a position was loaded from a FEN, so equivalent
+    // positions were split across opening/middlegame. Converting plies to
+    // full-moves makes both paths identical.
+    final fullmove =
+        game.history.isNotEmpty ? (game.history.length ~/ 2) + 1 : _fullmoveFromFen();
     final majorPieces = _countMajorPieces();
-    
-    if (moves < 15) return GamePhase.opening;
+
+    if (fullmove < 15) return GamePhase.opening;
     if (majorPieces > 4) return GamePhase.middlegame;
     return GamePhase.endgame;
+  }
+
+  /// The full-move number of [game]'s FEN (0 when unreadable), standing in
+  /// for a move count the history cannot provide on a loaded position.
+  int _fullmoveFromFen() {
+    final parts = game.fen.split(' ');
+    if (parts.length < 6) return 0;
+    return int.tryParse(parts[5]) ?? 0;
   }
   
   int _countMajorPieces() {

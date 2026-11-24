@@ -122,7 +122,13 @@ class FrozenightEngine implements ChessEngine {
   Future<String> _bestMoveNow(String positionCommand, {int? depth, Duration? moveTime, int? skillLevel}) async {
     if (!_loaded || _disposed) throw StateError('Engine disposed');
     try {
-    _stateNotifier.value = EngineState.thinking;
+    // Never write over a dispose() that landed since the check above: a
+    // resurrected engine looks usable while `_loaded` handling has already
+    // torn the model down, and nothing ever rebuilds it.
+    if (!_disposed) _stateNotifier.value = EngineState.thinking;
+    // Per-search flag: a stop from an earlier search must not kill this one
+    // (same contract as the native driver and ChessMamba).
+    _stopped = false;
 
     _applyPosition(positionCommand);
 
@@ -157,8 +163,19 @@ class FrozenightEngine implements ChessEngine {
     // a hang into an early return.
     for (int d = 1; d <= webDepth; d++) {
       final remaining = budget - sw.elapsed;
-      if (d > 1 && !worthStartingDepth(remaining, budget)) break;
+      if (d > 1) {
+        // stop() cannot interrupt the WASM call already in flight, but it
+        // must stop the loop from starting another one — the contract
+        // stop()'s comment states and analyze() already honours. The best
+        // completed iteration is still returned, so an aborted search
+        // answers like a UCI engine's `stop` → `bestmove`. d=1 is not
+        // gated: the first move must exist for there be anything to return.
+        if (_stopped) break;
+        if (!worthStartingDepth(remaining, budget)) break;
+      }
       await Future.delayed(Duration.zero);
+      // A stop that landed during the yield must not start the next call.
+      if (d > 1 && _stopped) break;
 
       final before = sw.elapsed;
       var answer = _frozenightSearchBounded(
@@ -188,7 +205,10 @@ class FrozenightEngine implements ChessEngine {
 
     debugPrint('[FrozenightWASM] $bestMove depth=$reached/$webDepth '
         '${sw.elapsedMilliseconds}ms (budget ${budget.inMilliseconds}ms)');
-    _stateNotifier.value = EngineState.ready;
+    // A dispose() that landed during the loop must not be overwritten with
+    // `ready` here — the finally below guards its own write, this one has to
+    // guard too, and it runs first.
+    if (!_disposed) _stateNotifier.value = EngineState.ready;
 
     if (bestMove == null || bestMove == '0000') throw StateError('No move');
     return bestMove;
@@ -204,7 +224,7 @@ class FrozenightEngine implements ChessEngine {
     await previous;
     if (!_loaded || _disposed) { gate.complete(); return; }
     try {
-    _stateNotifier.value = EngineState.thinking;
+    if (!_disposed) _stateNotifier.value = EngineState.thinking;
     _stopped = false;
     _applyPosition(positionCommand);
     // frozenight reports from the side to move (it is a negamax search);

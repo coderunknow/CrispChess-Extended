@@ -68,6 +68,13 @@ class StockfishDownloadableEngine
 
   final _evalController = StreamController<EvalInfo>.broadcast();
   bool _initialized = false;
+
+  /// Set when the bridge reports the worker is gone or broken *after*
+  /// startup: the outstanding search can never be answered, so it is released
+  /// as a process death (retriable) rather than left to hang until the cap
+  /// and then repeat on every following move. Cleared when a new attempt
+  /// starts, because that attempt gets a fresh worker.
+  bool _workerDead = false;
   String _detectedName = '';
 
   static final _cpRegex = RegExp(r'score cp (-?\d+)');
@@ -217,6 +224,7 @@ class StockfishDownloadableEngine
       );
 
   Future<void> _start(EngineInitScope scope) async {
+    _workerDead = false;
     // Ensure engine is downloaded (CDN — never bundled with the app binary).
     scope.stage = EngineInitStage.download;
     if (!await isDownloaded()) {
@@ -320,6 +328,14 @@ class StockfishDownloadableEngine
       _uciOkCompleter = null;
       _readyOkCompleter = null;
       if (_init.isInitializing) return;
+      // The bridge fires `worker_error` whenever the Worker script throws —
+      // spec-defined for any time, not just startup. Falling through used to
+      // do nothing at all: the search in flight waited out its cap, every
+      // later search did the same, and `thinking` never ended. Report it as
+      // the process death it is, so the request is retriable and the retry
+      // gets a fresh worker.
+      _reportWorkerDeath(t);
+      return;
     }
 
     if (t.startsWith('info') && t.contains('depth')) {
@@ -348,7 +364,9 @@ class StockfishDownloadableEngine
       final parts = t.split(' ');
       finishSearch(
           parts.length >= 2 && parts[1] != '(none)' ? parts[1] : null);
-      _stateNotifier.value = EngineState.ready;
+      // A buffered bestmove can still be delivered after dispose(); it must
+      // not resurrect the engine to `ready` (same rule as stop() below).
+      if (!_init.disposed) _stateNotifier.value = EngineState.ready;
     }
   }
 
@@ -356,7 +374,16 @@ class StockfishDownloadableEngine
   Future<String> bestMove(String positionCommand, {
     int? depth, Duration? moveTime, int? skillLevel,
   }) async {
-    if (!_initialized) throw StateError('Not initialized');
+    if (!_initialized) {
+      if (_workerDead) {
+        // Death found while nothing was searching (during background
+        // analysis, say): the next move request must still take the
+        // retriable path instead of failing with a bare StateError forever.
+        throw EngineProcessDiedException('Stockfish', null,
+            ['info string worker_error: the WebKit worker is gone']);
+      }
+      throw StateError('Not initialized');
+    }
     _stateNotifier.value = EngineState.thinking;
 
     if (skillLevel != null) {
@@ -378,8 +405,31 @@ class StockfishDownloadableEngine
       abandonSearch();
       return null;
     });
-    if (move == null) throw TimeoutException('Search timed out');
+    if (move == null) {
+      if (_workerDead) {
+        throw EngineProcessDiedException('Stockfish', null,
+            ['info string worker_error: the WebKit worker died mid-search']);
+      }
+      throw TimeoutException('Search timed out');
+    }
     return move;
+  }
+
+  /// The worker is gone: release whatever is in flight, drop the dead bridge
+  /// (the retry creates a fresh one), and report `error` so nothing pretends
+  /// the engine is still usable.
+  void _reportWorkerDeath(String line) {
+    if (_workerDead) return;
+    _workerDead = true;
+    _initialized = false;
+    resetSearches(); // no bestmove will ever arrive for the debt
+    unawaited(_channel.invokeMethod('dispose').catchError((Object e) {
+      debugPrint('[Stockfish] worker-death dispose: $e');
+    }));
+    if (_stateNotifier.value != EngineState.disposed) {
+      _stateNotifier.value = EngineState.error;
+    }
+    debugPrint('[Stockfish] worker failed: $line');
   }
 
   @override

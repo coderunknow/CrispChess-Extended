@@ -263,28 +263,63 @@ class PreferencesService {
 
   int get dailyStreak => _prefs?.getInt(_keyStreak) ?? 0;
 
+  /// Calendar days between a stored `yyyy-MM-dd` login date and [now].
+  ///
+  /// Null when [lastLogin] is missing or unreadable. Both ends are plain
+  /// calendar dates (UTC midnight only as a timezone-free anchor), so the gap
+  /// is exact in every timezone and across DST. The old code ran
+  /// `DateTime.parse(dateOnly)` — which Dart reads as UTC midnight — and
+  /// differenced it against local `DateTime.now()`: in a negative offset
+  /// (UTC-5 to UTC-8) an evening login looked a full day late, so the streak
+  /// reset for anyone signing in after late afternoon, and a corrupt stored
+  /// value threw FormatException out of the login flow.
+  static int? consecutiveDayGap(String? lastLogin, DateTime now) {
+    if (lastLogin == null || lastLogin.length < 10) return null;
+    final parts = lastLogin.split('-');
+    if (parts.length < 3) return null;
+    final y = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    final d = int.tryParse(parts[2]);
+    if (y == null || m == null || d == null || y < 1 || m < 1 || m > 12 || d < 1 || d > 31) {
+      return null;
+    }
+    // Reject calendar-impossible dates (e.g. 2026-02-30, 2026-04-31) that
+    // DateTime.utc would silently normalize into the following month. A
+    // stored date must round-trip unchanged to be treated as valid.
+    DateTime last;
+    try {
+      last = DateTime.utc(y, m, d);
+    } on RangeError {
+      return null;
+    }
+    if (last.year != y || last.month != m || last.day != d) {
+      return null;
+    }
+    final today = DateTime.utc(now.year, now.month, now.day);
+    return today.difference(last).inDays;
+  }
+
   /// Check daily login and update streak. Returns XP earned.
   int checkDailyLogin() {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final now = DateTime.now();
+    final today = now.toIso8601String().substring(0, 10);
     final lastLogin = _prefs?.getString(_keyLastLoginDate);
 
     if (lastLogin == today) return 0; // Already logged in today
 
     _prefs?.setString(_keyLastLoginDate, today);
 
-    if (lastLogin != null) {
-      final lastDate = DateTime.parse(lastLogin);
-      final diff = DateTime.now().difference(lastDate).inDays;
-      if (diff == 1) {
-        // Consecutive day
-        final newStreak = dailyStreak + 1;
-        _prefs?.setInt(_keyStreak, newStreak);
-        final xp = 5 + (newStreak.clamp(0, 10));
-        addXp(xp);
-        return xp;
-      }
+    final gap = consecutiveDayGap(lastLogin, now);
+    if (gap == 1) {
+      // Consecutive day
+      final newStreak = dailyStreak + 1;
+      _prefs?.setInt(_keyStreak, newStreak);
+      final xp = 5 + (newStreak.clamp(0, 10));
+      addXp(xp);
+      return xp;
     }
-    // Reset streak
+    // Reset streak — also the path for a missing or corrupt stored date,
+    // which used to throw FormatException instead.
     _prefs?.setInt(_keyStreak, 1);
     addXp(5);
     return 5;

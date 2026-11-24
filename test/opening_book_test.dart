@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:chess/chess.dart' as chess;
 import 'package:crispchess/chess/opening_book.dart';
 
 void main() {
@@ -83,6 +84,34 @@ void main() {
       expect(seen.length, greaterThanOrEqualTo(3));
       expect(seen, contains('e2e4'));
       expect(seen, contains('d2d4'));
+    });
+
+    test('every book move is legal from its own position', () {
+      // Walks every entry: the keys are placement + side only, so the check
+      // assumes the standard castling rights the entries were authored with
+      // (no book move depends on en passant). A single illegal UCI in the
+      // table would be handed to the game as a best move.
+      for (final key in OpeningBook.testedKeys) {
+        final fen = '$key KQkq - 0 1';
+        final game = chess.Chess();
+        expect(game.load(fen), isTrue, reason: 'entry "$key" must be a FEN');
+        final moves = OpeningBook.lookup(fen);
+        expect(moves, isNotNull, reason: 'entry "$key" must be found');
+        for (final bookMove in moves!) {
+          expect(bookMove.uci.length, 4,
+              reason: 'book UCI is from/to only: ${bookMove.uci}');
+          // A fresh probe per candidate: each move flips the side to move,
+          // so legality must be re-checked from the entry's own position.
+          final probe = chess.Chess();
+          expect(probe.load(fen), isTrue, reason: 'entry "$key" must be a FEN');
+          final ok = probe.move({
+            'from': bookMove.uci.substring(0, 2),
+            'to': bookMove.uci.substring(2, 4),
+          });
+          expect(ok, isTrue,
+              reason: '${bookMove.uci} is illegal from "$key"');
+        }
+      }
     });
   });
 }

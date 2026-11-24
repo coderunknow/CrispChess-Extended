@@ -82,11 +82,26 @@ class MultiEngineService {
   final List<EngineAnalysisResult> results = [];
 
   Stream<MultiEngineEvent> get events => _eventController.stream;
+
+  /// Emits an event unless the stream is already closed.
+  ///
+  /// [dispose] can land while a game, a handshake or a move request is still
+  /// in flight; the continuation then reaches an emit for a listener the screen
+  /// has already dropped. Adding to a closed controller throws StateError, so
+  /// "the user left the screen" turned into a failed run() instead of a quiet
+  /// finish. With the guard, a disposed service simply stops reporting.
+  void _emit(MultiEngineEvent event) {
+    if (!_eventController.isClosed) _eventController.add(event);
+  }
   int get engineCount => _engines.length;
   bool get isEmpty => _engines.isEmpty;
 
   /// Add an engine to the analysis pool.
   Future<void> addEngine(ChessEngine engine) async {
+    // A disposed panel must not adopt new engines: the lists it would join
+    // have been cleared, and the initialization below would finish against a
+    // stream nobody can read.
+    if (_eventController.isClosed) return;
     final index = _engines.length;
     _engines.add(engine);
     _subscriptions.add(null);
@@ -98,7 +113,7 @@ class MultiEngineService {
     void listener() {
       if (index < results.length) {
         results[index] = results[index].copyWith(state: engine.state);
-        _eventController.add(MultiEngineStateChange(
+        _emit(MultiEngineStateChange(
           engineIndex: index,
           engineName: engine.name,
           state: engine.state,
@@ -116,8 +131,11 @@ class MultiEngineService {
         await engine.initialize();
       } catch (e) {
         debugPrint('[MultiEngine] ${engine.name} failed to start: $e');
+        // The service may have been disposed while this engine was starting,
+        // which clears `results` — the listener above guards the same way.
+        if (index >= results.length) return;
         results[index] = results[index].copyWith(state: EngineState.error);
-        _eventController.add(MultiEngineStateChange(
+        _emit(MultiEngineStateChange(
           engineIndex: index,
           engineName: engine.name,
           state: EngineState.error,
@@ -146,7 +164,7 @@ class MultiEngineService {
             bestMove: info.bestMove,
             pv: info.pv,
           );
-          _eventController.add(MultiEvalUpdate(
+          _emit(MultiEvalUpdate(
             engineIndex: idx,
             engineName: engine.name,
             eval: info.score,
@@ -161,7 +179,7 @@ class MultiEngineService {
         debugPrint('[MultiEngine] ${engine.name} analysis failed: $e');
         if (idx < results.length) {
           results[idx] = results[idx].copyWith(state: EngineState.error);
-          _eventController.add(MultiEngineStateChange(
+          _emit(MultiEngineStateChange(
             engineIndex: idx,
             engineName: engine.name,
             state: EngineState.error,

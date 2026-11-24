@@ -16,11 +16,13 @@ String pgn(String white, String black, String moves, {String? fen}) => [
 const start = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 void main() {
-  test('collects only the player\'s own moves, by colour', () {
+  test('collects only the player\'s own moves, by colour, newest game first', () {
+    // Storage order is newest first (addGameToHistory inserts at the front),
+    // so the newest game is the FIRST element of the list production passes.
     final p = PlayerProfile.fromPgns([
-      pgn('Human', 'Lynx', '1. e4 e5 2. Nf3 Nc6'),
-      pgn('Human', 'Maia', '1. e4 c5 2. Nf3 d6'),
       pgn('Lynx', 'Human', '1. d4 d5 2. c4 e6'),
+      pgn('Human', 'Maia', '1. e4 c5 2. Nf3 d6'),
+      pgn('Human', 'Lynx', '1. e4 e5 2. Nf3 Nc6'),
     ]);
     expect(p.games, 3);
     expect(p.bookMoves(start), {'e2e4': 2});
@@ -30,10 +32,14 @@ void main() {
     // The engine's replies are not in the book.
     final afterE4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
     expect(p.bookMoves(afterE4), isNull);
-    // 2 + 2 + 2 of the player's moves, newest game first.
+    // 2 + 2 + 2 of the player's moves, newest game first: estimatePlayerElo
+    // takes a prefix of this list, so the head must be the latest game.
     expect(p.moves, hasLength(6));
     expect(p.moves.first.positionCommand, 'position startpos moves d2d4');
     expect(p.moves.first.move, 'd7d5');
+    expect(p.moves[2].move, 'e2e4',
+        reason: 'the oldest game follows the two newer ones (2+2 plies each)');
+    expect(p.moves.last.move, 'g1f3');
   });
 
   test('two-player games count both sides; FEN starts and others\' games do not',

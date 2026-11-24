@@ -68,6 +68,18 @@ class ChessClock extends ChangeNotifier {
   bool _isWhiteTurn = true;
   bool _started = false;
 
+  /// Monotonic reference for wall-accurate ticking.
+  ///
+  /// `Timer.periodic` only fires when the event loop runs, so subtracting a
+  /// fixed 100ms per fire silently lost real time whenever the loop was
+  /// blocked (an in-process engine search, jank) or the app was backgrounded
+  /// (timers suspended): both players gained arbitrary free time, which in a
+  /// clocked game decides flags. Ticks now charge the real time since the
+  /// previous one, and the marker is reset every time the timer (re)starts so
+  /// paused time is never charged.
+  final Stopwatch _wall = Stopwatch()..start();
+  int _lastTickMicros = 0;
+
   ChessClock({
     this.timeControl = TimeControl.unlimited,
     this.customBaseTime,
@@ -157,10 +169,18 @@ class ChessClock extends ChangeNotifier {
   void _startTimer() {
     _timer?.cancel();
     if (isUnlimited) return;
+    // Time between the previous state change (start/resume/switch) and now
+    // belongs to no running tick — never charge it (that is what keeps a
+    // pause from billing the player for the time they were paused).
+    _lastTickMicros = _wall.elapsedMicroseconds;
 
     _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      final now = _wall.elapsedMicroseconds;
+      final elapsed = now - _lastTickMicros;
+      _lastTickMicros = now;
+
       final side = _isWhiteTurn ? white : black;
-      side.remaining -= const Duration(milliseconds: 100);
+      side.remaining -= Duration(microseconds: elapsed);
 
       if (side.remaining <= Duration.zero) {
         side.remaining = Duration.zero;

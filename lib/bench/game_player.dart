@@ -466,7 +466,14 @@ String _lastSan(chess.Chess board, String fallback) {
 /// PGN of a forfeited game should contain.
 String _movetext(chess.Chess board) {
   try {
-    return board.pgn().trim();
+    final text = board.pgn().trim();
+    // The board library renders headers into pgn() as well (the game screen
+    // once parsed them as moves). This field is the movetext alone:
+    // pgnDocument() writes its own header block, and feeding it a full PGN
+    // duplicated every tag in the exported game — and the same string reaches
+    // GameResult.pgn through _toGameResult, where callers expect movetext.
+    final separator = text.indexOf('\n\n');
+    return separator < 0 ? text : text.substring(separator + 2).trim();
   } catch (_) {
     return '';
   }

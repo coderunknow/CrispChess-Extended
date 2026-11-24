@@ -91,6 +91,16 @@ class ChessMambaEngine
 
   late final EngineInitCoordinator _init = EngineInitCoordinator(_stateNotifier);
 
+  /// State writes never resurrect a disposed engine: dispose() may land while
+  /// a search is in flight, and its completion must not overwrite
+  /// [EngineState.disposed] with [EngineState.ready]. A resurrected engine
+  /// looks usable while `_model` is null — every later move fails with
+  /// `StateError('Not initialized')` and nothing ever rebuilds it. The same
+  /// guard is what dart_engine and the Frozenight engines already use.
+  void _setState(EngineState next) {
+    if (!_init.disposed) _stateNotifier.value = next;
+  }
+
   /// Why the preferred runtime was not used, when the engine fell back.
   String? _fallbackNote;
 
@@ -251,7 +261,7 @@ class ChessMambaEngine
     int? skillLevel,
   }) async {
     if (_model == null) throw StateError('Not initialized');
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
     _stopRequested = false;
     try {
       final root = await _rootFor(positionCommand);
@@ -276,7 +286,7 @@ class ChessMambaEngine
       if (result.bestMove == null) throw StateError('No legal moves');
       return result.bestMove!;
     } finally {
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
     }
   }
 
@@ -284,7 +294,7 @@ class ChessMambaEngine
   Stream<EvalInfo> analyze(String positionCommand,
       {int? depth, bool infinite = false}) async* {
     if (_model == null) return;
-    _stateNotifier.value = EngineState.thinking;
+    _setState(EngineState.thinking);
     _stopRequested = false;
     try {
       final root = await _rootFor(positionCommand);
@@ -321,7 +331,7 @@ class ChessMambaEngine
       yield* updates.stream;
       await done;
     } finally {
-      _stateNotifier.value = EngineState.ready;
+      _setState(EngineState.ready);
     }
   }
 

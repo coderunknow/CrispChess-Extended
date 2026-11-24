@@ -83,6 +83,17 @@ class EngineService {
   bool useOpeningBook = true;
 
   Stream<EngineEvent> get events => _eventController.stream;
+
+  /// Emits an event unless the stream is already closed.
+  ///
+  /// [dispose] can land while a game, a handshake or a move request is still
+  /// in flight; the continuation then reaches an emit for a listener the screen
+  /// has already dropped. Adding to a closed controller throws StateError, so
+  /// "the user left the screen" turned into a failed run() instead of a quiet
+  /// finish. With the guard, a disposed service simply stops reporting.
+  void _emit(EngineEvent event) {
+    if (!_eventController.isClosed) _eventController.add(event);
+  }
   EngineState get state => _engine.state;
   ChessEngine get engine => _engine;
   String get engineName => _engine.name;
@@ -160,7 +171,7 @@ class EngineService {
     // would otherwise add events to a closed stream.
     if (_disposed) return false;
     _stateListener = () {
-      _eventController.add(StateChangeEvent(_engine.state));
+      _emit(StateChangeEvent(_engine.state));
     };
     _engine.stateNotifier.addListener(_stateListener!);
 
@@ -180,7 +191,7 @@ class EngineService {
         // they did before. This event stays on the device; exported reports
         // use the redacted toJson() instead.
         final failure = engineFailureOf(_engine, e, stack);
-        _eventController.add(EngineErrorEvent(
+        _emit(EngineErrorEvent(
             'Init failed: ${failure.summary}\nDetails: $failure',
             kind: EngineFailure.startup));
       }
@@ -229,7 +240,7 @@ class EngineService {
 
     _engine = newEngine;
     rebuildEngine = rebuilder;
-    _eventController.add(StateChangeEvent(EngineState.initializing));
+    _emit(StateChangeEvent(EngineState.initializing));
     return _initializeNow();
   }
 
@@ -250,7 +261,7 @@ class EngineService {
         final bookMove = OpeningBook.pickMove(fen);
         if (bookMove != null) {
           debugPrint('[EngineService] Book move: $bookMove');
-          _eventController.add(BestMoveEvent(bookMove));
+          _emit(BestMoveEvent(bookMove));
           return;
         }
       }
@@ -268,7 +279,7 @@ class EngineService {
         moveTime: budget,
         skillLevel: skillLevel,
       );
-      _eventController.add(BestMoveEvent(move));
+      _emit(BestMoveEvent(move));
     } on EngineProcessDiedException catch (e) {
       // The engine is gone, not slow. Before these two could be told apart
       // there was nothing safe to do about it; now there is, and leaving a
@@ -277,10 +288,15 @@ class EngineService {
       final move = await _restartAndRetry(
           positionCommand, depth, budget, skillLevel, e);
       if (move != null) {
-        _eventController.add(BestMoveEvent(move));
+        _emit(BestMoveEvent(move));
       }
     } catch (e) {
-      _eventController.add(EngineErrorEvent('Move request failed: $e',
+      // stop() during a move search cancels it by contract (the worker test
+      // pins the throw). A cancellation is the user pressing Abort, not a
+      // failure — reporting it as a red banner made every normal abort look
+      // like the engine had broken.
+      if (e is StateError && e.message == 'Search cancelled') return;
+      _emit(EngineErrorEvent('Move request failed: $e',
           kind: e is TimeoutException
               ? EngineFailure.timeout
               : EngineFailure.other));
@@ -300,11 +316,11 @@ class EngineService {
   ) async {
     final rebuild = rebuildEngine;
     if (rebuild == null || _restarts >= _maxRestarts) {
-      _eventController.add(EngineErrorEvent('$death', kind: EngineFailure.died));
+      _emit(EngineErrorEvent('$death', kind: EngineFailure.died));
       return null;
     }
     _restarts++;
-    _eventController.add(EngineErrorEvent('$death — restarting it',
+    _emit(EngineErrorEvent('$death — restarting it',
         kind: EngineFailure.died, recovering: true));
 
     try {
@@ -322,7 +338,7 @@ class EngineService {
         skillLevel: skillLevel,
       );
     } catch (e) {
-      _eventController.add(EngineErrorEvent('Restart failed: $e', kind: EngineFailure.died));
+      _emit(EngineErrorEvent('Restart failed: $e', kind: EngineFailure.died));
       return null;
     }
   }
@@ -342,7 +358,7 @@ class EngineService {
       _analysisSubscription =
           _engine.analyze(positionCommand, depth: depth, infinite: infinite).listen(
         (info) {
-          _eventController.add(EvalUpdateEvent(
+          _emit(EvalUpdateEvent(
             eval: info.score,
             depth: info.depth,
             bestMove: info.bestMove ?? '',
@@ -355,13 +371,13 @@ class EngineService {
           // transient would otherwise post a banner per move.
           if ('$e' != _lastAnalysisError) {
             _lastAnalysisError = '$e';
-            _eventController.add(EngineErrorEvent('Analysis error: $e',
+            _emit(EngineErrorEvent('Analysis error: $e',
                 kind: EngineFailure.analysis));
           }
         },
       );
     } catch (e) {
-      _eventController.add(EngineErrorEvent('Analysis failed: $e', kind: EngineFailure.analysis));
+      _emit(EngineErrorEvent('Analysis failed: $e', kind: EngineFailure.analysis));
     }
   }
 

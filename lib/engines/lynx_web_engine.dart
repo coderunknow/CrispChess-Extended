@@ -251,13 +251,15 @@ class LynxEngine
         }
 
         final bestMove = _parseBestMove(result);
-        _stateNotifier.value = EngineState.ready;
+        // A dispose() that landed while this closure waited on the lock or
+        // the UI yield must not be overwritten with `ready`.
+        if (!_init.disposed) _stateNotifier.value = EngineState.ready;
 
         if (bestMove == null) throw StateError('No bestmove in output');
         debugPrint('[LynxWASM] bestmove=$bestMove ($goCmd)');
         return bestMove;
       } catch (e) {
-        _stateNotifier.value = EngineState.ready;
+        if (!_init.disposed) _stateNotifier.value = EngineState.ready;
         rethrow;
       }
     });
