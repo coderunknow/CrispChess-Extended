@@ -189,11 +189,12 @@ void main() {
       // Valid ordinary date.
       expect(
           PreferencesService.consecutiveDayGap('2026-11-22', now), 1);
-      // Valid leap-year date: not rejected, returns a negative gap.
+      // Valid leap-year date: not rejected, returns a positive gap (the
+      // stored date is in the past).
       final leapGap = PreferencesService.consecutiveDayGap(
           '2024-02-29', DateTime(2026, 11, 23));
       expect(leapGap, isNotNull, reason: '2024-02-29 is a valid leap date');
-      expect(leapGap, lessThan(0),
+      expect(leapGap, greaterThan(0),
           reason: '2024-02-29 is before 2026-11-23');
 
       // Impossible dates must be rejected, not normalized into the next month.
