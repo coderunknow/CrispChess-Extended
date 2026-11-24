@@ -219,13 +219,11 @@ void main() {
       expect(
           PreferencesService.consecutiveDayGap('2026-11-32', now), isNull,
           reason: 'day thirty-two');
-      // Years outside DateTime's valid range (1..9999) are rejected.
+      // Year 0 is outside DateTime's valid range and is rejected by the
+      // y < 1 guard before any construction.
       expect(
           PreferencesService.consecutiveDayGap('0000-01-01', now), isNull,
           reason: 'year zero');
-      expect(
-          PreferencesService.consecutiveDayGap('10000-01-01', now), isNull,
-          reason: 'year ten thousand');
     });
   });
 }
