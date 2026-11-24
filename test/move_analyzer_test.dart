@@ -383,6 +383,90 @@ void main() {
     });
   });
 
+  group('GamePhase canonical unit consistency', () {
+    MoveEvaluation eval() => MoveEvaluation(
+          scoreBefore: 0.0,
+          scoreAfter: 0.0,
+          bestMove: '',
+          bestMoveScore: 0.0,
+          depth: 10,
+          whiteToMove: true,
+        );
+
+    // 15-ply Ruy Lopez: 1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6 5.O-O Be7
+    // 6.Re1 b5 7.Bb3 d6 8.c3. After Black's 7th move (plies 14) White is to
+    // move on move 8; after White's 8th (plies 15) Black is to move on move 8.
+    // fullmove is 8 in both cases. The old code split these: the history path
+    // compared plies (< 15) so plies 15 was "not opening", while the FEN path
+    // compared full-moves (8 < 15) so it was "opening". Both paths now use the
+    // canonical full-move unit, so both say opening.
+    static const _ruyLopez15 = [
+      'e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1b5', 'a7a6', 'b5a4', 'g8f6', 'e1g1',
+      'f8e7', 'f1e1', 'b7b5', 'a4b3', 'd7d6', 'c2c3',
+    ];
+
+    ChessGame _played(int plies) {
+      final game = ChessGame();
+      for (var i = 0; i < plies; i++) {
+        expect(
+          game.makeMove(_ruyLopez15[i]),
+          isTrue,
+          reason: 'Ruy Lopez ply $i must be legal',
+        );
+      }
+      return game;
+    }
+
+    test('history path: plies 15 (fullmove 8) is opening', () {
+      // The old history path compared plies < 15, so plies 15 was "not
+      // opening". The canonical fullmove unit gives fullmove 8 < 15.
+      final game = _played(15);
+      expect(game.lastAnnotation!.gamePhase, GamePhase.opening,
+          reason: '15 plies is fullmove 8, which is opening');
+    });
+
+    test('both sides to move at fullmove 8 are opening', () {
+      // plies 14: White to move on move 8; plies 15: Black to move on move 8.
+      for (final plies in [14, 15]) {
+        final game = _played(plies);
+        expect(game.lastAnnotation!.gamePhase, GamePhase.opening,
+            reason: '$plies plies is fullmove 8 and must be opening');
+      }
+    });
+
+    test('history and FEN paths agree at fullmove 8 (old mismatch)', () {
+      final game = _played(15);
+      final fen = game.currentFEN;
+      final phaseByHistory = game.lastAnnotation!.gamePhase;
+      final phaseByFen = analyzeInIsolate(AnalysisRequest(
+        fen: fen,
+        uciMove: _ruyLopez15.last,
+        evaluation: eval(),
+      )).gamePhase;
+      expect(phaseByFen, phaseByHistory,
+          reason: 'FEN path ($fen) must match history path at fullmove 8');
+    });
+
+    test('FEN path threshold: fullmove 14 opening, fullmove 15 middlegame', () {
+      final opening = analyzeInIsolate(AnalysisRequest(
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 14',
+        uciMove: 'e2e4',
+        evaluation: eval(),
+      )).gamePhase;
+      expect(opening, GamePhase.opening);
+
+      final notOpening = analyzeInIsolate(AnalysisRequest(
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 15',
+        uciMove: 'e2e4',
+        evaluation: eval(),
+      )).gamePhase;
+      expect(notOpening, isNot(GamePhase.opening),
+          reason: 'fullmove 15 is not opening');
+      expect(notOpening, GamePhase.middlegame,
+          reason: 'full material at fullmove 15 is middlegame');
+    });
+  });
+
   group('annotation completion', () {
     test('completes an annotation whose scoreBefore is exactly 0.0', () {
       // A fresh game has no evaluation yet, so the first move's temporary

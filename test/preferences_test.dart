@@ -182,5 +182,45 @@ void main() {
           PreferencesService.consecutiveDayGap(null, DateTime(2026, 11, 23)),
           isNull);
     });
+
+    test('consecutiveDayGap rejects impossible calendar dates', () {
+      final now = DateTime(2026, 11, 23);
+
+      // Valid ordinary date.
+      expect(
+          PreferencesService.consecutiveDayGap('2026-11-22', now), 1);
+      // Valid leap-year date: not rejected, returns a negative gap.
+      final leapGap = PreferencesService.consecutiveDayGap(
+          '2024-02-29', DateTime(2026, 11, 23));
+      expect(leapGap, isNotNull, reason: '2024-02-29 is a valid leap date');
+      expect(leapGap, lessThan(0),
+          reason: '2024-02-29 is before 2026-11-23');
+
+      // Impossible dates must be rejected, not normalized into the next month.
+      expect(
+          PreferencesService.consecutiveDayGap('2025-02-29', now), isNull,
+          reason: '2025 is not a leap year');
+      expect(
+          PreferencesService.consecutiveDayGap('2026-02-30', now), isNull,
+          reason: 'February has no 30th');
+      expect(
+          PreferencesService.consecutiveDayGap('2026-04-31', now), isNull,
+          reason: 'April has no 31st');
+      expect(
+          PreferencesService.consecutiveDayGap('2026-00-10', now), isNull,
+          reason: 'month zero');
+      expect(
+          PreferencesService.consecutiveDayGap('2026-13-10', now), isNull,
+          reason: 'month thirteen');
+      expect(
+          PreferencesService.consecutiveDayGap('2026-11-00', now), isNull,
+          reason: 'day zero');
+      expect(
+          PreferencesService.consecutiveDayGap('2026-11-32', now), isNull,
+          reason: 'day thirty-two');
+      // Out of range year cannot construct a DateTime.
+      expect(
+          PreferencesService.consecutiveDayGap('0001-01-01', now)! < 0, isTrue);
+    });
   });
 }
