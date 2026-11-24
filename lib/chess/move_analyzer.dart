@@ -452,18 +452,20 @@ class MoveAnalyzer {
   }
   
   GamePhase _getGamePhase() {
-    // A board loaded from a FEN has no move history at all (load/loadFen
-    // clear it), so testing `history.length` first called every FEN-loaded
-    // position an opening — a loaded endgame got "Focus on development,
-    // center control, and king safety". When there is no history, the FEN's
-    // full-move number carries the same signal; with history present nothing
-    // changes for a game played move by move.
-    final moves = game.history.isNotEmpty
-        ? game.history.length
-        : _fullmoveFromFen();
+    // Use full-moves as the single canonical unit so a position classified by
+    // its move history matches the same position loaded from a FEN.
+    //
+    // `game.history` counts plies (half-moves); the FEN full-move number
+    // counts complete moves (fullmove = floor(plies / 2) + 1). The old code
+    // compared plies against the threshold when history was present but
+    // full-moves when a position was loaded from a FEN, so equivalent
+    // positions were split across opening/middlegame. Converting plies to
+    // full-moves makes both paths identical.
+    final fullmove =
+        game.history.isNotEmpty ? (game.history.length ~/ 2) + 1 : _fullmoveFromFen();
     final majorPieces = _countMajorPieces();
 
-    if (moves < 15) return GamePhase.opening;
+    if (fullmove < 15) return GamePhase.opening;
     if (majorPieces > 4) return GamePhase.middlegame;
     return GamePhase.endgame;
   }
