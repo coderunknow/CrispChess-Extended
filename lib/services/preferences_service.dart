@@ -280,10 +280,21 @@ class PreferencesService {
     final y = int.tryParse(parts[0]);
     final m = int.tryParse(parts[1]);
     final d = int.tryParse(parts[2]);
-    if (y == null || m == null || d == null || m < 1 || m > 12 || d < 1 || d > 31) {
+    if (y == null || m == null || d == null || y < 1 || m < 1 || m > 12 || d < 1 || d > 31) {
       return null;
     }
-    final last = DateTime.utc(y, m, d);
+    // Reject calendar-impossible dates (e.g. 2026-02-30, 2026-04-31) that
+    // DateTime.utc would silently normalize into the following month. A
+    // stored date must round-trip unchanged to be treated as valid.
+    DateTime last;
+    try {
+      last = DateTime.utc(y, m, d);
+    } on RangeError {
+      return null;
+    }
+    if (last.year != y || last.month != m || last.day != d) {
+      return null;
+    }
     final today = DateTime.utc(now.year, now.month, now.day);
     return today.difference(last).inDays;
   }
