@@ -400,7 +400,7 @@ void main() {
     // compared plies (< 15) so plies 15 was "not opening", while the FEN path
     // compared full-moves (8 < 15) so it was "opening". Both paths now use the
     // canonical full-move unit, so both say opening.
-    static const _ruyLopez15 = [
+    const _ruyLopez15 = [
       'e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1b5', 'a7a6', 'b5a4', 'g8f6', 'e1g1',
       'f8e7', 'f1e1', 'b7b5', 'a4b3', 'd7d6', 'c2c3',
     ];
